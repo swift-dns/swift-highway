@@ -1,0 +1,71 @@
+name: check-generated
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request: { types: [opened, reopened, synchronize] }
+  push: { branches: [main] }
+  schedule:
+    - cron: "0 6 * * 6"
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -Eeuo pipefail {0}
+
+jobs:
+  check-generated:
+    runs-on: ubuntu-latest
+
+    container: swift:6.3-noble
+
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out ${{ github.event.repository.name }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y jq rsync
+
+      - name: Configure git
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Re-vendor highway
+        run: ./scripts/vendor-highway.sh
+
+      - name: Re-generate the ops
+        run: swift utils/GenerateHighwayOps.swift
+
+      - name: Check for modifications
+        id: check-modifications
+        run: |
+          MODIFICATIONS="$(git status --porcelain)"
+          if [[ -n "${MODIFICATIONS}" ]]; then
+            printf '%s\n' "has-modifications=true" >> "${GITHUB_OUTPUT}"
+          else
+            printf '%s\n' "has-modifications=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Show diff if modifications detected
+        if: steps.check-modifications.outputs.has-modifications == 'true'
+        run: |
+          {
+            printf '%s\n' "## Generated Files Check Failed ❌"
+            printf '%s\n' ""
+            printf '%s\n' "**The vendored highway tree or the generated ops are out of date.**"
+            printf '%s\n' "Run \`./scripts/vendor-highway.sh\` and"
+            printf '%s\n' "\`swift utils/GenerateHighwayOps.swift\`, then commit the result."
+            printf '%s\n' ""
+            printf '%s\n' "### Diff:"
+            printf '%s\n' '```diff'
+            git diff --stat
+            printf '%s\n' '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Fail if has modifications
+        if: steps.check-modifications.outputs.has-modifications == 'true'
+        run: exit 1

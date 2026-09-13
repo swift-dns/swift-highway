@@ -1,0 +1,98 @@
+name: lint
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request: { types: [opened, reopened, synchronize] }
+  push: { branches: [main] }
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -Eeuo pipefail {0}
+
+env:
+  RUN_LINK: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    container: swift:6.3-noble
+
+    permissions:
+      contents: write # For committing formatting updates
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Generate swift-dns-helper token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.SWIFT_DNS_HELPER_CLIENT_ID }}
+          private-key: ${{ secrets.SWIFT_DNS_HELPER_PRIVATE_KEY }}
+
+      - name: Check out ${{ github.event.repository.name }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Check config file
+        run: |
+          if [[ ! -f .swift-format ]]; then
+            printf '%s\n' "No .swift-format file found."
+            exit 1
+          fi
+
+      - name: Lint
+        id: lint
+        run: |
+          apt -q update && apt -yq install curl jq
+          curl -s https://raw.githubusercontent.com/swiftlang/github-workflows/refs/heads/main/.github/workflows/scripts/check-swift-format.sh | bash
+          printf '%s\n' "exit-status=$?" >> "${GITHUB_OUTPUT}"
+
+      - name: Check for modifications
+        if: steps.lint.outputs.exit-status != '0'
+        id: check-modifications
+        run: |
+          MODIFICATIONS="$(git status --porcelain)"
+          if [[ -n "${MODIFICATIONS}" ]]; then
+            printf '%s\n' "has-modifications=true" >> "${GITHUB_OUTPUT}"
+            printf '%s\n' "changes-count=$(printf '%s\n' "${MODIFICATIONS}" | awk '{print $2}' | uniq | wc -l)" >> "${GITHUB_OUTPUT}"
+          else
+            printf '%s\n' "has-modifications=false" >> "${GITHUB_OUTPUT}"
+            printf '%s\n' "changes-count=0" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Commit formatting changes to a new branch
+        if: steps.check-modifications.outputs.has-modifications == 'true'
+        id: commit-update
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORK_DIR: "."
+        run: |
+          CURRENT_BRANCH="${{ github.head_ref || github.ref_name }}"
+          NEW_BRANCH="format-update/${{ github.run_id }}/${CURRENT_BRANCH}"
+
+          printf '%s\n' "new-branch=${NEW_BRANCH}" >> "${GITHUB_OUTPUT}"
+
+          BASE_SHA="$(git rev-parse HEAD)"
+          COMMIT_MESSAGE="$(
+            printf -- '%s\n\n%s\n' \
+              "Formatting update" \
+              "Committed to ${NEW_BRANCH} by ${RUN_LINK}"
+          )"
+          BRANCH="${NEW_BRANCH}"
+          OUTPUT_FILE="${GITHUB_OUTPUT}"
+          export BRANCH BASE_SHA COMMIT_MESSAGE OUTPUT_FILE
+
+          .github/scripts/commit-signed.sh
