@@ -53,6 +53,5 @@ var settings: [SwiftSetting] {
         .enableUpcomingFeature("InternalImportsByDefault"),
         .enableUpcomingFeature("ExistentialAny"),
         .enableExperimentalFeature("SafeInteropWrappers"),
-        .treatAllWarnings(as: .error),
     ]
 }

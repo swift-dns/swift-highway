@@ -1,4 +1,4 @@
-public import CHighwayOps
+internal import CHighwayOps
 
 /// Runtime information about the Highway target this package was compiled for.
 ///

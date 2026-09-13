@@ -1,6 +1,5 @@
+import Highway
 import Testing
-
-@testable import Highway
 
 func maskHighNibbles(
     _ input: UnsafePointer<UInt8>,

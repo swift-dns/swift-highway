@@ -1,6 +1,5 @@
+import Highway
 import Testing
-
-@testable import Highway
 
 @Suite("Target")
 struct TargetTests {

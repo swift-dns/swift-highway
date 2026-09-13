@@ -553,8 +553,6 @@ func generateProtocols() -> String {
     """
     \(generationNotice)
 
-    public import CHighwayOps
-
     /// An element type that Highway's vectors can hold, and the ops every such type has.
     ///
     /// Conformances are the `Highway…` enumerations, so that a kernel can be written once and
@@ -591,7 +589,7 @@ func generateElement(_ element: Element) -> String {
     var output = """
         \(generationNotice)
 
-        public import CHighwayOps
+        internal import CHighwayOps
 
         /// Highway's vectors of `\(element.swiftType)`, and the ops over them.
         public enum \(element.namespace): \(conformances.joined(separator: ", ")) {
