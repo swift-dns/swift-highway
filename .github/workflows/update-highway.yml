@@ -1,0 +1,117 @@
+name: update-highway
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1"
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -Eeuo pipefail {0}
+
+env:
+  RUN_LINK: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+jobs:
+  update-highway:
+    runs-on: ubuntu-latest
+
+    container: swift:6.3-noble
+
+    timeout-minutes: 30
+
+    permissions:
+      contents: write # For committing the re-vendored tree
+
+    steps:
+      - name: Generate swift-dns-helper token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.SWIFT_DNS_HELPER_CLIENT_ID }}
+          private-key: ${{ secrets.SWIFT_DNS_HELPER_PRIVATE_KEY }}
+
+      - name: Check out ${{ github.event.repository.name }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y jq rsync
+
+      - name: Configure git
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Resolve the latest upstream release
+        id: upstream
+        run: .github/scripts/latest-highway-tag.sh >> "${GITHUB_OUTPUT}"
+
+      - name: Pin the new version
+        if: steps.upstream.outputs.is-outdated == 'true'
+        env:
+          TAG: ${{ steps.upstream.outputs.tag }}
+          COMMIT: ${{ steps.upstream.outputs.commit }}
+        run: |
+          jq --arg tag "${TAG}" --arg commit "${COMMIT}" \
+            '.tag = $tag | .commit = $commit' highway-version.json > highway-version.json.new
+          mv highway-version.json.new highway-version.json
+
+      - name: Re-vendor highway
+        if: steps.upstream.outputs.is-outdated == 'true'
+        run: ./scripts/vendor-highway.sh
+
+      - name: Re-generate the ops
+        if: steps.upstream.outputs.is-outdated == 'true'
+        run: swift utils/GenerateHighwayOps.swift
+
+      - name: Build and test against the new version
+        if: steps.upstream.outputs.is-outdated == 'true'
+        run: |
+          swift test \
+            --disable-xctest \
+            --explicit-target-dependency-import-check error \
+            -Xswiftc -require-explicit-sendable
+
+      - name: Commit the update to a new branch
+        if: steps.upstream.outputs.is-outdated == 'true'
+        id: commit-update
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORK_DIR: "."
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          NEW_BRANCH="highway-update/${TAG}"
+
+          printf '%s\n' "new-branch=${NEW_BRANCH}" >> "${GITHUB_OUTPUT}"
+
+          BASE_SHA="$(git rev-parse HEAD)"
+          COMMIT_MESSAGE="$(
+            printf -- '%s\n\n%s\n' \
+              "Update of vendored highway to ${TAG}" \
+              "Committed to ${NEW_BRANCH} by ${RUN_LINK}"
+          )"
+          BRANCH="${NEW_BRANCH}"
+          OUTPUT_FILE="${GITHUB_OUTPUT}"
+          export BRANCH BASE_SHA COMMIT_MESSAGE OUTPUT_FILE
+
+          .github/scripts/commit-signed.sh
+
+      - name: Report the outcome
+        env:
+          TAG: ${{ steps.upstream.outputs.tag }}
+          IS_OUTDATED: ${{ steps.upstream.outputs.is-outdated }}
+          NEW_BRANCH: ${{ steps.commit-update.outputs.new-branch }}
+        run: |
+          if [[ "${IS_OUTDATED}" == 'true' ]]; then
+            printf '%s\n' "## Vendored highway updated to ${TAG} ✅" >> "${GITHUB_STEP_SUMMARY}"
+            printf '%s\n' "" >> "${GITHUB_STEP_SUMMARY}"
+            printf '%s\n' "Committed to \`${NEW_BRANCH}\`." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            printf '%s\n' "## Vendored highway is already at ${TAG} ✅" >> "${GITHUB_STEP_SUMMARY}"
+          fi
