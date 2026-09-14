@@ -14,6 +14,7 @@ readonly version_file="${repository_root}/highway-version.json"
 readonly vendor_root="${repository_root}/Sources/CHighway"
 readonly include_root="${vendor_root}/include"
 readonly module_map="${include_root}/module.modulemap"
+readonly patch_root="${repository_root}/patches"
 
 clone_dir=""
 
@@ -155,6 +156,38 @@ copy_license() {
   return 0
 }
 
+# Patches are written against the upstream tree rather than this one, so that the very same file
+# can go upstream unchanged.
+apply_patches() {
+  local tag="${1:?apply_patches requires the tag the patches are written against}"
+
+  if [[ ! -d "${patch_root}" ]]; then
+    return 0
+  fi
+
+  local -a patch_paths=()
+  local patch_path
+  while IFS= read -r -d '' patch_path; do
+    patch_paths+=( "${patch_path}" )
+  done < <(find "${patch_root}" -name '*.patch' -type f -print0 | sort -z)
+
+  if [[ "${#patch_paths[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  log "Applying ${#patch_paths[@]} patches..."
+  local -a apply_arguments=(
+    apply --directory="${include_root#"${repository_root}/"}"
+  )
+  for patch_path in "${patch_paths[@]}"; do
+    if ! git -C "${repository_root}" "${apply_arguments[@]}" -- "${patch_path}"; then
+      fatal "Failed to apply '${patch_path#"${repository_root}/"}' to the vendored tree." \
+        "Rebase it onto highway ${tag}, or drop it if upstream has taken it."
+    fi
+  done
+  return 0
+}
+
 # A header that is included more than once, or only from inside HWY_NAMESPACE, cannot be a module
 # of its own, which upstream marks by the '-inl.h' suffix.
 is_textual_header() {
@@ -243,6 +276,7 @@ main() {
   copy_headers "${clone_dir}"
   copy_sources "${clone_dir}" source_paths
   copy_license "${clone_dir}"
+  apply_patches "${tag}"
   generate_module_map
 
   log "✅ Vendored highway ${tag} (${commit:0:7})."
