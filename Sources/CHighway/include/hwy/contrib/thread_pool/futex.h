@@ -51,7 +51,7 @@
 #include <windows.h>
 #endif
 
-#if HWY_ARCH_WASM
+#if HWY_ARCH_WASM && defined(__EMSCRIPTEN__)
 #include <emscripten/threading.h>
 #include <math.h>  // INFINITY
 
@@ -152,7 +152,7 @@ static inline uint32_t BlockUntilDifferent(
     const uint32_t prev, const std::atomic<uint32_t>& current) {
   const auto acq = std::memory_order_acquire;
 
-#if HWY_ARCH_WASM
+#if HWY_ARCH_WASM && defined(__EMSCRIPTEN__)
   // It is always safe to cast to void.
   volatile void* address =
       const_cast<volatile void*>(static_cast<const volatile void*>(&current));
@@ -240,7 +240,7 @@ static inline uint32_t BlockUntilDifferent(
 // Wakes all threads, if any, that are waiting because they called
 // `BlockUntilDifferent` with the same `current`.
 static inline void WakeAll(std::atomic<uint32_t>& current) {
-#if HWY_ARCH_WASM
+#if HWY_ARCH_WASM && defined(__EMSCRIPTEN__)
   // It is always safe to cast to void.
   volatile void* address = static_cast<volatile void*>(&current);
   const int max_to_wake = INT_MAX;  // actually signed

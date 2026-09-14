@@ -67,14 +67,14 @@
 #include <sys/cpuset.h>
 #endif  // HWY_OS_FREEBSD
 
-#if HWY_ARCH_WASM
+#if HWY_ARCH_WASM && defined(__EMSCRIPTEN__)
 #include <emscripten/threading.h>
 #endif
 
 namespace hwy {
 
 HWY_CONTRIB_DLLEXPORT bool HaveThreadingSupport() {
-#if HWY_ARCH_WASM
+#if HWY_ARCH_WASM && defined(__EMSCRIPTEN__)
   return emscripten_has_threading_support() != 0;
 #else
   return true;
@@ -199,7 +199,7 @@ bool Sysctl(const char* name, size_t div, int& err, T* out) {
 
 HWY_CONTRIB_DLLEXPORT size_t TotalLogicalProcessors() {
   size_t total_lps = 0;
-#if HWY_ARCH_WASM
+#if HWY_ARCH_WASM && defined(__EMSCRIPTEN__)
   const int num_cores = emscripten_num_logical_cores();
   if (num_cores > 0) total_lps = static_cast<size_t>(num_cores);
 #elif HWY_OS_WIN

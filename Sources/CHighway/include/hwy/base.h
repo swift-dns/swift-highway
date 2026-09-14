@@ -58,7 +58,8 @@
 // "IWYU pragma: keep" does not work for these includes, so hide from the IDE.
 #if !HWY_IDE
 
-#if !defined(HWY_NO_LIBCXX)
+// On WASI, <inttypes.h> makes the Swift SDK's SwiftWASILibc module cycle via std_inttypes_h.
+#if !defined(HWY_NO_LIBCXX) && !defined(__wasi__)
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS  // before inttypes.h
 #endif

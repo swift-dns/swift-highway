@@ -20,6 +20,17 @@
 #ifndef HIGHWAY_HWY_CONTRIB_THREAD_POOL_THREAD_POOL_H_
 #define HIGHWAY_HWY_CONTRIB_THREAD_POOL_THREAD_POOL_H_
 
+// WASI's libc++ is built without threads, so it has no std::thread to pool.
+#ifndef HWY_HAVE_THREAD_POOL  // allow override
+#if defined(__wasi__)
+#define HWY_HAVE_THREAD_POOL 0
+#else
+#define HWY_HAVE_THREAD_POOL 1
+#endif
+#endif  // HWY_HAVE_THREAD_POOL
+
+#if HWY_HAVE_THREAD_POOL
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>  // snprintf
@@ -1715,5 +1726,7 @@ class alignas(HWY_ALIGNMENT) ThreadPool {
 };
 
 }  // namespace hwy
+
+#endif  // HWY_HAVE_THREAD_POOL
 
 #endif  // HIGHWAY_HWY_CONTRIB_THREAD_POOL_THREAD_POOL_H_
