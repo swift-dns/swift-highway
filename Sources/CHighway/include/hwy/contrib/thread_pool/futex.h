@@ -184,8 +184,7 @@ static inline uint32_t BlockUntilDifferent(
 
 #elif HWY_OS_FREEBSD && !defined(HWY_DISABLE_FUTEX)  // >= 6.0
   // _umtx_op with UMTX_OP_WAIT_UINT_PRIVATE: process-private futex on FreeBSD.
-  volatile void* address =
-      const_cast<volatile void*>(static_cast<const volatile void*>(&current));
+  void* address = const_cast<void*>(static_cast<const void*>(&current));
   for (;;) {
     const uint32_t next = current.load(acq);
     if (next != prev) return next;

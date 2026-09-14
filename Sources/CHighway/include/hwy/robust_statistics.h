@@ -62,7 +62,7 @@ void CountingSort(T* values, size_t num_values) {
 template <typename T>
 size_t MinRange(const T* const HWY_RESTRICT sorted, const size_t idx_begin,
                 const size_t half_count) {
-  T min_range = std::numeric_limits<T>::max();
+  T min_range = (std::numeric_limits<T>::max)();
   size_t min_idx = 0;
 
   for (size_t idx = idx_begin; idx < idx_begin + half_count; ++idx) {
