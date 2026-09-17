@@ -1,0 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/swift-dns/shared/refs/heads/main/.github/schemas/ci-config.schema.yml
+
+benchmarks: false
+embedded: false
+integration-tests: false
