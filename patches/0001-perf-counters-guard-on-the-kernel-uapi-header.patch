@@ -1,0 +1,49 @@
+diff --git a/hwy/perf_counters.cc b/hwy/perf_counters.cc
+--- a/hwy/perf_counters.cc
++++ b/hwy/perf_counters.cc
+@@ -17,7 +17,20 @@
+ 
+ #include "hwy/detect_compiler_arch.h"  // HWY_OS_LINUX
+ 
+-#if HWY_OS_LINUX || HWY_IDE
++// Some Linux sysroots, such as musl-based ones, ship no kernel UAPI headers.
++#ifndef HWY_HAVE_PERF_COUNTERS  // allow override
++#define HWY_HAVE_PERF_COUNTERS 0
++#if HWY_OS_LINUX
++#if defined(__has_include)  // note: wrapper macro fails on Clang ~17
++#if __has_include(<linux/perf_event.h>)
++#undef HWY_HAVE_PERF_COUNTERS
++#define HWY_HAVE_PERF_COUNTERS 1
++#endif  // __has_include
++#endif  // defined(__has_include)
++#endif  // HWY_OS_LINUX
++#endif  // HWY_HAVE_PERF_COUNTERS
++
++#if HWY_HAVE_PERF_COUNTERS || HWY_IDE
+ #include <errno.h>
+ #include <fcntl.h>  // open
+ #include <linux/perf_event.h>
+@@ -39,12 +52,12 @@
+ #include "hwy/bit_set.h"
+ #include "hwy/timer.h"
+ 
+-#endif  // HWY_OS_LINUX || HWY_IDE
++#endif  // HWY_HAVE_PERF_COUNTERS || HWY_IDE
+ 
+ namespace hwy {
+ namespace platform {
+ 
+-#if HWY_OS_LINUX || HWY_IDE
++#if HWY_HAVE_PERF_COUNTERS || HWY_IDE
+ 
+ namespace {
+ 
+@@ -371,7 +384,7 @@ HWY_DLLEXPORT void PerfCounters::StopAllAndReset() {}
+ HWY_DLLEXPORT PerfCounters::PerfCounters()
+     : max_extrapolate_(1.0), values_{0.0} {}
+ HWY_DLLEXPORT size_t PerfCounters::IndexForCounter(Counter) { return 0; }
+-#endif  // HWY_OS_LINUX || HWY_IDE
++#endif  // HWY_HAVE_PERF_COUNTERS || HWY_IDE
+ 
+ }  // namespace platform
+ }  // namespace hwy

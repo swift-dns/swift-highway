@@ -16,6 +16,11 @@
 #ifndef HIGHWAY_HWY_TARGETS_H_
 #define HIGHWAY_HWY_TARGETS_H_
 
+// WASI: any libc++ header makes the Swift SDK's SwiftWASILibc module cycle via std_inttypes_h.
+#if defined(__wasi__) && !defined(HWY_NO_LIBCXX)
+#define HWY_NO_LIBCXX
+#endif
+
 // Allows opting out of C++ standard library usage, which is not available in
 // some Compiler Explorer environments.
 #ifndef HWY_NO_LIBCXX

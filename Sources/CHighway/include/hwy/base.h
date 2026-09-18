@@ -18,6 +18,11 @@
 
 // Target-independent definitions.
 
+// WASI: any libc++ header makes the Swift SDK's SwiftWASILibc module cycle via std_inttypes_h.
+#if defined(__wasi__) && !defined(HWY_NO_LIBCXX)
+#define HWY_NO_LIBCXX
+#endif
+
 // IWYU pragma: begin_exports
 #include <stddef.h>
 #include <stdint.h>
@@ -26,7 +31,16 @@
 #include <stdio.h>
 #endif
 
-#if !defined(HWY_NO_LIBCXX)
+// Swift's ClangImporter sees an empty <ostream> on Windows, leaving std::ostream incomplete.
+#ifndef HWY_HAVE_OSTREAM  // allow override
+#if defined(HWY_NO_LIBCXX) || defined(_WIN32)
+#define HWY_HAVE_OSTREAM 0
+#else
+#define HWY_HAVE_OSTREAM 1
+#endif
+#endif  // HWY_HAVE_OSTREAM
+
+#if HWY_HAVE_OSTREAM
 #include <ostream>
 #endif
 
@@ -530,7 +544,7 @@ static inline HWY_MAYBE_UNUSED bool operator==(const uint128_t& a,
   return a.lo == b.lo && a.hi == b.hi;
 }
 
-#if !defined(HWY_NO_LIBCXX)
+#if HWY_HAVE_OSTREAM
 static inline HWY_MAYBE_UNUSED std::ostream& operator<<(std::ostream& os,
                                                         const uint128_t& n) {
   return os << "[hi=" << n.hi << ",lo=" << n.lo << "]";
@@ -551,7 +565,7 @@ static inline HWY_MAYBE_UNUSED bool operator==(const K64V64& a,
   return a.key == b.key;
 }
 
-#if !defined(HWY_NO_LIBCXX)
+#if HWY_HAVE_OSTREAM
 static inline HWY_MAYBE_UNUSED std::ostream& operator<<(std::ostream& os,
                                                         const K64V64& n) {
   return os << "[k=" << n.key << ",v=" << n.value << "]";
@@ -572,7 +586,7 @@ static inline HWY_MAYBE_UNUSED bool operator==(const K32V32& a,
   return a.key == b.key;
 }
 
-#if !defined(HWY_NO_LIBCXX)
+#if HWY_HAVE_OSTREAM
 static inline HWY_MAYBE_UNUSED std::ostream& operator<<(std::ostream& os,
                                                         const K32V32& n) {
   return os << "[k=" << n.key << ",v=" << n.value << "]";

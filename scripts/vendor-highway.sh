@@ -14,6 +14,14 @@ readonly version_file="${repository_root}/highway-version.json"
 readonly vendor_root="${repository_root}/Sources/CHighway"
 readonly include_root="${vendor_root}/include"
 readonly module_map="${include_root}/module.modulemap"
+readonly patch_root="${repository_root}/patches"
+
+# A module compiles every header it lists, so the module map lists only the ones the package's own
+# headers reach. The rest need a hosted C++ standard library, which platforms such as WASI lack.
+readonly -a module_seed_headers=(
+  hwy/highway.h
+  hwy/contrib/sort/vqsort.h
+)
 
 clone_dir=""
 
@@ -155,6 +163,69 @@ copy_license() {
   return 0
 }
 
+# Patches are written against the upstream tree rather than this one, so that the very same file
+# can go upstream unchanged.
+apply_patches() {
+  local tag="${1:?apply_patches requires the tag the patches are written against}"
+
+  if [[ ! -d "${patch_root}" ]]; then
+    return 0
+  fi
+
+  local -a patch_paths=()
+  local patch_path
+  while IFS= read -r -d '' patch_path; do
+    patch_paths+=( "${patch_path}" )
+  done < <(find "${patch_root}" -name '*.patch' -type f -print0 | sort -z)
+
+  if [[ "${#patch_paths[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  log "Applying ${#patch_paths[@]} patches..."
+  local -a apply_arguments=(
+    apply --directory="${include_root#"${repository_root}/"}"
+  )
+  for patch_path in "${patch_paths[@]}"; do
+    if ! git -C "${repository_root}" "${apply_arguments[@]}" -- "${patch_path}"; then
+      fatal "Failed to apply '${patch_path#"${repository_root}/"}' to the vendored tree." \
+        "Rebase it onto highway ${tag}, or drop it if upstream has taken it."
+    fi
+  done
+  return 0
+}
+
+headers_reachable_from_seeds() {
+  local -A reached=()
+  local -a queue=( "${module_seed_headers[@]}" )
+  local index=0
+  local header included
+
+  while [[ "${index}" -lt "${#queue[@]}" ]]; do
+    header="${queue[${index}]}"
+    index=$(( index + 1 ))
+
+    if [[ -n "${reached["${header}"]:-}" || ! -f "${include_root}/${header}" ]]; then
+      continue
+    fi
+    reached["${header}"]=1
+
+    while IFS= read -r included; do
+      queue+=( "${included}" )
+    done < <(
+      sed -n 's|^[[:space:]]*#[[:space:]]*include[[:space:]]*"\([^"]*\)".*|\1|p' \
+        "${include_root}/${header}"
+    )
+  done
+
+  if [[ "${#reached[@]}" -eq 0 ]]; then
+    fatal "None of the seed headers of the module map exist under '${include_root}'"
+  fi
+
+  printf -- '%s\n' "${!reached[@]}" | sort
+  return 0
+}
+
 # A header that is included more than once, or only from inside HWY_NAMESPACE, cannot be a module
 # of its own, which upstream marks by the '-inl.h' suffix.
 is_textual_header() {
@@ -168,6 +239,12 @@ is_textual_header() {
 
 generate_module_map() {
   log "Generating ${module_map#"${repository_root}/"}..."
+
+  local -A in_module=()
+  local reachable
+  while IFS= read -r reachable; do
+    in_module["${reachable}"]=1
+  done < <(headers_reachable_from_seeds)
 
   local -a header_paths=()
   local header_path
@@ -185,7 +262,7 @@ generate_module_map() {
     printf -- '%s\n' "module CHighway {"
 
     for header_path in "${header_paths[@]}"; do
-      if ! is_textual_header "${header_path}"; then
+      if ! is_textual_header "${header_path}" && [[ -n "${in_module["${header_path}"]:-}" ]]; then
         printf -- '    header "%s"\n' "${header_path}"
       fi
     done
@@ -243,6 +320,7 @@ main() {
   copy_headers "${clone_dir}"
   copy_sources "${clone_dir}" source_paths
   copy_license "${clone_dir}"
+  apply_patches "${tag}"
   generate_module_map
 
   log "✅ Vendored highway ${tag} (${commit:0:7})."

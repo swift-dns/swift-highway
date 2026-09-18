@@ -17,6 +17,8 @@
 
 #include "hwy/highway_export.h"
 
+#if HWY_HAVE_THREAD_POOL
+
 namespace hwy {
 namespace pool {
 
@@ -29,3 +31,5 @@ HWY_CONTRIB_DLLEXPORT Shared& Shared::Get() {
 
 }  // namespace pool
 }  // namespace hwy
+
+#endif  // HWY_HAVE_THREAD_POOL

@@ -1,0 +1,166 @@
+name: export-benchmark-results
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Regex filter for benchmark target names that contains the benchmarks to run. If not provided, all targets will be run."
+        required: false
+        type: string
+      filter:
+        description: "Regex filter for benchmark names. If not provided, all benchmarks will be run."
+        required: false
+        type: string
+      skip:
+        description: "Regex filter for benchmark names to skip. If not provided, no benchmarks will be skipped."
+        required: false
+        type: string
+      swift_version:
+        description: "Swiftly Swift toolchain selector string to run benchmarks with. Empty uses the machine default. Example: '6.4.x-snapshot'. Must be pre-installed on the machine."
+        required: false
+        type: string
+        default: ""
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -Eeuo pipefail {0}
+
+jobs:
+  check-ci-config:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 5
+
+    outputs:
+      benchmarks: ${{ steps.ci-config.outputs.benchmarks }}
+
+    steps:
+      - name: Check out ${{ github.event.repository.name }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check the ci config
+        id: ci-config
+        run: .github/scripts/ci-config.sh >> "${GITHUB_OUTPUT}"
+
+  export-benchmark-results:
+    needs: check-ci-config
+    if: ${{ needs.check-ci-config.outputs.benchmarks == 'true' }}
+
+    runs-on: [self-hosted, linux, x64]
+
+    timeout-minutes: 1440
+
+    env:
+      TOOLCHAIN_MODIFIER: ${{ inputs.swift_version && format('+{0}', inputs.swift_version) || '' }}
+
+    steps:
+      - name: Enable full performance
+        run: set-perf-mode performance
+
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure git
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Resolve Swift toolchain for cache key
+        id: swift-toolchain
+        run: |
+          SWIFT_VERSION_OUTPUT="$(swiftly run swift ${TOOLCHAIN_MODIFIER} --version)"
+          TOOLCHAIN_ID="$(printf '%s\n' "${SWIFT_VERSION_OUTPUT}" | sed -n 's/.*Swift version \([^ ]*\).*/\1/p' | head -n 1)"
+          if [[ -z "${TOOLCHAIN_ID}" ]]; then
+            printf '%s\n' "Failed to resolve Swift toolchain version from 'swift --version' output:" >&2
+            printf '%s\n' "${SWIFT_VERSION_OUTPUT}" >&2
+            exit 1
+          fi
+          printf '%s\n' "version=${TOOLCHAIN_ID}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore .build
+        if: ${{ runner.debug != '1' }}
+        id: restore-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: Benchmarks/.build
+          key: "swiftpm-benchmark-build-${{ runner.os }}-${{ steps.swift-toolchain.outputs.version }}-${{ github.sha }}"
+          restore-keys: "swiftpm-benchmark-build-${{ runner.os }}-${{ steps.swift-toolchain.outputs.version }}-"
+
+      - name: Run benchmarks
+        env:
+          TARGET: ${{ inputs.target }}
+          FILTER: ${{ inputs.filter }}
+          SKIP: ${{ inputs.skip }}
+        run: |
+          COMMAND=(
+            run-with-priority
+            swiftly run swift ${TOOLCHAIN_MODIFIER}
+            package
+            -c release
+            --package-path Benchmarks
+            --allow-writing-to-directory="${PWD}"
+            benchmark run
+            --format histogram
+          )
+
+          if [[ -n "${TARGET}" ]]; then
+            COMMAND+=(--target "${TARGET}")
+          fi
+
+          if [[ -n "${FILTER}" ]]; then
+            COMMAND+=(--filter "${FILTER}")
+          fi
+
+          if [[ -n "${SKIP}" ]]; then
+            COMMAND+=(--skip "${SKIP}")
+          fi
+
+          "${COMMAND[@]}"
+
+      - name: Cache .build
+        if: steps.restore-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: Benchmarks/.build
+          key: "swiftpm-benchmark-build-${{ runner.os }}-${{ steps.swift-toolchain.outputs.version }}-${{ github.sha }}"
+
+      - name: Calculate archive file name
+        id: calculate-archive-file-name
+        run: |
+          TIMESTAMP="$(date -u +"%Y-%m-%d-%H-%M-%S")"
+          FILE_NAME="${{ github.event.repository.name }}_benchmark_results_${TIMESTAMP}"
+
+          if [[ -n '${{ inputs.target }}' ]]; then
+            TARGET="$(printf '%s' '${{ inputs.target }}' | tr ' ' '_')"
+            FILE_NAME="${FILE_NAME}_target_${TARGET}"
+          fi
+
+          if [[ -n '${{ inputs.filter }}' ]]; then
+            FILTER="$(printf '%s' '${{ inputs.filter }}' | tr ' ' '_')"
+            FILE_NAME="${FILE_NAME}_filter_${FILTER}"
+          fi
+
+          if [[ -n '${{ inputs.skip }}' ]]; then
+            SKIP="$(printf '%s' '${{ inputs.skip }}' | tr ' ' '_')"
+            FILE_NAME="${FILE_NAME}_skip_${SKIP}"
+          fi
+
+          FILE_NAME="${FILE_NAME}_${{ github.sha }}"
+
+          printf '%s\n' "file_name=${FILE_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Archive benchmark results
+        uses: actions/upload-artifact@v7
+        with:
+          name: "${{ steps.calculate-archive-file-name.outputs.file_name }}"
+          path: "*.histogram.txt"
+
+      - name: Enable powersave mode
+        if: always()
+        run: set-perf-mode powersave
