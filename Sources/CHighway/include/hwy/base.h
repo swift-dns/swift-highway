@@ -18,6 +18,11 @@
 
 // Target-independent definitions.
 
+// WASI: any libc++ header makes the Swift SDK's SwiftWASILibc module cycle via std_inttypes_h.
+#if defined(__wasi__) && !defined(HWY_NO_LIBCXX)
+#define HWY_NO_LIBCXX
+#endif
+
 // IWYU pragma: begin_exports
 #include <stddef.h>
 #include <stdint.h>
@@ -58,8 +63,7 @@
 // "IWYU pragma: keep" does not work for these includes, so hide from the IDE.
 #if !HWY_IDE
 
-// On WASI, <inttypes.h> makes the Swift SDK's SwiftWASILibc module cycle via std_inttypes_h.
-#if !defined(HWY_NO_LIBCXX) && !defined(__wasi__)
+#if !defined(HWY_NO_LIBCXX)
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS  // before inttypes.h
 #endif

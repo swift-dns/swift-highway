@@ -55,7 +55,7 @@ struct OpsTests {
     func bitwise() {
         typealias H = HighwayUInt32
         let lanes = H.laneCount
-        let a = (0..<lanes).map { UInt32(truncatingIfNeeded: $0 &* 2_654_435_761) }
+        let a = (0..<lanes).map { UInt32(truncatingIfNeeded: $0) &* 2_654_435_761 }
 
         var shifted = [UInt32](repeating: 0, count: lanes)
         var masked = [UInt32](repeating: 0, count: lanes)

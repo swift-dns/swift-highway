@@ -1,0 +1,30 @@
+diff --git a/hwy/base.h b/hwy/base.h
+--- a/hwy/base.h
++++ b/hwy/base.h
+@@ -18,6 +18,11 @@
+ 
+ // Target-independent definitions.
+ 
++// WASI: any libc++ header makes the Swift SDK's SwiftWASILibc module cycle via std_inttypes_h.
++#if defined(__wasi__) && !defined(HWY_NO_LIBCXX)
++#define HWY_NO_LIBCXX
++#endif
++
+ // IWYU pragma: begin_exports
+ #include <stddef.h>
+ #include <stdint.h>
+diff --git a/hwy/targets.h b/hwy/targets.h
+--- a/hwy/targets.h
++++ b/hwy/targets.h
+@@ -16,6 +16,11 @@
+ #ifndef HIGHWAY_HWY_TARGETS_H_
+ #define HIGHWAY_HWY_TARGETS_H_
+ 
++// WASI: any libc++ header makes the Swift SDK's SwiftWASILibc module cycle via std_inttypes_h.
++#if defined(__wasi__) && !defined(HWY_NO_LIBCXX)
++#define HWY_NO_LIBCXX
++#endif
++
+ // Allows opting out of C++ standard library usage, which is not available in
+ // some Compiler Explorer environments.
+ #ifndef HWY_NO_LIBCXX
