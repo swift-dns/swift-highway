@@ -1,3 +1,12 @@
+#if $Embedded || os(WASI)
+@available(
+    *,
+    unavailable,
+    message:
+        "Highway needs C++ interoperability, which embedded Swift and WASI do not properly support"
+)
+public enum Highway {}
+#else
 internal import CHighwayOps
 
 /// Runtime information about the Highway target this package was compiled for.
@@ -17,3 +26,4 @@ public enum Highway {
         HighwayOps.isEmulated()
     }
 }
+#endif

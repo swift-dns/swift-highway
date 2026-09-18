@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 // Enable all targets so that calling Have* does not call into a null pointer.
 #ifndef HWY_COMPILE_ALL_ATTAINABLE
 #define HWY_COMPILE_ALL_ATTAINABLE
@@ -75,3 +78,5 @@ HWY_DLLEXPORT bool HaveFloat64() {
 
 }  // namespace hwy
 #endif  // HWY_ONCE
+
+#endif  // !HWY_OS_FREESTANDING

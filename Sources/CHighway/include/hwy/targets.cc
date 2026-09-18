@@ -14,6 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/targets.h"
 
 #include <stdint.h>
@@ -833,3 +836,5 @@ HWY_DLLEXPORT ChosenTarget& GetChosenTarget() {
 }
 
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

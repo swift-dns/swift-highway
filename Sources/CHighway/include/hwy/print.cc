@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/print.h"
 
 #include <stdio.h>
@@ -136,3 +139,5 @@ HWY_DLLEXPORT void PrintArray(const TypeInfo& info, const char* caption,
 
 }  // namespace detail
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

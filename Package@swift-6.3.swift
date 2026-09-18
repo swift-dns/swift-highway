@@ -22,7 +22,10 @@ let package = Package(
         ),
         .target(
             name: "Highway",
-            dependencies: ["CHighway", "CHighwayOps"],
+            dependencies: [
+                .target(name: "CHighway", condition: .when(platforms: supportedPlatforms)),
+                .target(name: "CHighwayOps", condition: .when(platforms: supportedPlatforms)),
+            ],
             swiftSettings: settings
         ),
         .testTarget(
@@ -44,9 +47,31 @@ var disabledTargets: [CXXSetting] {
     [.define("HWY_DISABLED_TARGETS", to: "(HWY_ALL_SVE | HWY_RVV)")]
 }
 
+/// Every platform but WASI, whose SDK cycles through the libc++ module map under C++
+/// interoperability. Embedded Swift has none either, but no platform stands for a freestanding
+/// triple, so the sources declare their own unavailability. Conditioning the setting also keeps
+/// SwiftPM's synthesized test runner from turning interoperability on elsewhere.
+var supportedPlatforms: [Platform] {
+    [
+        .macOS,
+        .macCatalyst,
+        .iOS,
+        .tvOS,
+        .watchOS,
+        .visionOS,
+        .driverKit,
+        .linux,
+        .android,
+        .windows,
+        .openbsd,
+        // `Platform.freebsd` is not available to any released tools version yet.
+        .custom("freebsd"),
+    ]
+}
+
 var settings: [SwiftSetting] {
     [
-        .interoperabilityMode(.Cxx),
+        .interoperabilityMode(.Cxx, .when(platforms: supportedPlatforms)),
         .swiftLanguageMode(.v6),
         .strictMemorySafety(),
         .enableUpcomingFeature("MemberImportVisibility"),

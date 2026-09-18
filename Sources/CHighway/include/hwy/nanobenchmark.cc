@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/nanobenchmark.h"
 
 #include <stdio.h>
@@ -300,3 +303,5 @@ HWY_DLLEXPORT size_t Measure(const Func func, const uint8_t* arg,
 }
 
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

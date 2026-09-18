@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/aligned_allocator.h"
 
 #include <stdint.h>
@@ -154,3 +157,5 @@ HWY_DLLEXPORT void AlignedDeleter::DeleteAlignedArray(void* aligned_pointer,
 }
 
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

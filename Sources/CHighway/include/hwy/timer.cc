@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/timer.h"
 
 #include <stdlib.h>
@@ -190,3 +193,5 @@ HWY_DLLEXPORT uint64_t TimerResolution() {
 
 }  // namespace platform
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

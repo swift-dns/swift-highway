@@ -473,6 +473,17 @@
 #define HWY_OS_FREEBSD 0
 #endif
 
+// A target with no operating system has neither a libc nor a C++ standard library, so none of the
+// sources of the library itself can be compiled for it.
+#ifndef HWY_OS_FREESTANDING  // allow override
+#if HWY_OS_WIN || HWY_OS_LINUX || HWY_OS_APPLE || HWY_OS_FREEBSD || defined(__unix__) || \
+    defined(__wasi__) || defined(__EMSCRIPTEN__)
+#define HWY_OS_FREESTANDING 0
+#else
+#define HWY_OS_FREESTANDING 1
+#endif
+#endif
+
 // It is an error to detect multiple OSes at the same time, but OK to
 // detect none of the above.
 #if (HWY_OS_WIN + HWY_OS_LINUX + HWY_OS_APPLE + HWY_OS_FREEBSD) > 1

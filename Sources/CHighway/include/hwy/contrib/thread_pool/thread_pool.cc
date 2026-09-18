@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/contrib/thread_pool/thread_pool.h"
 
 #include "hwy/highway_export.h"
@@ -33,3 +36,5 @@ HWY_CONTRIB_DLLEXPORT Shared& Shared::Get() {
 }  // namespace hwy
 
 #endif  // HWY_HAVE_THREAD_POOL
+
+#endif  // !HWY_OS_FREESTANDING

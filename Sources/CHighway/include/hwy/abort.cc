@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/abort.h"
 
 #include <stdarg.h>
@@ -115,3 +118,5 @@ HWY_DLLEXPORT HWY_NORETURN void HWY_FORMAT(3, 4)
 }
 
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/profiler.h"
 
 #include "hwy/highway_export.h"  // HWY_DLLEXPORT
@@ -144,3 +147,5 @@ HWY_DLLEXPORT Profiler& Profiler::Get() {
 }
 
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

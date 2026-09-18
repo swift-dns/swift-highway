@@ -1,3 +1,4 @@
+#if !$Embedded && !os(WASI)
 import Highway
 import Testing
 
@@ -82,3 +83,4 @@ struct SortTests {
         #expect(keys == expected)
     }
 }
+#endif

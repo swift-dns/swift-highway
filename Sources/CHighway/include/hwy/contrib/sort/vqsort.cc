@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/contrib/sort/vqsort.h"
 
 #include "hwy/base.h"
@@ -119,3 +122,5 @@ void Sorter::Delete() {}
 uint64_t* GetGeneratorState() { return hwy::detail::GetGeneratorStateStatic(); }
 
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

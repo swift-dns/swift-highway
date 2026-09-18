@@ -20,6 +20,13 @@ Sorting is unaffected by all of this and always dispatches at run time.
 SVE and RVV are disabled: their vectors are sizeless, so they have no Swift type to be imported
 as. The platforms that have them use the widest fixed-size target they have instead.
 
+## Where the ops are available
+
+Everywhere but embedded Swift, which has no C++ interoperability, and WASI, whose SDK cycles
+through the libc++ module map when interoperability is on. On both, every type here is declared
+unavailable, and a freestanding target compiles the vendored C++ to nothing, so a package that
+depends on Highway still builds for them.
+
 ## What is not wrapped
 
 `thread_pool`, `image`, `matvec`, the `iguana` and `range_coder` codecs, `bit_pack`, `btree`,

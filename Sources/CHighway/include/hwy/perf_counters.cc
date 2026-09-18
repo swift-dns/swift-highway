@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/perf_counters.h"
 
 #include "hwy/detect_compiler_arch.h"  // HWY_OS_LINUX
@@ -388,3 +391,5 @@ HWY_DLLEXPORT size_t PerfCounters::IndexForCounter(Counter) { return 0; }
 
 }  // namespace platform
 }  // namespace hwy
+
+#endif  // !HWY_OS_FREESTANDING

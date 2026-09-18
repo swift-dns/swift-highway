@@ -1,3 +1,4 @@
+#if !$Embedded && !os(WASI)
 import Highway
 import Testing
 
@@ -71,3 +72,4 @@ struct KernelTests {
         #expect(keys == [9, 7, 5, 3, 1])
     }
 }
+#endif

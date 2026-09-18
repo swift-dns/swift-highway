@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
+#if !HWY_OS_FREESTANDING
+
 #include "hwy/contrib/sort/vqsort.h"  // VQSort
 #include "hwy/nanobenchmark.h"        //
 
@@ -97,3 +100,5 @@ void Sorter::operator()(float16_t* HWY_RESTRICT keys, size_t n,
 
 }  // namespace hwy
 #endif  // HWY_ONCE
+
+#endif  // !HWY_OS_FREESTANDING

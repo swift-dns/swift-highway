@@ -1,7 +1,6 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/swift-dns/shared/refs/heads/main/.github/schemas/ci-config.schema.yml
 
 benchmarks: false
-embedded: false
 integration-tests: false
 
 # SwiftPM's synthesized test runner drops the package's C++ interoperability setting.
@@ -9,8 +8,3 @@ cxx-interoperability-flag: "-cxx-interoperability-mode=default"
 
 # The android SDK aims clang's resource dir at the NDK's clang, whose builtin headers ours rejects.
 android-swift-build-flags: -Xswiftc -Xcc -Xswiftc -resource-dir -Xswiftc -Xcc -Xswiftc ${SWIFT_INSTALLATION}/lib/swift/clang
-
-# The WASI SDK cannot build XCTest under C++ interoperability, so wasi only builds the library.
-wasi-swift-build-flags: >-
-  --explicit-target-dependency-import-check error
-  -Xswiftc -require-explicit-sendable

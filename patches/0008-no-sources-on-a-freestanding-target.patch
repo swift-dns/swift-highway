@@ -1,0 +1,724 @@
+diff --git a/hwy/abort.cc b/hwy/abort.cc
+--- a/hwy/abort.cc
++++ b/hwy/abort.cc
+@@ -3,6 +3,9 @@
+ // SPDX-License-Identifier: Apache-2.0
+ // SPDX-License-Identifier: BSD-3-Clause
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/abort.h"
+ 
+ #include <stdarg.h>
+@@ -115,3 +118,5 @@
+ }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/aligned_allocator.cc b/hwy/aligned_allocator.cc
+--- a/hwy/aligned_allocator.cc
++++ b/hwy/aligned_allocator.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/aligned_allocator.h"
+ 
+ #include <stdint.h>
+@@ -154,3 +157,5 @@
+ }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/image/image.cc b/hwy/contrib/image/image.cc
+--- a/hwy/contrib/image/image.cc
++++ b/hwy/contrib/image/image.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/image/image.h"
+ 
+ #include <stddef.h>
+@@ -142,3 +145,5 @@
+ }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort.cc b/hwy/contrib/sort/vqsort.cc
+--- a/hwy/contrib/sort/vqsort.cc
++++ b/hwy/contrib/sort/vqsort.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"
+ 
+ #include "hwy/base.h"
+@@ -119,3 +122,5 @@
+ uint64_t* GetGeneratorState() { return hwy::detail::GetGeneratorStateStatic(); }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_128a.cc b/hwy/contrib/sort/vqsort_128a.cc
+--- a/hwy/contrib/sort/vqsort_128a.cc
++++ b/hwy/contrib/sort/vqsort_128a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -96,3 +99,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_128d.cc b/hwy/contrib/sort/vqsort_128d.cc
+--- a/hwy/contrib/sort/vqsort_128d.cc
++++ b/hwy/contrib/sort/vqsort_128d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -96,3 +99,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_f16a.cc b/hwy/contrib/sort/vqsort_f16a.cc
+--- a/hwy/contrib/sort/vqsort_f16a.cc
++++ b/hwy/contrib/sort/vqsort_f16a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ #include "hwy/nanobenchmark.h"        // Unpredictable1
+ 
+@@ -97,3 +100,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_f16d.cc b/hwy/contrib/sort/vqsort_f16d.cc
+--- a/hwy/contrib/sort/vqsort_f16d.cc
++++ b/hwy/contrib/sort/vqsort_f16d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ #include "hwy/nanobenchmark.h"        //
+ 
+@@ -97,3 +100,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_f32a.cc b/hwy/contrib/sort/vqsort_f32a.cc
+--- a/hwy/contrib/sort/vqsort_f32a.cc
++++ b/hwy/contrib/sort/vqsort_f32a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -75,3 +78,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_f32d.cc b/hwy/contrib/sort/vqsort_f32d.cc
+--- a/hwy/contrib/sort/vqsort_f32d.cc
++++ b/hwy/contrib/sort/vqsort_f32d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -75,3 +78,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_f64a.cc b/hwy/contrib/sort/vqsort_f64a.cc
+--- a/hwy/contrib/sort/vqsort_f64a.cc
++++ b/hwy/contrib/sort/vqsort_f64a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -95,3 +98,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_f64d.cc b/hwy/contrib/sort/vqsort_f64d.cc
+--- a/hwy/contrib/sort/vqsort_f64d.cc
++++ b/hwy/contrib/sort/vqsort_f64d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -96,3 +99,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_i16a.cc b/hwy/contrib/sort/vqsort_i16a.cc
+--- a/hwy/contrib/sort/vqsort_i16a.cc
++++ b/hwy/contrib/sort/vqsort_i16a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_i16d.cc b/hwy/contrib/sort/vqsort_i16d.cc
+--- a/hwy/contrib/sort/vqsort_i16d.cc
++++ b/hwy/contrib/sort/vqsort_i16d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_i32a.cc b/hwy/contrib/sort/vqsort_i32a.cc
+--- a/hwy/contrib/sort/vqsort_i32a.cc
++++ b/hwy/contrib/sort/vqsort_i32a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_i32d.cc b/hwy/contrib/sort/vqsort_i32d.cc
+--- a/hwy/contrib/sort/vqsort_i32d.cc
++++ b/hwy/contrib/sort/vqsort_i32d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_i64a.cc b/hwy/contrib/sort/vqsort_i64a.cc
+--- a/hwy/contrib/sort/vqsort_i64a.cc
++++ b/hwy/contrib/sort/vqsort_i64a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_i64d.cc b/hwy/contrib/sort/vqsort_i64d.cc
+--- a/hwy/contrib/sort/vqsort_i64d.cc
++++ b/hwy/contrib/sort/vqsort_i64d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_kv128a.cc b/hwy/contrib/sort/vqsort_kv128a.cc
+--- a/hwy/contrib/sort/vqsort_kv128a.cc
++++ b/hwy/contrib/sort/vqsort_kv128a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -99,3 +102,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_kv128d.cc b/hwy/contrib/sort/vqsort_kv128d.cc
+--- a/hwy/contrib/sort/vqsort_kv128d.cc
++++ b/hwy/contrib/sort/vqsort_kv128d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -99,3 +102,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_kv64a.cc b/hwy/contrib/sort/vqsort_kv64a.cc
+--- a/hwy/contrib/sort/vqsort_kv64a.cc
++++ b/hwy/contrib/sort/vqsort_kv64a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -79,3 +82,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_kv64d.cc b/hwy/contrib/sort/vqsort_kv64d.cc
+--- a/hwy/contrib/sort/vqsort_kv64d.cc
++++ b/hwy/contrib/sort/vqsort_kv64d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -79,3 +82,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_u16a.cc b/hwy/contrib/sort/vqsort_u16a.cc
+--- a/hwy/contrib/sort/vqsort_u16a.cc
++++ b/hwy/contrib/sort/vqsort_u16a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_u16d.cc b/hwy/contrib/sort/vqsort_u16d.cc
+--- a/hwy/contrib/sort/vqsort_u16d.cc
++++ b/hwy/contrib/sort/vqsort_u16d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_u32a.cc b/hwy/contrib/sort/vqsort_u32a.cc
+--- a/hwy/contrib/sort/vqsort_u32a.cc
++++ b/hwy/contrib/sort/vqsort_u32a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_u32d.cc b/hwy/contrib/sort/vqsort_u32d.cc
+--- a/hwy/contrib/sort/vqsort_u32d.cc
++++ b/hwy/contrib/sort/vqsort_u32d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_u64a.cc b/hwy/contrib/sort/vqsort_u64a.cc
+--- a/hwy/contrib/sort/vqsort_u64a.cc
++++ b/hwy/contrib/sort/vqsort_u64a.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/sort/vqsort_u64d.cc b/hwy/contrib/sort/vqsort_u64d.cc
+--- a/hwy/contrib/sort/vqsort_u64d.cc
++++ b/hwy/contrib/sort/vqsort_u64d.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/sort/vqsort.h"  // VQSort
+ 
+ #undef HWY_TARGET_INCLUDE
+@@ -76,3 +79,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/thread_pool/thread_pool.cc b/hwy/contrib/thread_pool/thread_pool.cc
+--- a/hwy/contrib/thread_pool/thread_pool.cc
++++ b/hwy/contrib/thread_pool/thread_pool.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/thread_pool/thread_pool.h"
+ 
+ #include "hwy/highway_export.h"
+@@ -33,3 +36,5 @@
+ }  // namespace hwy
+ 
+ #endif  // HWY_HAVE_THREAD_POOL
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/contrib/thread_pool/topology.cc b/hwy/contrib/thread_pool/topology.cc
+--- a/hwy/contrib/thread_pool/topology.cc
++++ b/hwy/contrib/thread_pool/topology.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/contrib/thread_pool/topology.h"
+ 
+ #include <ctype.h>  // isspace
+@@ -1278,3 +1281,5 @@
+ }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/detect_compiler_arch.h b/hwy/detect_compiler_arch.h
+--- a/hwy/detect_compiler_arch.h
++++ b/hwy/detect_compiler_arch.h
+@@ -473,6 +473,17 @@
+ #define HWY_OS_FREEBSD 0
+ #endif
+ 
++// A target with no operating system has neither a libc nor a C++ standard library, so none of the
++// sources of the library itself can be compiled for it.
++#ifndef HWY_OS_FREESTANDING  // allow override
++#if HWY_OS_WIN || HWY_OS_LINUX || HWY_OS_APPLE || HWY_OS_FREEBSD || defined(__unix__) || \
++    defined(__wasi__) || defined(__EMSCRIPTEN__)
++#define HWY_OS_FREESTANDING 0
++#else
++#define HWY_OS_FREESTANDING 1
++#endif
++#endif
++
+ // It is an error to detect multiple OSes at the same time, but OK to
+ // detect none of the above.
+ #if (HWY_OS_WIN + HWY_OS_LINUX + HWY_OS_APPLE + HWY_OS_FREEBSD) > 1
+diff --git a/hwy/nanobenchmark.cc b/hwy/nanobenchmark.cc
+--- a/hwy/nanobenchmark.cc
++++ b/hwy/nanobenchmark.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/nanobenchmark.h"
+ 
+ #include <stdio.h>
+@@ -300,3 +303,5 @@
+ }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/per_target.cc b/hwy/per_target.cc
+--- a/hwy/per_target.cc
++++ b/hwy/per_target.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ // Enable all targets so that calling Have* does not call into a null pointer.
+ #ifndef HWY_COMPILE_ALL_ATTAINABLE
+ #define HWY_COMPILE_ALL_ATTAINABLE
+@@ -75,3 +78,5 @@
+ 
+ }  // namespace hwy
+ #endif  // HWY_ONCE
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/perf_counters.cc b/hwy/perf_counters.cc
+--- a/hwy/perf_counters.cc
++++ b/hwy/perf_counters.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/perf_counters.h"
+ 
+ #include "hwy/detect_compiler_arch.h"  // HWY_OS_LINUX
+@@ -388,3 +391,5 @@
+ 
+ }  // namespace platform
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/print.cc b/hwy/print.cc
+--- a/hwy/print.cc
++++ b/hwy/print.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/print.h"
+ 
+ #include <stdio.h>
+@@ -136,3 +139,5 @@
+ 
+ }  // namespace detail
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/profiler.cc b/hwy/profiler.cc
+--- a/hwy/profiler.cc
++++ b/hwy/profiler.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/profiler.h"
+ 
+ #include "hwy/highway_export.h"  // HWY_DLLEXPORT
+@@ -144,3 +147,5 @@
+ }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/targets.cc b/hwy/targets.cc
+--- a/hwy/targets.cc
++++ b/hwy/targets.cc
+@@ -14,6 +14,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/targets.h"
+ 
+ #include <stdint.h>
+@@ -833,3 +836,5 @@
+ }
+ 
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING
+diff --git a/hwy/timer.cc b/hwy/timer.cc
+--- a/hwy/timer.cc
++++ b/hwy/timer.cc
+@@ -13,6 +13,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include "hwy/detect_compiler_arch.h"  // HWY_OS_FREESTANDING
++#if !HWY_OS_FREESTANDING
++
+ #include "hwy/timer.h"
+ 
+ #include <stdlib.h>
+@@ -190,3 +193,5 @@
+ 
+ }  // namespace platform
+ }  // namespace hwy
++
++#endif  // !HWY_OS_FREESTANDING

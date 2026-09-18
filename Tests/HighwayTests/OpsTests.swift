@@ -1,3 +1,4 @@
+#if !$Embedded && !os(WASI)
 import Highway
 import Testing
 
@@ -151,3 +152,4 @@ struct OpsTests {
         #expect(output == input)
     }
 }
+#endif

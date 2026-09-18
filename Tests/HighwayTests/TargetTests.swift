@@ -1,3 +1,4 @@
+#if !$Embedded && !os(WASI)
 import Highway
 import Testing
 
@@ -31,3 +32,4 @@ struct TargetTests {
         #expect(HighwayUInt32.laneCount == HighwayUInt64.laneCount * 2)
     }
 }
+#endif
