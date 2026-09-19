@@ -276,6 +276,26 @@ public enum HighwayInt32: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.storeInterleaved4I32(a, b, c, d, to)
     }
 
+    @export(implementation) @inline(always)
+    public static func loadWidening(from: UnsafePointer<Int8>) -> Vector {
+        unsafe HighwayOps.loadWideningI8ToI32(from)
+    }
+
+    @export(implementation) @inline(always)
+    public static func loadWidening(from: UnsafePointer<Int16>) -> Vector {
+        unsafe HighwayOps.loadWideningI16ToI32(from)
+    }
+
+    @export(implementation) @inline(always)
+    public static func loadFirstWidening(from: UnsafePointer<Int8>, count: Int) -> Vector {
+        unsafe HighwayOps.loadFirstWideningI8ToI32(from, count)
+    }
+
+    @export(implementation) @inline(always)
+    public static func loadFirstWidening(from: UnsafePointer<Int16>, count: Int) -> Vector {
+        unsafe HighwayOps.loadFirstWideningI16ToI32(from, count)
+    }
+
 }
 
 #endif

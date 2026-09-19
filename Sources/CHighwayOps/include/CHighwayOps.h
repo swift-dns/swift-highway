@@ -121,6 +121,8 @@ HWY_INLINE void loadInterleaved4U16(const uint16_t* from, VectorU16& v0, VectorU
 HWY_INLINE void storeInterleaved2U16(VectorU16 a, VectorU16 b, uint16_t* to) { hn::StoreInterleaved2(a, b, TagU16(), to); }
 HWY_INLINE void storeInterleaved3U16(VectorU16 a, VectorU16 b, VectorU16 c, uint16_t* to) { hn::StoreInterleaved3(a, b, c, TagU16(), to); }
 HWY_INLINE void storeInterleaved4U16(VectorU16 a, VectorU16 b, VectorU16 c, VectorU16 d, uint16_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU16(), to); }
+HWY_INLINE VectorU16 loadWideningU8ToU16(const uint8_t* from) { return hn::PromoteTo(TagU16(), hn::LoadU(hn::Rebind<uint8_t, TagU16>(), from)); }
+HWY_INLINE VectorU16 loadFirstWideningU8ToU16(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU16(), hn::LoadN(hn::Rebind<uint8_t, TagU16>(), from, count)); }
 
 using TagU32 = hn::ScalableTag<uint32_t>;
 using VectorU32 = hn::VFromD<TagU32>;
@@ -170,6 +172,10 @@ HWY_INLINE void loadInterleaved4U32(const uint32_t* from, VectorU32& v0, VectorU
 HWY_INLINE void storeInterleaved2U32(VectorU32 a, VectorU32 b, uint32_t* to) { hn::StoreInterleaved2(a, b, TagU32(), to); }
 HWY_INLINE void storeInterleaved3U32(VectorU32 a, VectorU32 b, VectorU32 c, uint32_t* to) { hn::StoreInterleaved3(a, b, c, TagU32(), to); }
 HWY_INLINE void storeInterleaved4U32(VectorU32 a, VectorU32 b, VectorU32 c, VectorU32 d, uint32_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU32(), to); }
+HWY_INLINE VectorU32 loadWideningU8ToU32(const uint8_t* from) { return hn::PromoteTo(TagU32(), hn::LoadU(hn::Rebind<uint8_t, TagU32>(), from)); }
+HWY_INLINE VectorU32 loadWideningU16ToU32(const uint16_t* from) { return hn::PromoteTo(TagU32(), hn::LoadU(hn::Rebind<uint16_t, TagU32>(), from)); }
+HWY_INLINE VectorU32 loadFirstWideningU8ToU32(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU32(), hn::LoadN(hn::Rebind<uint8_t, TagU32>(), from, count)); }
+HWY_INLINE VectorU32 loadFirstWideningU16ToU32(const uint16_t* from, size_t count) { return hn::PromoteTo(TagU32(), hn::LoadN(hn::Rebind<uint16_t, TagU32>(), from, count)); }
 
 using TagU64 = hn::ScalableTag<uint64_t>;
 using VectorU64 = hn::VFromD<TagU64>;
@@ -219,6 +225,12 @@ HWY_INLINE void loadInterleaved4U64(const uint64_t* from, VectorU64& v0, VectorU
 HWY_INLINE void storeInterleaved2U64(VectorU64 a, VectorU64 b, uint64_t* to) { hn::StoreInterleaved2(a, b, TagU64(), to); }
 HWY_INLINE void storeInterleaved3U64(VectorU64 a, VectorU64 b, VectorU64 c, uint64_t* to) { hn::StoreInterleaved3(a, b, c, TagU64(), to); }
 HWY_INLINE void storeInterleaved4U64(VectorU64 a, VectorU64 b, VectorU64 c, VectorU64 d, uint64_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU64(), to); }
+HWY_INLINE VectorU64 loadWideningU8ToU64(const uint8_t* from) { return hn::PromoteTo(TagU64(), hn::LoadU(hn::Rebind<uint8_t, TagU64>(), from)); }
+HWY_INLINE VectorU64 loadWideningU16ToU64(const uint16_t* from) { return hn::PromoteTo(TagU64(), hn::LoadU(hn::Rebind<uint16_t, TagU64>(), from)); }
+HWY_INLINE VectorU64 loadWideningU32ToU64(const uint32_t* from) { return hn::PromoteTo(TagU64(), hn::LoadU(hn::Rebind<uint32_t, TagU64>(), from)); }
+HWY_INLINE VectorU64 loadFirstWideningU8ToU64(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint8_t, TagU64>(), from, count)); }
+HWY_INLINE VectorU64 loadFirstWideningU16ToU64(const uint16_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint16_t, TagU64>(), from, count)); }
+HWY_INLINE VectorU64 loadFirstWideningU32ToU64(const uint32_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint32_t, TagU64>(), from, count)); }
 
 using TagI8 = hn::ScalableTag<int8_t>;
 using VectorI8 = hn::VFromD<TagI8>;
@@ -322,6 +334,8 @@ HWY_INLINE void loadInterleaved4I16(const int16_t* from, VectorI16& v0, VectorI1
 HWY_INLINE void storeInterleaved2I16(VectorI16 a, VectorI16 b, int16_t* to) { hn::StoreInterleaved2(a, b, TagI16(), to); }
 HWY_INLINE void storeInterleaved3I16(VectorI16 a, VectorI16 b, VectorI16 c, int16_t* to) { hn::StoreInterleaved3(a, b, c, TagI16(), to); }
 HWY_INLINE void storeInterleaved4I16(VectorI16 a, VectorI16 b, VectorI16 c, VectorI16 d, int16_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI16(), to); }
+HWY_INLINE VectorI16 loadWideningI8ToI16(const int8_t* from) { return hn::PromoteTo(TagI16(), hn::LoadU(hn::Rebind<int8_t, TagI16>(), from)); }
+HWY_INLINE VectorI16 loadFirstWideningI8ToI16(const int8_t* from, size_t count) { return hn::PromoteTo(TagI16(), hn::LoadN(hn::Rebind<int8_t, TagI16>(), from, count)); }
 
 using TagI32 = hn::ScalableTag<int32_t>;
 using VectorI32 = hn::VFromD<TagI32>;
@@ -373,6 +387,10 @@ HWY_INLINE void loadInterleaved4I32(const int32_t* from, VectorI32& v0, VectorI3
 HWY_INLINE void storeInterleaved2I32(VectorI32 a, VectorI32 b, int32_t* to) { hn::StoreInterleaved2(a, b, TagI32(), to); }
 HWY_INLINE void storeInterleaved3I32(VectorI32 a, VectorI32 b, VectorI32 c, int32_t* to) { hn::StoreInterleaved3(a, b, c, TagI32(), to); }
 HWY_INLINE void storeInterleaved4I32(VectorI32 a, VectorI32 b, VectorI32 c, VectorI32 d, int32_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI32(), to); }
+HWY_INLINE VectorI32 loadWideningI8ToI32(const int8_t* from) { return hn::PromoteTo(TagI32(), hn::LoadU(hn::Rebind<int8_t, TagI32>(), from)); }
+HWY_INLINE VectorI32 loadWideningI16ToI32(const int16_t* from) { return hn::PromoteTo(TagI32(), hn::LoadU(hn::Rebind<int16_t, TagI32>(), from)); }
+HWY_INLINE VectorI32 loadFirstWideningI8ToI32(const int8_t* from, size_t count) { return hn::PromoteTo(TagI32(), hn::LoadN(hn::Rebind<int8_t, TagI32>(), from, count)); }
+HWY_INLINE VectorI32 loadFirstWideningI16ToI32(const int16_t* from, size_t count) { return hn::PromoteTo(TagI32(), hn::LoadN(hn::Rebind<int16_t, TagI32>(), from, count)); }
 
 using TagI64 = hn::ScalableTag<int64_t>;
 using VectorI64 = hn::VFromD<TagI64>;
@@ -424,6 +442,12 @@ HWY_INLINE void loadInterleaved4I64(const int64_t* from, VectorI64& v0, VectorI6
 HWY_INLINE void storeInterleaved2I64(VectorI64 a, VectorI64 b, int64_t* to) { hn::StoreInterleaved2(a, b, TagI64(), to); }
 HWY_INLINE void storeInterleaved3I64(VectorI64 a, VectorI64 b, VectorI64 c, int64_t* to) { hn::StoreInterleaved3(a, b, c, TagI64(), to); }
 HWY_INLINE void storeInterleaved4I64(VectorI64 a, VectorI64 b, VectorI64 c, VectorI64 d, int64_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI64(), to); }
+HWY_INLINE VectorI64 loadWideningI8ToI64(const int8_t* from) { return hn::PromoteTo(TagI64(), hn::LoadU(hn::Rebind<int8_t, TagI64>(), from)); }
+HWY_INLINE VectorI64 loadWideningI16ToI64(const int16_t* from) { return hn::PromoteTo(TagI64(), hn::LoadU(hn::Rebind<int16_t, TagI64>(), from)); }
+HWY_INLINE VectorI64 loadWideningI32ToI64(const int32_t* from) { return hn::PromoteTo(TagI64(), hn::LoadU(hn::Rebind<int32_t, TagI64>(), from)); }
+HWY_INLINE VectorI64 loadFirstWideningI8ToI64(const int8_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int8_t, TagI64>(), from, count)); }
+HWY_INLINE VectorI64 loadFirstWideningI16ToI64(const int16_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int16_t, TagI64>(), from, count)); }
+HWY_INLINE VectorI64 loadFirstWideningI32ToI64(const int32_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int32_t, TagI64>(), from, count)); }
 
 using TagF32 = hn::ScalableTag<float>;
 using VectorF32 = hn::VFromD<TagF32>;
@@ -518,6 +542,8 @@ HWY_INLINE void loadInterleaved4F64(const double* from, VectorF64& v0, VectorF64
 HWY_INLINE void storeInterleaved2F64(VectorF64 a, VectorF64 b, double* to) { hn::StoreInterleaved2(a, b, TagF64(), to); }
 HWY_INLINE void storeInterleaved3F64(VectorF64 a, VectorF64 b, VectorF64 c, double* to) { hn::StoreInterleaved3(a, b, c, TagF64(), to); }
 HWY_INLINE void storeInterleaved4F64(VectorF64 a, VectorF64 b, VectorF64 c, VectorF64 d, double* to) { hn::StoreInterleaved4(a, b, c, d, TagF64(), to); }
+HWY_INLINE VectorF64 loadWideningF32ToF64(const float* from) { return hn::PromoteTo(TagF64(), hn::LoadU(hn::Rebind<float, TagF64>(), from)); }
+HWY_INLINE VectorF64 loadFirstWideningF32ToF64(const float* from, size_t count) { return hn::PromoteTo(TagF64(), hn::LoadN(hn::Rebind<float, TagF64>(), from, count)); }
 
 }  // namespace HighwayOps
 

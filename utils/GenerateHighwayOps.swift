@@ -267,6 +267,30 @@ let ops: [Op] = [
     ),
 ]
 
+// A widening load reads lanes of a narrower element type and promotes each of them to the
+// element type of the vector it returns. It is two Highway ops rather than one, and its pointer
+// is not a `Lane` pointer, so it does not fit `Op` and is generated on its own below.
+struct WideningOp {
+    let swiftName: String
+    let highwayName: String
+    let takesCount: Bool
+}
+
+let wideningOps: [WideningOp] = [
+    WideningOp(swiftName: "loadWidening", highwayName: "LoadU", takesCount: false),
+    WideningOp(swiftName: "loadFirstWidening", highwayName: "LoadN", takesCount: true),
+]
+
+/// The element types `element` can be widened from: every narrower one Highway promotes to it,
+/// which is every narrower one of the same category.
+func wideningSources(of element: Element) -> [Element] {
+    elements.filter { $0.category == element.category && $0.bits < element.bits }
+}
+
+func wideningFunctionName(_ op: WideningOp, from narrow: Element, to wide: Element) -> String {
+    "\(op.swiftName)\(narrow.suffix)To\(wide.suffix)"
+}
+
 struct Binding {
     let declaration: String
     let argument: String
@@ -492,6 +516,19 @@ func generateHeader() -> String {
             output += "\(op.swiftName)\(element.suffix)(\(declarations))"
             output += " { \(returnKeyword)hn::\(op.highwayName)(\(arguments)); }\n"
         }
+
+        for op in wideningOps {
+            for narrow in wideningSources(of: element) {
+                let countDeclaration = op.takesCount ? ", size_t count" : ""
+                let countArgument = op.takesCount ? ", count" : ""
+                let narrowTag = "hn::Rebind<\(narrow.cType), \(element.tag)>()"
+                output += "HWY_INLINE \(element.vector) "
+                output += "\(wideningFunctionName(op, from: narrow, to: element))"
+                output += "(const \(narrow.cType)* from\(countDeclaration))"
+                output += " { return hn::PromoteTo(\(element.tag)(), "
+                output += "hn::\(op.highwayName)(\(narrowTag), from\(countArgument))); }\n"
+            }
+        }
         output += "\n"
     }
 
@@ -648,6 +685,20 @@ func generateElement(_ element: Element) -> String {
             "    public static func \(op.swiftName)(\(signature.parameters))\(returnClause) {\n"
         available += "        \(body)\n"
         available += "    }\n\n"
+    }
+
+    for op in wideningOps {
+        for narrow in wideningSources(of: element) {
+            let countParameter = op.takesCount ? ", count: Int" : ""
+            let countArgument = op.takesCount ? ", count" : ""
+            let function = wideningFunctionName(op, from: narrow, to: element)
+            available += "    @export(implementation) @inline(always)\n"
+            available += "    public static func \(op.swiftName)("
+            available += "from: UnsafePointer<\(narrow.swiftType)>\(countParameter)"
+            available += ") -> Vector {\n"
+            available += "        unsafe HighwayOps.\(function)(from\(countArgument))\n"
+            available += "    }\n\n"
+        }
     }
 
     available += "}\n"

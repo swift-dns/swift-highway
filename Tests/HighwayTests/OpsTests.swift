@@ -132,6 +132,51 @@ struct OpsTests {
         #expect(output.dropFirst(3).allSatisfy { $0 == 0xEE })
     }
 
+    @Test("A widening load promotes every lane it reads")
+    func wideningLoad() {
+        typealias H = HighwayUInt32
+        typealias S = HighwayInt64
+        let lanes = H.laneCount
+        let unsigned = (0..<lanes).map { UInt8(truncatingIfNeeded: $0 &* 37 &+ 200) }
+        let signed = (0..<S.laneCount).map { Int16(truncatingIfNeeded: $0 &* -3001 &- 1) }
+
+        var widenedUnsigned = [UInt32](repeating: 0, count: lanes)
+        var widenedSigned = [Int64](repeating: 0, count: S.laneCount)
+
+        unsigned.withUnsafeBufferPointer { source in
+            widenedUnsigned.withUnsafeMutableBufferPointer {
+                unsafe H.store(H.loadWidening(from: source.baseAddress!), to: $0.baseAddress!)
+            }
+        }
+        signed.withUnsafeBufferPointer { source in
+            widenedSigned.withUnsafeMutableBufferPointer {
+                unsafe S.store(S.loadWidening(from: source.baseAddress!), to: $0.baseAddress!)
+            }
+        }
+
+        #expect(widenedUnsigned == unsigned.map(UInt32.init))
+        #expect(widenedSigned == signed.map(Int64.init))
+    }
+
+    @Test("A partial widening load zeroes the lanes it is not asked for")
+    func partialWideningLoad() {
+        typealias H = HighwayDouble
+        let lanes = H.laneCount
+        guard lanes > 1 else { return }
+        let input = (0..<lanes).map { Float($0) + 0.5 }
+        var output = [Double](repeating: -1, count: lanes)
+
+        input.withUnsafeBufferPointer { source in
+            output.withUnsafeMutableBufferPointer {
+                let v = unsafe H.loadFirstWidening(from: source.baseAddress!, count: 1)
+                unsafe H.store(v, to: $0.baseAddress!)
+            }
+        }
+
+        #expect(output.first == Double(input[0]))
+        #expect(output.dropFirst().allSatisfy { $0 == 0 })
+    }
+
     @Test("Interleaved load and store round trip three channels")
     func interleaved() {
         typealias H = HighwayUInt8

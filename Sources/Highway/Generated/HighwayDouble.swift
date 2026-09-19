@@ -256,6 +256,16 @@ public enum HighwayDouble: HighwayElement, HighwayFloatElement {
         unsafe HighwayOps.storeInterleaved4F64(a, b, c, d, to)
     }
 
+    @export(implementation) @inline(always)
+    public static func loadWidening(from: UnsafePointer<Float>) -> Vector {
+        unsafe HighwayOps.loadWideningF32ToF64(from)
+    }
+
+    @export(implementation) @inline(always)
+    public static func loadFirstWidening(from: UnsafePointer<Float>, count: Int) -> Vector {
+        unsafe HighwayOps.loadFirstWideningF32ToF64(from, count)
+    }
+
 }
 
 #endif
