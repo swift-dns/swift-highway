@@ -24,6 +24,7 @@ jobs:
     outputs:
       android: ${{ steps.ci-config.outputs.android }}
       integration-tests: ${{ steps.ci-config.outputs.integration-tests }}
+      android-swift-build-arguments: ${{ steps.ci-config.outputs.android-swift-build-arguments }}
 
     steps:
       - name: Check out ${{ github.event.repository.name }}
@@ -473,9 +474,17 @@ jobs:
             version: 27.3.13750724
           - release: r28c
             version: 28.2.13676358
+          - release: r29
+            version: 29.0.14206865
+          - release: r30
+            version: 30.0.16248370
         config:
           - mode: "debug"
           - mode: "release"
+        exclude:
+          # Swift 6.3 can't work around NDK r29's libc++ bug under C++ interoperability (android/ndk#2230).
+          - swift: { version: 6.3 }
+            ndk: { release: r29, version: 29.0.14206865 }
         include:
           - swift: { version: 6.3 }
             runner: ubuntu-24.04
@@ -488,6 +497,9 @@ jobs:
     if: ${{ needs.check-ci-config.outputs.integration-tests == 'true' && needs.check-ci-config.outputs.android == 'true' }}
 
     timeout-minutes: 30
+
+    env:
+      ANDROID_SWIFT_BUILD_ARGUMENTS: ${{ needs.check-ci-config.outputs.android-swift-build-arguments }}
 
     permissions:
       actions: read # For reading the previous commit's workflow runs
@@ -571,6 +583,7 @@ jobs:
             --build-tests
             --disable-xctest
             --explicit-target-dependency-import-check error
+            ${ANDROID_SWIFT_BUILD_ARGUMENTS}
           swift-test-flags: --filter "IntegrationTests."
 
       - name: Cache .build
