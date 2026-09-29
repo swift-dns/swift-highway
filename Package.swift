@@ -21,10 +21,15 @@ let package = Package(
             cxxSettings: disabledTargets
         ),
         .target(
+            name: "CHighwayNDKShims",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "Highway",
             dependencies: [
                 .target(name: "CHighway", condition: .when(platforms: supportedPlatforms)),
                 .target(name: "CHighwayOps", condition: .when(platforms: supportedPlatforms)),
+                .target(name: "CHighwayNDKShims", condition: .when(platforms: [.android])),
             ],
             swiftSettings: settings
         ),
