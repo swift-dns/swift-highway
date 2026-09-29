@@ -97,9 +97,10 @@ func smallest(in values: UnsafePointer<UInt32>, count: Int) -> UInt32 {
 }
 ```
 
-* `internal import` is required until Swift 6.5 is released, otherwise the Swift compiler trips into an error.
-  * Essentially you can't have `public import` or expose the types to the users.
+* `public import` can't be used until Swift 6.5 is released, otherwise the Swift compiler trips into an error.
+  * Prefer to use `internal import` instead.
   * Performance-wise this shouldn't have many implications; most vectorized code doesn't benefit from inlining.
+  * If you need _some_ inlining, wrap the vectorized code in a separate function marked with `@usableFromInline`.
 
 If you bump into an error like the following:
 
@@ -111,13 +112,12 @@ Mark the function as `@usableFromInline` instead.
 
 ### Android
 
-The Android SDK aims clang's resource dir at the NDK's clang, whose builtin headers the Swift
-toolchain's clang rejects. If you see errors like
-`use of undeclared identifier '__builtin_ia32_vec_init_v2si'`, point the resource dir back at the
-toolchain's own:
+The Android SDK points clang's resource dir at the NDK's clang.   
+The NDK's clang builtin headers are rejected by Swift toolchain's clang with `could not build module '_Builtin_intrinsics'`.
+When building for Android, point the resource dir back at the toolchain's own `<toolchain>/usr/lib/swift/clang`:
 
-```
--Xswiftc -Xcc -Xswiftc -resource-dir -Xswiftc -Xcc -Xswiftc ${SWIFT_INSTALLATION}/lib/swift/clang
+```bash
+-Xcc -resource-dir -Xcc "$(swiftc -print-target-info | jq -r .paths.runtimeResourcePath)/clang"
 ```
 
 ### Building tests
