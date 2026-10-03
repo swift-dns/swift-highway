@@ -7,7 +7,7 @@
     message:
         "Highway needs C++ interoperability, which embedded Swift and WASI do not properly support"
 )
-public enum SortOrder {}
+public enum SortOrder: Sendable {}
 
 @available(
     *,
@@ -377,6 +377,16 @@ extension Highway {
         keys.withUnsafeMutableBufferPointer { unsafe Key.sort($0, order: order) }
     }
 
+    /// Sorts `keys` in place with Highway's vectorized quicksort.
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation)
+    public static func sort<Key: HighwaySortable>(
+        _ keys: inout MutableSpan<Key>,
+        order: SortOrder = .ascending
+    ) {
+        keys.withUnsafeMutableBufferPointer { unsafe Key.sort($0, order: order) }
+    }
+
     /// Orders `keys` so that its first `count` elements are the ones a full sort would
     /// put there, in the order a full sort would put them in.
     @export(implementation)
@@ -390,6 +400,33 @@ extension Highway {
         }
     }
 
+    /// Orders `keys` so that its first `count` elements are the ones a full sort would
+    /// put there, in the order a full sort would put them in.
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation)
+    public static func partialSort<Key: HighwaySortable>(
+        _ keys: inout MutableSpan<Key>,
+        keeping count: Int,
+        order: SortOrder = .ascending
+    ) {
+        precondition(count >= 0 && count <= keys.count, "Count out of bounds")
+        unsafe partialSort(&keys, keepingUnchecked: count, order: order)
+    }
+
+    /// Like `partialSort(_:keeping:order:)`, but only checks `count` in debug builds.
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation)
+    public static func partialSort<Key: HighwaySortable>(
+        _ keys: inout MutableSpan<Key>,
+        keepingUnchecked count: Int,
+        order: SortOrder = .ascending
+    ) {
+        assert(count >= 0 && count <= keys.count, "Count out of bounds")
+        keys.withUnsafeMutableBufferPointer {
+            unsafe Key.partialSort($0, keeping: count, order: order)
+        }
+    }
+
     /// Orders `keys` so that the element at `index` is the one a full sort would put
     /// there, and no element before it compares after it.
     @export(implementation)
@@ -398,6 +435,31 @@ extension Highway {
         at index: Int,
         order: SortOrder = .ascending
     ) {
+        keys.withUnsafeMutableBufferPointer { unsafe Key.select($0, at: index, order: order) }
+    }
+
+    /// Orders `keys` so that the element at `index` is the one a full sort would put
+    /// there, and no element before it compares after it.
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation)
+    public static func select<Key: HighwaySortable>(
+        _ keys: inout MutableSpan<Key>,
+        at index: Int,
+        order: SortOrder = .ascending
+    ) {
+        precondition(index >= 0 && index < keys.count, "Index out of bounds")
+        unsafe select(&keys, atUnchecked: index, order: order)
+    }
+
+    /// Like `select(_:at:order:)`, but only checks `index` in debug builds.
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation)
+    public static func select<Key: HighwaySortable>(
+        _ keys: inout MutableSpan<Key>,
+        atUnchecked index: Int,
+        order: SortOrder = .ascending
+    ) {
+        assert(index >= 0 && index < keys.count, "Index out of bounds")
         keys.withUnsafeMutableBufferPointer { unsafe Key.select($0, at: index, order: order) }
     }
 }

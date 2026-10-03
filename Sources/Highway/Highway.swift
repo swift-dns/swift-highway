@@ -5,7 +5,10 @@
     message:
         "Highway needs C++ interoperability, which embedded Swift and WASI do not properly support"
 )
-public enum Highway {}
+public enum Highway: SendableMetatype {}
+
+@available(*, unavailable)
+extension Highway: Sendable {}
 #else
 internal import CHighwayOps
 
@@ -13,10 +16,10 @@ internal import CHighwayOps
 ///
 /// Highway is used here in static dispatch mode, so the target is the best one the compiler was
 /// told it could use, rather than one chosen at run time. On arm64 that is NEON, which is
-/// baseline. On x86_64 the baseline is SSE2, so a caller that wants more passes its own
-/// `-Xcc -march=…`.
-public enum Highway {
-    /// The name of the target the ops were compiled for, such as `NEON` or `AVX3`.
+/// baseline. On x86_64 the baseline is SSE2, or SSSE3 on Apple platforms and Android, and SSE4 is
+/// the most a caller can get, with `-Xcc -march=x86-64-v2 -Xcc -maes -Xcc -mpclmul`.
+public enum Highway: SendableMetatype {
+    /// The name of the target the ops were compiled for, such as `NEON` or `SSE4`.
     public static var targetName: String {
         unsafe String(cString: HighwayOps.targetName())
     }
@@ -26,4 +29,7 @@ public enum Highway {
         HighwayOps.isEmulated()
     }
 }
+
+@available(*, unavailable)
+extension Highway: Sendable {}
 #endif

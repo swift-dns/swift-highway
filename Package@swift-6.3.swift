@@ -78,5 +78,8 @@ var settings: [SwiftSetting] {
         .enableUpcomingFeature("InternalImportsByDefault"),
         .enableUpcomingFeature("ExistentialAny"),
         .enableExperimentalFeature("SafeInteropWrappers"),
+        .enableExperimentalFeature(
+            "AvailabilityMacro=SwiftStdlib 5.1:macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0"
+        ),
     ]
 }

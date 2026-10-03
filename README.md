@@ -18,7 +18,7 @@
 Swift bindings for [highway](https://github.com/google/highway), Google's portable SIMD library.
 
 Supports `Darwin` (`Apple` platforms), `Linux` (including `Android`), `Windows`, `FreeBSD`, `OpenBSD`[^1], and more.   
-Also compiles on embedded and WASI, but no actual functionality is available on those platforms, see below.
+Also compiles on embedded and `WASI`, but no actual functionality is available on those platforms, see below.
 
 [^1]: Swift support for `OpenBSD` is a work-in-progress. This library doesn't have CI for `OpenBSD` yet, so things can be flaky.
 
@@ -128,7 +128,7 @@ Mark the function as `@usableFromInline` instead.
 ### Android
 
 The Android SDK points clang's resource dir at the NDK's clang.   
-The NDK's clang builtin headers are rejected by Swift toolchain's clang with `could not build module '_Builtin_intrinsics'`.
+The NDK's clang builtin headers are rejected by Swift toolchain's clang with `could not build module '_Builtin_intrinsics'`.   
 When building for Android, point the resource dir back at the toolchain's own `<toolchain>/usr/lib/swift/clang`:
 
 ```bash
@@ -156,10 +156,12 @@ If a test target imports swift-highway directly, the synthesized swift-testing e
 The ops are compiled in Highway's static dispatch mode, so they use the best target the compiler
 was told it could use.
 
-| Platform | Target | Description                                                                |
-| -------- | ------ | -------------------------------------------------------------------------- |
-| arm64    | NEON   | NEON is baseline, so this is the full width the processor has.             |
-| x86_64   | SSE2   | The baseline. For AVX2 or AVX-512, pass `-Xcc -march=x86-64-v3` or better. |
+| Platform | Target | Description                                                                                                             |
+| -------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| arm64    | NEON   | NEON is baseline, so no flags are needed.                                                                               |
+| x86_64   | SSE2   | The baseline, or SSSE3 on Apple platforms and Android. For SSE4, pass `-Xcc -march=x86-64-v2 -Xcc -maes -Xcc -mpclmul`. |
+
+Highway needs AES and PCLMUL for SSE4 and above, and no `x86-64-v*` level includes them.
 
 `Highway.targetName` reports what was chosen, and `Highway.isEmulated` is true on the targets
 that only emulate vectors, where scalar code is faster.
@@ -168,6 +170,9 @@ Sorting is unaffected by all of this and always dispatches at run time.
 
 SVE and RVV are disabled: their vectors are sizeless, so they have no Swift type to be imported
 as. The platforms that have them use the widest fixed-size target they have instead.
+
+AVX2 and AVX-512 are unavailable as well: their vectors are aligned to more than 16 bytes, which
+Swift does not import, so flags that select them fail to build.
 
 ## What is not wrapped
 

@@ -196,5 +196,240 @@ struct OpsTests {
 
         #expect(output == input)
     }
+
+    @Test("A vector survives a span store after a span load")
+    func spanLoadStoreRoundTrip() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<lanes).map { UInt8($0 &* 3) })
+        var output = ContiguousArray<UInt8>(repeating: 0, count: lanes)
+
+        var destination = output.mutableSpan
+        H.store(H.load(from: input.span), to: &destination)
+
+        #expect(output == input)
+    }
+
+    @Test("A vector survives an unchecked span store after an unchecked span load")
+    func uncheckedSpanLoadStoreRoundTrip() {
+        typealias H = HighwayInt32
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<lanes).map { Int32($0) - 2 })
+        var output = ContiguousArray<Int32>(repeating: 0, count: lanes)
+
+        var destination = output.mutableSpan
+        unsafe H.store(H.load(fromUnchecked: input.span), toUnchecked: &destination)
+
+        #expect(output == input)
+    }
+
+    @Test("A vector survives aligned span stores after aligned span loads")
+    func alignedSpanLoadStoreRoundTrip() {
+        typealias H = HighwayUInt32
+        let lanes = H.laneCount
+        let byteCount = lanes * MemoryLayout<UInt32>.stride
+        let values = (0..<lanes).map { UInt32(truncatingIfNeeded: $0) &* 2_654_435_761 }
+        let input =
+            unsafe UnsafeMutableRawBufferPointer
+            .allocate(byteCount: byteCount, alignment: byteCount)
+            .initializeMemory(as: UInt32.self, fromContentsOf: values)
+        let checked =
+            unsafe UnsafeMutableRawBufferPointer
+            .allocate(byteCount: byteCount, alignment: byteCount)
+            .initializeMemory(as: UInt32.self, repeating: 0)
+        let unchecked =
+            unsafe UnsafeMutableRawBufferPointer
+            .allocate(byteCount: byteCount, alignment: byteCount)
+            .initializeMemory(as: UInt32.self, repeating: 0)
+        defer {
+            unsafe input.deallocate()
+            unsafe checked.deallocate()
+            unsafe unchecked.deallocate()
+        }
+
+        let source = unsafe input.span
+        var checkedDestination = unsafe checked.mutableSpan
+        H.storeAligned(H.loadAligned(from: source), to: &checkedDestination)
+        var uncheckedDestination = unsafe unchecked.mutableSpan
+        unsafe H.storeAligned(
+            H.loadAligned(fromUnchecked: source),
+            toUnchecked: &uncheckedDestination
+        )
+
+        #expect(unsafe Array(checked) == values)
+        #expect(unsafe Array(unchecked) == values)
+    }
+
+    @Test("A span load reads the start of the span")
+    func spanLoadReadsStart() {
+        typealias H = HighwayUInt16
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<(lanes * 2)).map { UInt16($0 &* 5) })
+        var output = ContiguousArray<UInt16>(repeating: 0, count: lanes)
+
+        var destination = output.mutableSpan
+        H.store(H.load(from: input.span.extracting(droppingFirst: lanes)), to: &destination)
+
+        #expect(Array(output) == Array(input.dropFirst(lanes)))
+    }
+
+    @Test("A partial span load and store only touch the lanes the span has")
+    func partialSpanLoadStore() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        guard lanes > 3 else { return }
+        let input = ContiguousArray((0..<lanes).map { UInt8($0 &+ 1) })
+        var loaded = ContiguousArray<UInt8>(repeating: 0xEE, count: lanes)
+        var output = ContiguousArray<UInt8>(repeating: 0xEE, count: lanes)
+
+        let vector = H.loadFirst(from: input.span.extracting(first: 3))
+        var whole = loaded.mutableSpan
+        H.store(vector, to: &whole)
+        output.withUnsafeMutableBufferPointer { buffer in
+            let prefix = unsafe UnsafeMutableBufferPointer(rebasing: buffer[0..<3])
+            var destination = unsafe prefix.mutableSpan
+            H.storeFirst(H.load(from: input.span), to: &destination)
+        }
+
+        #expect(Array(loaded.prefix(3)) == Array(input.prefix(3)))
+        #expect(loaded.dropFirst(3).allSatisfy { $0 == 0 })
+        #expect(Array(output.prefix(3)) == Array(input.prefix(3)))
+        #expect(output.dropFirst(3).allSatisfy { $0 == 0xEE })
+    }
+
+    @Test("A partial span load and store accept an empty span")
+    func emptySpanLoadStore() {
+        typealias H = HighwayFloat
+        let input = ContiguousArray<Float>()
+        var output = ContiguousArray<Float>()
+
+        let vector = H.loadFirst(from: input.span)
+        var destination = output.mutableSpan
+        H.storeFirst(vector, to: &destination)
+
+        #expect(H.allTrue(H.equalTo(vector, H.zero())))
+        #expect(output.isEmpty)
+    }
+
+    @Test("A widening span load promotes every lane it reads")
+    func spanWideningLoad() {
+        typealias H = HighwayUInt32
+        typealias S = HighwayInt64
+        let unsigned = ContiguousArray(
+            (0..<H.laneCount).map { UInt8(truncatingIfNeeded: $0 &* 37 &+ 200) }
+        )
+        let signed = ContiguousArray(
+            (0..<S.laneCount).map { Int16(truncatingIfNeeded: $0 &* -3001 &- 1) }
+        )
+        var widenedUnsigned = ContiguousArray<UInt32>(repeating: 0, count: H.laneCount)
+        var widenedSigned = ContiguousArray<Int64>(repeating: 0, count: S.laneCount)
+
+        var unsignedDestination = widenedUnsigned.mutableSpan
+        H.store(H.loadWidening(from: unsigned.span), to: &unsignedDestination)
+        var signedDestination = widenedSigned.mutableSpan
+        unsafe S.store(S.loadWidening(fromUnchecked: signed.span), to: &signedDestination)
+
+        #expect(Array(widenedUnsigned) == unsigned.map(UInt32.init))
+        #expect(Array(widenedSigned) == signed.map(Int64.init))
+    }
+
+    @Test("A partial widening span load zeroes the lanes the span does not have")
+    func partialSpanWideningLoad() {
+        typealias H = HighwayDouble
+        let lanes = H.laneCount
+        guard lanes > 1 else { return }
+        let input = ContiguousArray((0..<lanes).map { Float($0) + 0.5 })
+        var output = ContiguousArray<Double>(repeating: -1, count: lanes)
+
+        var destination = output.mutableSpan
+        H.store(H.loadFirstWidening(from: input.span.extracting(first: 1)), to: &destination)
+
+        #expect(output.first == Double(input[0]))
+        #expect(output.dropFirst().allSatisfy { $0 == 0 })
+    }
+
+    @Test("Interleaved span load and store round trip three channels")
+    func spanInterleaved() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<(lanes * 3)).map { UInt8($0 & 0xFF) })
+        var output = ContiguousArray<UInt8>(repeating: 0, count: lanes * 3)
+
+        var v0 = H.zero()
+        var v1 = H.zero()
+        var v2 = H.zero()
+        H.loadInterleaved3(from: input.span, &v0, &v1, &v2)
+        var destination = output.mutableSpan
+        H.storeInterleaved3(v0, v1, v2, to: &destination)
+
+        #expect(output == input)
+    }
+
+    @Test("Unchecked interleaved span load and store round trip two channels")
+    func uncheckedSpanInterleaved() {
+        typealias H = HighwayUInt16
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<(lanes * 2)).map { UInt16($0 &* 7) })
+        var output = ContiguousArray<UInt16>(repeating: 0, count: lanes * 2)
+
+        var v0 = H.zero()
+        var v1 = H.zero()
+        unsafe H.loadInterleaved2(fromUnchecked: input.span, &v0, &v1)
+        var destination = output.mutableSpan
+        unsafe H.storeInterleaved2(v0, v1, toUnchecked: &destination)
+
+        #expect(output == input)
+    }
+
+    #if os(macOS) || os(Linux) || os(Windows) || os(FreeBSD) || os(OpenBSD)
+    @Test("Checked span ops trap on a span that is too short")
+    func checkedSpanOpsTrap() async {
+        await #expect(processExitsWith: .failure) {
+            let input = ContiguousArray<UInt8>(repeating: 0, count: HighwayUInt8.laneCount - 1)
+            _ = HighwayUInt8.load(from: input.span)
+        }
+        await #expect(processExitsWith: .failure) {
+            var output = ContiguousArray<UInt8>(repeating: 0, count: HighwayUInt8.laneCount - 1)
+            var destination = output.mutableSpan
+            HighwayUInt8.store(HighwayUInt8.zero(), to: &destination)
+        }
+        await #expect(processExitsWith: .failure) {
+            let count = HighwayUInt8.laneCount * 3 - 1
+            let input = ContiguousArray<UInt8>(repeating: 0, count: count)
+            var v0 = HighwayUInt8.zero()
+            var v1 = HighwayUInt8.zero()
+            var v2 = HighwayUInt8.zero()
+            HighwayUInt8.loadInterleaved3(from: input.span, &v0, &v1, &v2)
+        }
+        await #expect(processExitsWith: .failure) {
+            let count = HighwayUInt8.laneCount * 2 - 1
+            var output = ContiguousArray<UInt8>(repeating: 0, count: count)
+            var destination = output.mutableSpan
+            let zero = HighwayUInt8.zero()
+            HighwayUInt8.storeInterleaved2(zero, zero, to: &destination)
+        }
+        await #expect(processExitsWith: .failure) {
+            let input = ContiguousArray<UInt8>(repeating: 0, count: HighwayUInt32.laneCount - 1)
+            _ = HighwayUInt32.loadWidening(from: input.span)
+        }
+    }
+
+    @Test("Checked aligned span ops trap on a misaligned span")
+    func checkedAlignedSpanOpsTrap() async {
+        guard HighwayUInt8.laneCount > 1 else { return }
+        await #expect(processExitsWith: .failure) {
+            let input = ContiguousArray<UInt8>(repeating: 0, count: HighwayUInt8.laneCount * 2)
+            _ = HighwayUInt8.loadAligned(from: input.span.extracting(droppingFirst: 1))
+        }
+        await #expect(processExitsWith: .failure) {
+            var output = ContiguousArray<UInt8>(repeating: 0, count: HighwayUInt8.laneCount * 2)
+            output.withUnsafeMutableBufferPointer { buffer in
+                let shifted = unsafe UnsafeMutableBufferPointer(rebasing: buffer[1...])
+                var destination = unsafe shifted.mutableSpan
+                HighwayUInt8.storeAligned(HighwayUInt8.zero(), to: &destination)
+            }
+        }
+    }
+    #endif
 }
 #endif

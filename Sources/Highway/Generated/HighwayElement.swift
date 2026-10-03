@@ -41,11 +41,31 @@ public protocol HighwayElement {
     static func repeating(_ value: Lane) -> Vector
     static func iota(_ value: Lane) -> Vector
     static func load(from: UnsafePointer<Lane>) -> Vector
+    @available(SwiftStdlib 5.1, *)
+    static func load(from span: Span<Lane>) -> Vector
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func load(fromUnchecked span: Span<Lane>) -> Vector
     static func loadAligned(from: UnsafePointer<Lane>) -> Vector
+    @available(SwiftStdlib 5.1, *)
+    static func loadAligned(from span: Span<Lane>) -> Vector
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func loadAligned(fromUnchecked span: Span<Lane>) -> Vector
     static func loadFirst(from: UnsafePointer<Lane>, count: Int) -> Vector
+    @available(SwiftStdlib 5.1, *)
+    static func loadFirst(from span: Span<Lane>) -> Vector
     static func store(_ a: Vector, to: UnsafeMutablePointer<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    static func store(_ a: Vector, to span: inout MutableSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func store(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>)
     static func storeAligned(_ a: Vector, to: UnsafeMutablePointer<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    static func storeAligned(_ a: Vector, to span: inout MutableSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func storeAligned(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>)
     static func storeFirst(_ a: Vector, to: UnsafeMutablePointer<Lane>, count: Int)
+    @available(SwiftStdlib 5.1, *)
+    static func storeFirst(_ a: Vector, to span: inout MutableSpan<Lane>)
     static func adding(_ a: Vector, _ b: Vector) -> Vector
     static func subtracting(_ a: Vector, _ b: Vector) -> Vector
     static func minimum(_ a: Vector, _ b: Vector) -> Vector
@@ -65,8 +85,30 @@ public protocol HighwayElement {
     static func firstLane(_ a: Vector) -> Lane
     static func reversed(_ a: Vector) -> Vector
     static func loadInterleaved2(from: UnsafePointer<Lane>, _ v0: inout Vector, _ v1: inout Vector)
+    @available(SwiftStdlib 5.1, *)
+    static func loadInterleaved2(from span: Span<Lane>, _ v0: inout Vector, _ v1: inout Vector)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func loadInterleaved2(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector
+    )
     static func loadInterleaved3(
         from: UnsafePointer<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    )
+    @available(SwiftStdlib 5.1, *)
+    static func loadInterleaved3(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    )
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func loadInterleaved3(
+        fromUnchecked span: Span<Lane>,
         _ v0: inout Vector,
         _ v1: inout Vector,
         _ v2: inout Vector
@@ -78,12 +120,50 @@ public protocol HighwayElement {
         _ v2: inout Vector,
         _ v3: inout Vector
     )
+    @available(SwiftStdlib 5.1, *)
+    static func loadInterleaved4(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    )
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func loadInterleaved4(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    )
     static func storeInterleaved2(_ a: Vector, _ b: Vector, to: UnsafeMutablePointer<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    static func storeInterleaved2(_ a: Vector, _ b: Vector, to span: inout MutableSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func storeInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    )
     static func storeInterleaved3(
         _ a: Vector,
         _ b: Vector,
         _ c: Vector,
         to: UnsafeMutablePointer<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to span: inout MutableSpan<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
     )
     static func storeInterleaved4(
         _ a: Vector,
@@ -91,6 +171,22 @@ public protocol HighwayElement {
         _ c: Vector,
         _ d: Vector,
         to: UnsafeMutablePointer<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to span: inout MutableSpan<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
     )
 }
 
