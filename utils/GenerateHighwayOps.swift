@@ -135,6 +135,14 @@ enum ReturnType {
     case void
 }
 
+// How much of a span the span form of a pointer op reads or writes, from the span's start.
+// `first` is as many lanes as the span has, up to a vector, which a pointer op takes as `count`.
+// An `aligned` op also needs the span to start at an address aligned to the vector size.
+enum SpanExtent {
+    case vectors(Int, aligned: Bool = false)
+    case first
+}
+
 struct Op {
     let swiftName: String
     let highwayName: String
@@ -142,6 +150,7 @@ struct Op {
     let returns: ReturnType
     let applies: Applies
     var documentation: String = ""
+    let span: SpanExtent?
 
     init(
         _ swiftName: String,
@@ -149,7 +158,8 @@ struct Op {
         _ parameters: [Parameter],
         _ returns: ReturnType,
         _ applies: Applies,
-        _ documentation: String = ""
+        _ documentation: String = "",
+        span: SpanExtent? = nil
     ) {
         self.swiftName = swiftName
         self.highwayName = highwayName
@@ -157,6 +167,7 @@ struct Op {
         self.returns = returns
         self.applies = applies
         self.documentation = documentation
+        self.span = span
     }
 }
 
@@ -165,12 +176,26 @@ let ops: [Op] = [
     Op("repeating", "Set", [.tag, .lane], .vector, .all),
     Op("iota", "Iota", [.tag, .lane], .vector, .all),
 
-    Op("load", "LoadU", [.tag, .constLanePointer], .vector, .all),
-    Op("loadAligned", "Load", [.tag, .constLanePointer], .vector, .all),
-    Op("loadFirst", "LoadN", [.tag, .constLanePointer, .count], .vector, .all),
-    Op("store", "StoreU", [.vector, .tag, .lanePointer], .void, .all),
-    Op("storeAligned", "Store", [.vector, .tag, .lanePointer], .void, .all),
-    Op("storeFirst", "StoreN", [.vector, .tag, .lanePointer, .count], .void, .all),
+    Op("load", "LoadU", [.tag, .constLanePointer], .vector, .all, span: .vectors(1)),
+    Op(
+        "loadAligned",
+        "Load",
+        [.tag, .constLanePointer],
+        .vector,
+        .all,
+        span: .vectors(1, aligned: true)
+    ),
+    Op("loadFirst", "LoadN", [.tag, .constLanePointer, .count], .vector, .all, span: .first),
+    Op("store", "StoreU", [.vector, .tag, .lanePointer], .void, .all, span: .vectors(1)),
+    Op(
+        "storeAligned",
+        "Store",
+        [.vector, .tag, .lanePointer],
+        .void,
+        .all,
+        span: .vectors(1, aligned: true)
+    ),
+    Op("storeFirst", "StoreN", [.vector, .tag, .lanePointer, .count], .void, .all, span: .first),
 
     Op("adding", "Add", [.vector, .vector], .vector, .all),
     Op("subtracting", "Sub", [.vector, .vector], .vector, .all),
@@ -228,42 +253,48 @@ let ops: [Op] = [
         "LoadInterleaved2",
         [.tag, .constLanePointer, .outVector, .outVector],
         .void,
-        .all
+        .all,
+        span: .vectors(2)
     ),
     Op(
         "loadInterleaved3",
         "LoadInterleaved3",
         [.tag, .constLanePointer, .outVector, .outVector, .outVector],
         .void,
-        .all
+        .all,
+        span: .vectors(3)
     ),
     Op(
         "loadInterleaved4",
         "LoadInterleaved4",
         [.tag, .constLanePointer, .outVector, .outVector, .outVector, .outVector],
         .void,
-        .all
+        .all,
+        span: .vectors(4)
     ),
     Op(
         "storeInterleaved2",
         "StoreInterleaved2",
         [.vector, .vector, .tag, .lanePointer],
         .void,
-        .all
+        .all,
+        span: .vectors(2)
     ),
     Op(
         "storeInterleaved3",
         "StoreInterleaved3",
         [.vector, .vector, .vector, .tag, .lanePointer],
         .void,
-        .all
+        .all,
+        span: .vectors(3)
     ),
     Op(
         "storeInterleaved4",
         "StoreInterleaved4",
         [.vector, .vector, .vector, .vector, .tag, .lanePointer],
         .void,
-        .all
+        .all,
+        span: .vectors(4)
     ),
 ]
 
@@ -274,6 +305,8 @@ struct WideningOp {
     let swiftName: String
     let highwayName: String
     let takesCount: Bool
+
+    var span: SpanExtent { takesCount ? .first : .vectors(1) }
 }
 
 let wideningOps: [WideningOp] = [
@@ -453,6 +486,13 @@ let unavailableAttribute = """
     )
     """
 
+func unavailableSendableConformance(of type: String) -> String {
+    """
+    @available(*, unavailable)
+    extension \(type): Sendable {}
+    """
+}
+
 /// Embedded Swift has no C++ interoperability, and the WASI SDK's own modules cycle under it, so
 /// every type the ops are reached through is declared unavailable there rather than compiled.
 func generateFile(unavailable: String, available: String) -> String {
@@ -550,6 +590,23 @@ func swiftArgument(_ binding: Binding, _ parameter: Parameter) -> String {
     }
 }
 
+func swiftDeclaration(_ binding: Binding) -> String {
+    let label = binding.swiftLabel ?? binding.swiftName
+    let inoutKeyword = binding.isInOut ? "inout " : ""
+    let naming =
+        label == binding.swiftName
+        ? binding.swiftName
+        : "\(label) \(binding.swiftName)"
+    return "\(naming): \(inoutKeyword)\(binding.swiftType)"
+}
+
+/// How a Swift call passes `binding` on to a function that has the same parameter.
+func swiftCallArgument(_ binding: Binding) -> String {
+    let label = binding.swiftLabel ?? binding.swiftName
+    let value = binding.isInOut ? "&\(binding.swiftName)" : binding.swiftName
+    return label == "_" ? value : "\(label): \(value)"
+}
+
 func swiftSignature(of op: Op, for element: Element) -> (parameters: String, arguments: String) {
     let parameterBindings = bindings(of: op, for: element)
     var declarations: [String] = []
@@ -557,13 +614,7 @@ func swiftSignature(of op: Op, for element: Element) -> (parameters: String, arg
 
     for (binding, parameter) in zip(parameterBindings, op.parameters) {
         if case .tag = parameter { continue }
-        let label = binding.swiftLabel ?? binding.swiftName
-        let inoutKeyword = binding.isInOut ? "inout " : ""
-        let naming =
-            label == binding.swiftName
-            ? binding.swiftName
-            : "\(label) \(binding.swiftName)"
-        declarations.append("\(naming): \(inoutKeyword)\(binding.swiftType)")
+        declarations.append(swiftDeclaration(binding))
         arguments.append(swiftArgument(binding, parameter))
     }
 
@@ -590,6 +641,194 @@ func swiftBody(of op: Op, for element: Element, arguments: String) -> String {
     }
 }
 
+// `Span` needs newer OSes than the macOS 10.13 and iOS 12.0 SwiftPM 6.3 builds for by default.
+let spanAvailability = "@available(SwiftStdlib 5.1, *)"
+
+// A Swift parameter of a span form. The span's label differs between the forms of an op.
+enum SpanParameter {
+    case span
+    case other(declaration: String, argument: String)
+}
+
+// A pointer op as its span forms see it, so that an `Op` and a `WideningOp` get the same ones.
+// `bridgeCall` calls the bridge with the given pointer into the buffer `$0` of the span.
+struct SpanForms {
+    let name: String
+    let parameters: [SpanParameter]
+    let returns: ReturnType
+    let extent: SpanExtent
+    let element: String
+    let isMutable: Bool
+    let bridgeCall: (_ pointer: String) -> String
+}
+
+func spanForms(of op: Op, for element: Element) -> SpanForms? {
+    guard let extent = op.span else { return nil }
+    let parameterBindings = bindings(of: op, for: element)
+    let takesCountFromSpan = if case .first = extent { true } else { false }
+
+    var parameters: [SpanParameter] = []
+    for (binding, parameter) in zip(parameterBindings, op.parameters) {
+        switch parameter {
+        case .tag:
+            continue
+        case .count where takesCountFromSpan:
+            continue
+        case .constLanePointer, .lanePointer:
+            parameters.append(.span)
+        default:
+            parameters.append(
+                .other(declaration: swiftDeclaration(binding), argument: swiftCallArgument(binding))
+            )
+        }
+    }
+
+    return SpanForms(
+        name: op.swiftName,
+        parameters: parameters,
+        returns: op.returns,
+        extent: extent,
+        element: "Lane",
+        isMutable: op.parameters.contains(.lanePointer),
+        bridgeCall: { pointer in
+            var arguments: [String] = []
+            for (binding, parameter) in zip(parameterBindings, op.parameters) {
+                switch parameter {
+                case .tag:
+                    continue
+                case .count where takesCountFromSpan:
+                    arguments.append("$0.count")
+                case .constLanePointer, .lanePointer:
+                    arguments.append(pointer)
+                default:
+                    arguments.append(swiftArgument(binding, parameter))
+                }
+            }
+            return swiftBody(of: op, for: element, arguments: arguments.joined(separator: ", "))
+        }
+    )
+}
+
+func spanForms(of op: WideningOp, from narrow: Element, to wide: Element) -> SpanForms {
+    let function = wideningFunctionName(op, from: narrow, to: wide)
+    let countArgument = op.takesCount ? ", $0.count" : ""
+    return SpanForms(
+        name: op.swiftName,
+        parameters: [.span],
+        returns: .vector,
+        extent: op.span,
+        element: narrow.swiftType,
+        isMutable: false,
+        bridgeCall: { pointer in "unsafe HighwayOps.\(function)(\(pointer)\(countArgument))" }
+    )
+}
+
+func spanLabel(_ forms: SpanForms, checked: Bool) -> String {
+    let preposition = forms.isMutable ? "to" : "from"
+    return checked ? preposition : "\(preposition)Unchecked"
+}
+
+func spanSignature(_ forms: SpanForms, label: String) -> (parameters: String, arguments: String) {
+    let spanType =
+        forms.isMutable ? "inout MutableSpan<\(forms.element)>" : "Span<\(forms.element)>"
+    let spanArgument = forms.isMutable ? "&span" : "span"
+    var declarations: [String] = []
+    var arguments: [String] = []
+    for parameter in forms.parameters {
+        switch parameter {
+        case .span:
+            declarations.append("\(label) span: \(spanType)")
+            arguments.append("\(label): \(spanArgument)")
+        case .other(let declaration, let argument):
+            declarations.append(declaration)
+            arguments.append(argument)
+        }
+    }
+    return (declarations.joined(separator: ", "), arguments.joined(separator: ", "))
+}
+
+/// What a span form checks before it touches `count` vectors' worth of lanes, each as a Swift
+/// condition and the message for when it fails.
+func spanChecks(vectors count: Int, aligned: Bool) -> [(condition: String, message: String)] {
+    var checks = [
+        count > 1
+            ? (
+                "span.count >= \(count) * laneCount",
+                "Span has fewer elements than \(count) vectors have lanes"
+            )
+            : ("span.count >= laneCount", "Span has fewer elements than a vector has lanes")
+    ]
+    if aligned {
+        checks.append(
+            (
+                "span.withUnsafeBufferPointer { UInt(bitPattern: $0.baseAddress) "
+                    + "% UInt(laneCount * MemoryLayout<Lane>.stride) == 0 }",
+                "Span does not start at an address aligned to the vector size"
+            )
+        )
+    }
+    return checks
+}
+
+/// The members that take a span where `forms`' op takes a pointer. A `first` op never touches
+/// more than the span has, so it has one form. The others have a checked form that traps when
+/// the span is too short or misaligned, and an `@unsafe` unchecked one that only asserts it, like
+/// `Span`'s `subscript(_:)` and `subscript(unchecked:)`.
+func spanMembers(_ forms: SpanForms) -> String {
+    let returnClause = forms.returns == .void ? "" : " -> \(swiftReturnType(forms.returns))"
+    let returnKeyword = forms.returns == .void ? "" : "return "
+    let accessor = forms.isMutable ? "withUnsafeMutableBufferPointer" : "withUnsafeBufferPointer"
+    let checked = spanSignature(forms, label: spanLabel(forms, checked: true))
+
+    guard case .vectors(let count, let aligned) = forms.extent else {
+        return """
+                \(spanAvailability)
+                @export(implementation) @inline(always)
+                public static func \(forms.name)(\(checked.parameters))\(returnClause) {
+                    span.\(accessor) { \(forms.bridgeCall("$0.baseAddress")) }
+                }
+
+
+            """
+    }
+
+    let unchecked = spanSignature(forms, label: spanLabel(forms, checked: false))
+    let checks = spanChecks(vectors: count, aligned: aligned)
+    let preconditions = checks.map { "precondition(\($0.condition), \"\($0.message)\")" }
+    let assertions = checks.map { "assert(\($0.condition), \"\($0.message)\")" }
+    return """
+            \(spanAvailability)
+            @export(implementation) @inline(always)
+            public static func \(forms.name)(\(checked.parameters))\(returnClause) {
+                \(preconditions.joined(separator: "\n        "))
+                \(returnKeyword)unsafe \(forms.name)(\(unchecked.arguments))
+            }
+
+            \(spanAvailability)
+            @unsafe @export(implementation) @inline(always)
+            public static func \(forms.name)(\(unchecked.parameters))\(returnClause) {
+                \(assertions.joined(separator: "\n        "))
+                \(returnKeyword)span.\(accessor) {
+                    \(forms.bridgeCall("$0.baseAddress.unsafelyUnwrapped"))
+                }
+            }
+
+
+        """
+}
+
+func spanRequirements(_ forms: SpanForms, indent: String) -> String {
+    let returnClause = forms.returns == .void ? "" : " -> \(swiftReturnType(forms.returns))"
+    let checked = spanSignature(forms, label: spanLabel(forms, checked: true))
+    var output = "\(indent)\(spanAvailability)\n"
+    output += "\(indent)static func \(forms.name)(\(checked.parameters))\(returnClause)\n"
+    guard case .vectors = forms.extent else { return output }
+    let unchecked = spanSignature(forms, label: spanLabel(forms, checked: false))
+    output += "\(indent)\(spanAvailability)\n"
+    output += "\(indent)@unsafe static func \(forms.name)(\(unchecked.parameters))\(returnClause)\n"
+    return output
+}
+
 let integerElements = elements.filter { $0.category != .float }
 let floatElements = elements.filter { $0.category == .float }
 
@@ -609,6 +848,9 @@ func protocolRequirements(_ requirementOps: [Op], indent: String) -> String {
         let signature = swiftSignature(of: op, for: elements[0])
         let returnClause = op.returns == .void ? "" : " -> \(swiftReturnType(op.returns))"
         output += "\(indent)static func \(op.swiftName)(\(signature.parameters))\(returnClause)\n"
+        if let forms = spanForms(of: op, for: elements[0]) {
+            output += spanRequirements(forms, indent: indent)
+        }
     }
     return output
 }
@@ -660,6 +902,7 @@ func generateElement(_ element: Element) -> String {
     } else {
         conformances.append("HighwayIntegerElement")
     }
+    conformances.append("SendableMetatype")
 
     var available = """
         internal import CHighwayOps
@@ -685,6 +928,9 @@ func generateElement(_ element: Element) -> String {
             "    public static func \(op.swiftName)(\(signature.parameters))\(returnClause) {\n"
         available += "        \(body)\n"
         available += "    }\n\n"
+        if let forms = spanForms(of: op, for: element) {
+            available += spanMembers(forms)
+        }
     }
 
     for op in wideningOps {
@@ -698,15 +944,18 @@ func generateElement(_ element: Element) -> String {
             available += ") -> Vector {\n"
             available += "        unsafe HighwayOps.\(function)(from\(countArgument))\n"
             available += "    }\n\n"
+            available += spanMembers(spanForms(of: op, from: narrow, to: element))
         }
     }
 
-    available += "}\n"
+    available += "}\n\n\(unavailableSendableConformance(of: element.namespace))\n"
 
     return generateFile(
         unavailable: """
             \(unavailableAttribute)
-            public enum \(element.namespace) {}
+            public enum \(element.namespace): SendableMetatype {}
+
+            \(unavailableSendableConformance(of: element.namespace))
             """,
         available: available
     )
@@ -744,22 +993,54 @@ struct SortOperation {
     let highwayName: String
     let takesCount: Bool
     let countLabel: String
+    let documentation: String
+    var countName = "count"
+    var countIsIndex = false
 }
 
 let sortOperations: [SortOperation] = [
-    SortOperation(swiftName: "sort", highwayName: "VQSort", takesCount: false, countLabel: ""),
+    SortOperation(
+        swiftName: "sort",
+        highwayName: "VQSort",
+        takesCount: false,
+        countLabel: "",
+        documentation: "Sorts `keys` in place with Highway's vectorized quicksort."
+    ),
     SortOperation(
         swiftName: "partialSort",
         highwayName: "VQPartialSort",
         takesCount: true,
-        countLabel: "keeping"
+        countLabel: "keeping",
+        documentation: """
+            Orders `keys` so that its first `count` elements are the ones a full sort would
+            put there, in the order a full sort would put them in.
+            """
     ),
     SortOperation(
         swiftName: "select",
         highwayName: "VQSelect",
         takesCount: true,
-        countLabel: "at"
+        countLabel: "at",
+        documentation: """
+            Orders `keys` so that the element at `index` is the one a full sort would put
+            there, and no element before it compares after it.
+            """,
+        countName: "index",
+        countIsIndex: true
     ),
+]
+
+// What `Highway`'s sorting functions take keys as. Over a span, an operation that takes a count
+// has a checked form and an `@unsafe` unchecked one, like the span forms of the ops.
+struct SortKeys {
+    let type: String
+    let availability: String?
+    let checksCount: Bool
+}
+
+let sortKeys: [SortKeys] = [
+    SortKeys(type: "[Key]", availability: nil, checksCount: false),
+    SortKeys(type: "MutableSpan<Key>", availability: spanAvailability, checksCount: true),
 ]
 
 func sortSignature(_ operation: SortOperation, elementType: String) -> String {
@@ -769,6 +1050,84 @@ func sortSignature(_ operation: SortOperation, elementType: String) -> String {
     }
     parameters += ", order: SortOrder"
     return parameters
+}
+
+func sortMember(
+    _ operation: SortOperation,
+    keys: SortKeys,
+    documentation: String,
+    isUnsafe: Bool,
+    countLabel: String,
+    body: [String]
+) -> String {
+    var lines = documentation.split(separator: "\n").map { "/// \($0)" }
+    if let availability = keys.availability {
+        lines.append(availability)
+    }
+    lines.append(isUnsafe ? "@unsafe @export(implementation)" : "@export(implementation)")
+    lines.append("public static func \(operation.swiftName)<Key: HighwaySortable>(")
+    lines.append("    _ keys: inout \(keys.type),")
+    if operation.takesCount {
+        lines.append("    \(countLabel) \(operation.countName): Int,")
+    }
+    lines.append("    order: SortOrder = .ascending")
+    lines.append(") {")
+    lines += body.map { "    \($0)" }
+    lines.append("}")
+    return lines.map { "    \($0)" }.joined(separator: "\n")
+}
+
+/// The members of `extension Highway` that apply `operation` to `keys`, through the
+/// `HighwaySortable` requirement of the same name.
+func sortMembers(_ operation: SortOperation, keys: SortKeys) -> [String] {
+    let arguments =
+        operation.takesCount
+        ? "$0, \(operation.countLabel): \(operation.countName), order: order"
+        : "$0, order: order"
+    let sortCall =
+        "keys.withUnsafeMutableBufferPointer { unsafe Key.\(operation.swiftName)(\(arguments)) }"
+
+    guard operation.takesCount, keys.checksCount else {
+        return [
+            sortMember(
+                operation,
+                keys: keys,
+                documentation: operation.documentation,
+                isUnsafe: false,
+                countLabel: operation.countLabel,
+                body: [sortCall]
+            )
+        ]
+    }
+
+    let name = operation.countName
+    let uncheckedLabel = "\(operation.countLabel)Unchecked"
+    let condition = "\(name) >= 0 && \(name) \(operation.countIsIndex ? "<" : "<=") keys.count"
+    let message = operation.countIsIndex ? "Index out of bounds" : "Count out of bounds"
+    let uncheckedCall =
+        "unsafe \(operation.swiftName)(&keys, \(uncheckedLabel): \(name), order: order)"
+    let uncheckedDocumentation =
+        "Like `\(operation.swiftName)(_:\(operation.countLabel):order:)`, "
+        + "but only checks `\(name)` in debug builds."
+
+    return [
+        sortMember(
+            operation,
+            keys: keys,
+            documentation: operation.documentation,
+            isUnsafe: false,
+            countLabel: operation.countLabel,
+            body: ["precondition(\(condition), \"\(message)\")", uncheckedCall]
+        ),
+        sortMember(
+            operation,
+            keys: keys,
+            documentation: uncheckedDocumentation,
+            isUnsafe: true,
+            countLabel: uncheckedLabel,
+            body: ["assert(\(condition), \"\(message)\")", sortCall]
+        ),
+    ]
 }
 
 func generateSortable() -> String {
@@ -822,41 +1181,13 @@ func generateSortable() -> String {
         available += "}\n"
     }
 
+    let members = sortOperations.flatMap { operation in
+        sortKeys.flatMap { keys in sortMembers(operation, keys: keys) }
+    }
     available += """
 
         extension Highway {
-            /// Sorts `keys` in place with Highway's vectorized quicksort.
-            @export(implementation)
-            public static func sort<Key: HighwaySortable>(
-                _ keys: inout [Key],
-                order: SortOrder = .ascending
-            ) {
-                keys.withUnsafeMutableBufferPointer { unsafe Key.sort($0, order: order) }
-            }
-
-            /// Orders `keys` so that its first `count` elements are the ones a full sort would
-            /// put there, in the order a full sort would put them in.
-            @export(implementation)
-            public static func partialSort<Key: HighwaySortable>(
-                _ keys: inout [Key],
-                keeping count: Int,
-                order: SortOrder = .ascending
-            ) {
-                keys.withUnsafeMutableBufferPointer {
-                    unsafe Key.partialSort($0, keeping: count, order: order)
-                }
-            }
-
-            /// Orders `keys` so that the element at `index` is the one a full sort would put
-            /// there, and no element before it compares after it.
-            @export(implementation)
-            public static func select<Key: HighwaySortable>(
-                _ keys: inout [Key],
-                at index: Int,
-                order: SortOrder = .ascending
-            ) {
-                keys.withUnsafeMutableBufferPointer { unsafe Key.select($0, at: index, order: order) }
-            }
+        \(members.joined(separator: "\n\n"))
         }
 
         """
@@ -864,7 +1195,7 @@ func generateSortable() -> String {
     return generateFile(
         unavailable: """
             \(unavailableAttribute)
-            public enum SortOrder {}
+            public enum SortOrder: Sendable {}
 
             \(unavailableAttribute)
             public protocol HighwaySortable {}

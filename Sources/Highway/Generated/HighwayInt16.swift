@@ -7,12 +7,15 @@
     message:
         "Highway needs C++ interoperability, which embedded Swift and WASI do not properly support"
 )
-public enum HighwayInt16 {}
+public enum HighwayInt16: SendableMetatype {}
+
+@available(*, unavailable)
+extension HighwayInt16: Sendable {}
 #else
 internal import CHighwayOps
 
 /// Highway's vectors of `Int16`, and the ops over them.
-public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
+public enum HighwayInt16: HighwayElement, HighwayIntegerElement, SendableMetatype {
     public typealias Lane = Int16
     public typealias Vector = HighwayOps.VectorI16
     public typealias Mask = HighwayOps.MaskI16
@@ -40,9 +43,53 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.loadI16(from)
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func load(from span: Span<Lane>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return unsafe load(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func load(fromUnchecked span: Span<Lane>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayOps.loadI16($0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func loadAligned(from: UnsafePointer<Lane>) -> Vector {
         unsafe HighwayOps.loadAlignedI16(from)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadAligned(from span: Span<Lane>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        precondition(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        return unsafe loadAligned(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadAligned(fromUnchecked span: Span<Lane>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        assert(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayOps.loadAlignedI16($0.baseAddress.unsafelyUnwrapped)
+        }
     }
 
     @export(implementation) @inline(always)
@@ -50,9 +97,31 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.loadFirstI16(from, count)
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadFirst(from span: Span<Lane>) -> Vector {
+        span.withUnsafeBufferPointer { unsafe HighwayOps.loadFirstI16($0.baseAddress, $0.count) }
+    }
+
     @export(implementation) @inline(always)
     public static func store(_ a: Vector, to: UnsafeMutablePointer<Lane>) {
         unsafe HighwayOps.storeI16(a, to)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func store(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        unsafe store(a, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func store(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>) {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayOps.storeI16(a, $0.baseAddress.unsafelyUnwrapped)
+        }
     }
 
     @export(implementation) @inline(always)
@@ -60,9 +129,45 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.storeAlignedI16(a, to)
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeAligned(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        precondition(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        unsafe storeAligned(a, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeAligned(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>) {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        assert(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayOps.storeAlignedI16(a, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func storeFirst(_ a: Vector, to: UnsafeMutablePointer<Lane>, count: Int) {
         unsafe HighwayOps.storeFirstI16(a, to, count)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeFirst(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayOps.storeFirstI16(a, $0.baseAddress, $0.count)
+        }
     }
 
     @export(implementation) @inline(always)
@@ -239,6 +344,33 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.loadInterleaved2I16(from, &v0, &v1)
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved2(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector
+    ) {
+        precondition(
+            span.count >= 2 * laneCount,
+            "Span has fewer elements than 2 vectors have lanes"
+        )
+        unsafe loadInterleaved2(fromUnchecked: span, &v0, &v1)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved2(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector
+    ) {
+        assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayOps.loadInterleaved2I16($0.baseAddress.unsafelyUnwrapped, &v0, &v1)
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func loadInterleaved3(
         from: UnsafePointer<Lane>,
@@ -247,6 +379,35 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         _ v2: inout Vector
     ) {
         unsafe HighwayOps.loadInterleaved3I16(from, &v0, &v1, &v2)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved3(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    ) {
+        precondition(
+            span.count >= 3 * laneCount,
+            "Span has fewer elements than 3 vectors have lanes"
+        )
+        unsafe loadInterleaved3(fromUnchecked: span, &v0, &v1, &v2)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved3(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    ) {
+        assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayOps.loadInterleaved3I16($0.baseAddress.unsafelyUnwrapped, &v0, &v1, &v2)
+        }
     }
 
     @export(implementation) @inline(always)
@@ -260,9 +421,70 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.loadInterleaved4I16(from, &v0, &v1, &v2, &v3)
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved4(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    ) {
+        precondition(
+            span.count >= 4 * laneCount,
+            "Span has fewer elements than 4 vectors have lanes"
+        )
+        unsafe loadInterleaved4(fromUnchecked: span, &v0, &v1, &v2, &v3)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved4(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    ) {
+        assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayOps.loadInterleaved4I16(
+                $0.baseAddress.unsafelyUnwrapped,
+                &v0,
+                &v1,
+                &v2,
+                &v3
+            )
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func storeInterleaved2(_ a: Vector, _ b: Vector, to: UnsafeMutablePointer<Lane>) {
         unsafe HighwayOps.storeInterleaved2I16(a, b, to)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved2(_ a: Vector, _ b: Vector, to span: inout MutableSpan<Lane>)
+    {
+        precondition(
+            span.count >= 2 * laneCount,
+            "Span has fewer elements than 2 vectors have lanes"
+        )
+        unsafe storeInterleaved2(a, b, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayOps.storeInterleaved2I16(a, b, $0.baseAddress.unsafelyUnwrapped)
+        }
     }
 
     @export(implementation) @inline(always)
@@ -273,6 +495,35 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         to: UnsafeMutablePointer<Lane>
     ) {
         unsafe HighwayOps.storeInterleaved3I16(a, b, c, to)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to span: inout MutableSpan<Lane>
+    ) {
+        precondition(
+            span.count >= 3 * laneCount,
+            "Span has fewer elements than 3 vectors have lanes"
+        )
+        unsafe storeInterleaved3(a, b, c, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayOps.storeInterleaved3I16(a, b, c, $0.baseAddress.unsafelyUnwrapped)
+        }
     }
 
     @export(implementation) @inline(always)
@@ -286,9 +537,56 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.storeInterleaved4I16(a, b, c, d, to)
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to span: inout MutableSpan<Lane>
+    ) {
+        precondition(
+            span.count >= 4 * laneCount,
+            "Span has fewer elements than 4 vectors have lanes"
+        )
+        unsafe storeInterleaved4(a, b, c, d, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayOps.storeInterleaved4I16(a, b, c, d, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func loadWidening(from: UnsafePointer<Int8>) -> Vector {
         unsafe HighwayOps.loadWideningI8ToI16(from)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadWidening(from span: Span<Int8>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return unsafe loadWidening(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadWidening(fromUnchecked span: Span<Int8>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayOps.loadWideningI8ToI16($0.baseAddress.unsafelyUnwrapped)
+        }
     }
 
     @export(implementation) @inline(always)
@@ -296,6 +594,17 @@ public enum HighwayInt16: HighwayElement, HighwayIntegerElement {
         unsafe HighwayOps.loadFirstWideningI8ToI16(from, count)
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadFirstWidening(from span: Span<Int8>) -> Vector {
+        span.withUnsafeBufferPointer {
+            unsafe HighwayOps.loadFirstWideningI8ToI16($0.baseAddress, $0.count)
+        }
+    }
+
 }
+
+@available(*, unavailable)
+extension HighwayInt16: Sendable {}
 
 #endif

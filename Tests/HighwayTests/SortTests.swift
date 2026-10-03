@@ -82,5 +82,72 @@ struct SortTests {
         Highway.sort(&keys)
         #expect(keys == expected)
     }
+
+    @Test("Sorts a mutable span ascending and descending", arguments: counts)
+    func sortsMutableSpan(count: Int) {
+        var keys = ContiguousArray(shuffled(Int32.self, count: count))
+        let expected = keys.sorted()
+
+        var ascending = keys.mutableSpan
+        Highway.sort(&ascending)
+        #expect(Array(keys) == expected)
+
+        var descending = keys.mutableSpan
+        Highway.sort(&descending, order: .descending)
+        #expect(Array(keys) == expected.reversed())
+    }
+
+    @Test("A partial sort of a mutable span places the requested prefix")
+    func partialSortsMutableSpan() {
+        var keys = ContiguousArray(shuffled(Int32.self, count: 2_000))
+        let expected = Array(keys.sorted().prefix(20))
+
+        var span = keys.mutableSpan
+        Highway.partialSort(&span, keeping: 20)
+        #expect(Array(keys.prefix(20)) == expected)
+    }
+
+    @Test("Selecting in a mutable span places the element the index would hold")
+    func selectsInMutableSpan() {
+        var keys = ContiguousArray(shuffled(Int32.self, count: 2_000))
+        let expected = keys.sorted()[500]
+
+        var span = keys.mutableSpan
+        Highway.select(&span, at: 500)
+        #expect(keys[500] == expected)
+        #expect(keys.prefix(500).allSatisfy { $0 <= expected })
+    }
+
+    @Test("Unchecked partial sort and select of a mutable span match the checked ones")
+    func uncheckedSpanSorting() {
+        var partial = ContiguousArray(shuffled(Int64.self, count: 1_000))
+        let expectedPrefix = Array(partial.sorted().prefix(10))
+        var selected = ContiguousArray(shuffled(UInt16.self, count: 1_000))
+        let expectedElement = selected.sorted()[100]
+
+        var partialSpan = partial.mutableSpan
+        unsafe Highway.partialSort(&partialSpan, keepingUnchecked: 10)
+        var selectedSpan = selected.mutableSpan
+        unsafe Highway.select(&selectedSpan, atUnchecked: 100)
+
+        #expect(Array(partial.prefix(10)) == expectedPrefix)
+        #expect(selected[100] == expectedElement)
+    }
+
+    #if os(macOS) || os(Linux) || os(Windows) || os(FreeBSD) || os(OpenBSD)
+    @Test("Sorting a mutable span traps on a count or index past its end")
+    func spanSortingTrapsOutOfBounds() async {
+        await #expect(processExitsWith: .failure) {
+            var keys = ContiguousArray<Int32>(repeating: 0, count: 4)
+            var span = keys.mutableSpan
+            Highway.partialSort(&span, keeping: 5)
+        }
+        await #expect(processExitsWith: .failure) {
+            var keys = ContiguousArray<Int32>(repeating: 0, count: 4)
+            var span = keys.mutableSpan
+            Highway.select(&span, at: 4)
+        }
+    }
+    #endif
 }
 #endif

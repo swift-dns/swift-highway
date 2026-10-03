@@ -34,6 +34,16 @@ func sum<E: HighwayIntegerElement>(
     return total
 }
 
+func sum<E: HighwayIntegerElement>(_ type: E.Type, _ input: Span<E.Lane>) -> E.Vector {
+    var total = E.zero()
+    var rest = input
+    while rest.count >= E.laneCount {
+        total = E.adding(total, E.load(from: rest))
+        rest = rest.extracting(droppingFirst: E.laneCount)
+    }
+    return E.adding(total, E.loadFirst(from: rest))
+}
+
 @Suite("Kernels")
 struct KernelTests {
     @Test("A hand-written kernel masks high nibbles")
@@ -59,6 +69,16 @@ struct KernelTests {
         let total = input.withUnsafeBufferPointer { source in
             unsafe HighwayInt32.sum(sum(HighwayInt32.self, source.baseAddress!, input.count))
         }
+
+        #expect(total == input.reduce(0, &+))
+    }
+
+    @Test("A generic span kernel sums lanes, including a partial last vector")
+    func genericSpanExample() {
+        let lanes = HighwayInt32.laneCount
+        let input = ContiguousArray((0..<(lanes * 3 + 1)).map { Int32($0) })
+
+        let total = HighwayInt32.sum(sum(HighwayInt32.self, input.span))
 
         #expect(total == input.reduce(0, &+))
     }
