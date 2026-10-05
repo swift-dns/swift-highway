@@ -124,6 +124,29 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
         }
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func append(_ a: Vector, to output: inout OutputSpan<Lane>) {
+        precondition(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        unsafe append(a, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func append(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>) {
+        assert(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayOps.storeI8(a, buffer.baseAddress.unsafelyUnwrapped + initializedCount)
+            initializedCount &+= laneCount
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func storeAligned(_ a: Vector, to: UnsafeMutablePointer<Lane>) {
         unsafe HighwayOps.storeAlignedI8(a, to)
@@ -157,6 +180,46 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
         }
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendAligned(_ a: Vector, to output: inout OutputSpan<Lane>) {
+        precondition(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        precondition(
+            output.span.withUnsafeBufferPointer {
+                (UInt(bitPattern: $0.baseAddress) &+ UInt($0.count &* MemoryLayout<Lane>.stride))
+                    % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "OutputSpan does not continue at an address aligned to the vector size"
+        )
+        unsafe appendAligned(a, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendAligned(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>) {
+        assert(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        assert(
+            output.span.withUnsafeBufferPointer {
+                (UInt(bitPattern: $0.baseAddress) &+ UInt($0.count &* MemoryLayout<Lane>.stride))
+                    % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "OutputSpan does not continue at an address aligned to the vector size"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayOps.storeAlignedI8(
+                a,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= laneCount
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func storeFirst(_ a: Vector, to: UnsafeMutablePointer<Lane>, count: Int) {
         unsafe HighwayOps.storeFirstI8(a, to, count)
@@ -167,6 +230,39 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
     public static func storeFirst(_ a: Vector, to span: inout MutableSpan<Lane>) {
         span.withUnsafeMutableBufferPointer {
             unsafe HighwayOps.storeFirstI8(a, $0.baseAddress, $0.count)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func append(_ a: Vector, addingCount: Int, to output: inout OutputSpan<Lane>) {
+        precondition(addingCount >= 0 && addingCount <= laneCount, "Count out of bounds")
+        precondition(
+            addingCount <= output.freeCapacity,
+            "OutputSpan has less free capacity than the count"
+        )
+        unsafe append(a, addingCount: addingCount, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func append(
+        _ a: Vector,
+        addingCount: Int,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(addingCount >= 0 && addingCount <= laneCount, "Count out of bounds")
+        assert(
+            addingCount <= output.freeCapacity,
+            "OutputSpan has less free capacity than the count"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayOps.storeFirstI8(
+                a,
+                buffer.baseAddress?.advanced(by: initializedCount),
+                addingCount
+            )
+            initializedCount &+= addingCount
         }
     }
 
@@ -472,6 +568,41 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
         }
     }
 
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 2 * laneCount,
+            "OutputSpan has less free capacity than 2 vectors have lanes"
+        )
+        unsafe appendInterleaved2(a, b, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 2 * laneCount,
+            "OutputSpan has less free capacity than 2 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayOps.storeInterleaved2I8(
+                a,
+                b,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 2 * laneCount
+        }
+    }
+
     @export(implementation) @inline(always)
     public static func storeInterleaved3(
         _ a: Vector,
@@ -508,6 +639,44 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
         assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
         span.withUnsafeMutableBufferPointer {
             unsafe HighwayOps.storeInterleaved3I8(a, b, c, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 3 * laneCount,
+            "OutputSpan has less free capacity than 3 vectors have lanes"
+        )
+        unsafe appendInterleaved3(a, b, c, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 3 * laneCount,
+            "OutputSpan has less free capacity than 3 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayOps.storeInterleaved3I8(
+                a,
+                b,
+                c,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 3 * laneCount
         }
     }
 
@@ -550,6 +719,47 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
         assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
         span.withUnsafeMutableBufferPointer {
             unsafe HighwayOps.storeInterleaved4I8(a, b, c, d, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 4 * laneCount,
+            "OutputSpan has less free capacity than 4 vectors have lanes"
+        )
+        unsafe appendInterleaved4(a, b, c, d, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 4 * laneCount,
+            "OutputSpan has less free capacity than 4 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayOps.storeInterleaved4I8(
+                a,
+                b,
+                c,
+                d,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 4 * laneCount
         }
     }
 

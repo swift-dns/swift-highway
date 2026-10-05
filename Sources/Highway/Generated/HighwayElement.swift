@@ -58,14 +58,30 @@ public protocol HighwayElement {
     static func store(_ a: Vector, to span: inout MutableSpan<Lane>)
     @available(SwiftStdlib 5.1, *)
     @unsafe static func store(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    static func append(_ a: Vector, to output: inout OutputSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func append(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>)
     static func storeAligned(_ a: Vector, to: UnsafeMutablePointer<Lane>)
     @available(SwiftStdlib 5.1, *)
     static func storeAligned(_ a: Vector, to span: inout MutableSpan<Lane>)
     @available(SwiftStdlib 5.1, *)
     @unsafe static func storeAligned(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    static func appendAligned(_ a: Vector, to output: inout OutputSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func appendAligned(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>)
     static func storeFirst(_ a: Vector, to: UnsafeMutablePointer<Lane>, count: Int)
     @available(SwiftStdlib 5.1, *)
     static func storeFirst(_ a: Vector, to span: inout MutableSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    static func append(_ a: Vector, addingCount: Int, to output: inout OutputSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func append(
+        _ a: Vector,
+        addingCount: Int,
+        toUnchecked output: inout OutputSpan<Lane>
+    )
     static func adding(_ a: Vector, _ b: Vector) -> Vector
     static func subtracting(_ a: Vector, _ b: Vector) -> Vector
     static func minimum(_ a: Vector, _ b: Vector) -> Vector
@@ -145,6 +161,14 @@ public protocol HighwayElement {
         _ b: Vector,
         toUnchecked span: inout MutableSpan<Lane>
     )
+    @available(SwiftStdlib 5.1, *)
+    static func appendInterleaved2(_ a: Vector, _ b: Vector, to output: inout OutputSpan<Lane>)
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func appendInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    )
     static func storeInterleaved3(
         _ a: Vector,
         _ b: Vector,
@@ -164,6 +188,20 @@ public protocol HighwayElement {
         _ b: Vector,
         _ c: Vector,
         toUnchecked span: inout MutableSpan<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to output: inout OutputSpan<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
     )
     static func storeInterleaved4(
         _ a: Vector,
@@ -187,6 +225,22 @@ public protocol HighwayElement {
         _ c: Vector,
         _ d: Vector,
         toUnchecked span: inout MutableSpan<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to output: inout OutputSpan<Lane>
+    )
+    @available(SwiftStdlib 5.1, *)
+    @unsafe static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
     )
 }
 
