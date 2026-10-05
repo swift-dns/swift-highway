@@ -381,6 +381,109 @@ struct OpsTests {
         #expect(output == input)
     }
 
+    @Test("A vector survives appends to an output span after a span load")
+    func outputSpanAppendRoundTrip() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<lanes).map { UInt8($0 &* 3) })
+
+        let output = ContiguousArray<UInt8>(capacity: lanes * 2) { output in
+            H.append(H.load(from: input.span), to: &output)
+            unsafe H.append(H.load(from: input.span), toUnchecked: &output)
+        }
+
+        #expect(output == input + input)
+    }
+
+    @Test("An append of a count to an output span only touches that many lanes")
+    func partialOutputSpanAppend() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        guard lanes > 3 else { return }
+        let input = ContiguousArray((0..<lanes).map { UInt8($0 &+ 1) })
+        let buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: lanes * 2)
+        unsafe buffer.initialize(repeating: 0xEE)
+        defer { unsafe buffer.deallocate() }
+
+        var output = unsafe OutputSpan(buffer: buffer, initializedCount: 0)
+        H.append(H.load(from: input.span), addingCount: 3, to: &output)
+        H.append(H.load(from: input.span), addingCount: 0, to: &output)
+        unsafe H.append(H.load(from: input.span), addingCount: lanes, toUnchecked: &output)
+        let count = unsafe output.finalize(for: buffer)
+
+        #expect(count == 3 + lanes)
+        #expect(unsafe Array(buffer[0..<3]) == Array(input.prefix(3)))
+        #expect(unsafe Array(buffer[3..<(3 + lanes)]) == Array(input))
+        #expect(unsafe buffer[(3 + lanes)...].allSatisfy { $0 == 0xEE })
+    }
+
+    @Test("An append of no lanes accepts an output span without a buffer")
+    func emptyOutputSpanAppend() {
+        typealias H = HighwayFloat
+        var output = OutputSpan<Float>()
+
+        H.append(H.zero(), addingCount: 0, to: &output)
+        unsafe H.append(H.zero(), addingCount: 0, toUnchecked: &output)
+        let isEmpty = output.isEmpty
+
+        #expect(isEmpty)
+    }
+
+    @Test("Aligned appends to an output span continue at aligned addresses")
+    func alignedOutputSpanAppend() {
+        typealias H = HighwayUInt32
+        let lanes = H.laneCount
+        let byteCount = lanes * MemoryLayout<UInt32>.stride
+        let values = (0..<lanes).map { UInt32(truncatingIfNeeded: $0) &* 2_654_435_761 }
+        let input = ContiguousArray(values)
+        let buffer =
+            unsafe UnsafeMutableRawBufferPointer
+            .allocate(byteCount: byteCount * 2, alignment: byteCount)
+            .bindMemory(to: UInt32.self)
+        defer { unsafe buffer.deallocate() }
+
+        var output = unsafe OutputSpan(buffer: buffer, initializedCount: 0)
+        H.appendAligned(H.load(from: input.span), to: &output)
+        unsafe H.appendAligned(H.load(from: input.span), toUnchecked: &output)
+        let count = unsafe output.finalize(for: buffer)
+
+        #expect(count == lanes * 2)
+        #expect(unsafe Array(buffer) == values + values)
+    }
+
+    @Test("Interleaved appends to an output span round trip three channels")
+    func outputSpanInterleaved() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<(lanes * 3)).map { UInt8($0 & 0xFF) })
+
+        var v0 = H.zero()
+        var v1 = H.zero()
+        var v2 = H.zero()
+        H.loadInterleaved3(from: input.span, &v0, &v1, &v2)
+        let output = ContiguousArray<UInt8>(capacity: lanes * 3) { output in
+            H.appendInterleaved3(v0, v1, v2, to: &output)
+        }
+
+        #expect(output == input)
+    }
+
+    @Test("Unchecked interleaved appends to an output span round trip two channels")
+    func uncheckedOutputSpanInterleaved() {
+        typealias H = HighwayUInt16
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<(lanes * 2)).map { UInt16($0 &* 7) })
+
+        var v0 = H.zero()
+        var v1 = H.zero()
+        unsafe H.loadInterleaved2(fromUnchecked: input.span, &v0, &v1)
+        let output = ContiguousArray<UInt16>(capacity: lanes * 2) { output in
+            unsafe H.appendInterleaved2(v0, v1, toUnchecked: &output)
+        }
+
+        #expect(output == input)
+    }
+
     #if os(macOS) || os(Linux) || os(Windows) || os(FreeBSD) || os(OpenBSD)
     @Test("Checked span ops trap on a span that is too short")
     func checkedSpanOpsTrap() async {
@@ -428,6 +531,52 @@ struct OpsTests {
                 var destination = unsafe shifted.mutableSpan
                 HighwayUInt8.storeAligned(HighwayUInt8.zero(), to: &destination)
             }
+        }
+    }
+
+    @Test("Checked output span ops trap on too little free capacity or a count out of bounds")
+    func checkedOutputSpanOpsTrap() async {
+        await #expect(processExitsWith: .failure) {
+            _ = ContiguousArray<UInt8>(capacity: HighwayUInt8.laneCount - 1) { output in
+                HighwayUInt8.append(HighwayUInt8.zero(), to: &output)
+            }
+        }
+        await #expect(processExitsWith: .failure) {
+            _ = ContiguousArray<UInt8>(capacity: HighwayUInt8.laneCount * 2 - 1) { output in
+                let zero = HighwayUInt8.zero()
+                HighwayUInt8.appendInterleaved2(zero, zero, to: &output)
+            }
+        }
+        await #expect(processExitsWith: .failure) {
+            _ = ContiguousArray<UInt8>(capacity: 2) { output in
+                HighwayUInt8.append(HighwayUInt8.zero(), addingCount: 3, to: &output)
+            }
+        }
+        await #expect(processExitsWith: .failure) {
+            _ = ContiguousArray<UInt8>(capacity: HighwayUInt8.laneCount * 2) { output in
+                let count = HighwayUInt8.laneCount + 1
+                HighwayUInt8.append(HighwayUInt8.zero(), addingCount: count, to: &output)
+            }
+        }
+        await #expect(processExitsWith: .failure) {
+            _ = ContiguousArray<UInt8>(capacity: 1) { output in
+                HighwayUInt8.append(HighwayUInt8.zero(), addingCount: -1, to: &output)
+            }
+        }
+    }
+
+    @Test("Checked aligned appends trap on an output span that continues misaligned")
+    func checkedAlignedOutputSpanAppendTraps() async {
+        guard HighwayUInt8.laneCount > 1 else { return }
+        await #expect(processExitsWith: .failure) {
+            let lanes = HighwayUInt8.laneCount
+            let buffer =
+                unsafe UnsafeMutableRawBufferPointer
+                .allocate(byteCount: lanes * 2, alignment: lanes)
+                .bindMemory(to: UInt8.self)
+            unsafe buffer.initialize(repeating: 0)
+            var output = unsafe OutputSpan(buffer: buffer, initializedCount: 1)
+            HighwayUInt8.appendAligned(HighwayUInt8.zero(), to: &output)
         }
     }
     #endif

@@ -651,7 +651,7 @@ enum SpanParameter {
 }
 
 // A pointer op as its span forms see it, so that an `Op` and a `WideningOp` get the same ones.
-// `bridgeCall` calls the bridge with the given pointer into the buffer `$0` of the span.
+// `bridgeCall` calls the bridge with the given pointer, and the given count if it takes one.
 struct SpanForms {
     let name: String
     let parameters: [SpanParameter]
@@ -659,7 +659,7 @@ struct SpanForms {
     let extent: SpanExtent
     let element: String
     let isMutable: Bool
-    let bridgeCall: (_ pointer: String) -> String
+    let bridgeCall: (_ pointer: String, _ count: String) -> String
 }
 
 func spanForms(of op: Op, for element: Element) -> SpanForms? {
@@ -690,14 +690,14 @@ func spanForms(of op: Op, for element: Element) -> SpanForms? {
         extent: extent,
         element: "Lane",
         isMutable: op.parameters.contains(.lanePointer),
-        bridgeCall: { pointer in
+        bridgeCall: { pointer, count in
             var arguments: [String] = []
             for (binding, parameter) in zip(parameterBindings, op.parameters) {
                 switch parameter {
                 case .tag:
                     continue
                 case .count where takesCountFromSpan:
-                    arguments.append("$0.count")
+                    arguments.append(count)
                 case .constLanePointer, .lanePointer:
                     arguments.append(pointer)
                 default:
@@ -711,7 +711,6 @@ func spanForms(of op: Op, for element: Element) -> SpanForms? {
 
 func spanForms(of op: WideningOp, from narrow: Element, to wide: Element) -> SpanForms {
     let function = wideningFunctionName(op, from: narrow, to: wide)
-    let countArgument = op.takesCount ? ", $0.count" : ""
     return SpanForms(
         name: op.swiftName,
         parameters: [.span],
@@ -719,7 +718,10 @@ func spanForms(of op: WideningOp, from narrow: Element, to wide: Element) -> Spa
         extent: op.span,
         element: narrow.swiftType,
         isMutable: false,
-        bridgeCall: { pointer in "unsafe HighwayOps.\(function)(\(pointer)\(countArgument))" }
+        bridgeCall: { pointer, count in
+            let countArgument = op.takesCount ? ", \(count)" : ""
+            return "unsafe HighwayOps.\(function)(\(pointer)\(countArgument))"
+        }
     )
 }
 
@@ -785,7 +787,7 @@ func spanMembers(_ forms: SpanForms) -> String {
                 \(spanAvailability)
                 @export(implementation) @inline(always)
                 public static func \(forms.name)(\(checked.parameters))\(returnClause) {
-                    span.\(accessor) { \(forms.bridgeCall("$0.baseAddress")) }
+                    span.\(accessor) { \(forms.bridgeCall("$0.baseAddress", "$0.count")) }
                 }
 
 
@@ -809,7 +811,7 @@ func spanMembers(_ forms: SpanForms) -> String {
             public static func \(forms.name)(\(unchecked.parameters))\(returnClause) {
                 \(assertions.joined(separator: "\n        "))
                 \(returnKeyword)span.\(accessor) {
-                    \(forms.bridgeCall("$0.baseAddress.unsafelyUnwrapped"))
+                    \(forms.bridgeCall("$0.baseAddress.unsafelyUnwrapped", "$0.count"))
                 }
             }
 
@@ -826,6 +828,131 @@ func spanRequirements(_ forms: SpanForms, indent: String) -> String {
     let unchecked = spanSignature(forms, label: spanLabel(forms, checked: false))
     output += "\(indent)\(spanAvailability)\n"
     output += "\(indent)@unsafe static func \(forms.name)(\(unchecked.parameters))\(returnClause)\n"
+    return output
+}
+
+/// The name of the form of a store op that appends to an `OutputSpan`, after `UniqueArray`'s
+/// `append`s. A `first` op appends as many lanes as it is told to, so it is
+/// `append(_:addingCount:to:)`.
+func outputSpanName(_ forms: SpanForms) -> String {
+    if case .first = forms.extent { return "append" }
+    return "append\(forms.name.dropFirst("store".count))"
+}
+
+func outputSpanSignature(
+    _ forms: SpanForms,
+    checked: Bool
+) -> (parameters: String, arguments: String) {
+    let label = checked ? "to" : "toUnchecked"
+    let takesCount = if case .first = forms.extent { true } else { false }
+    var declarations: [String] = []
+    var arguments: [String] = []
+    for parameter in forms.parameters {
+        switch parameter {
+        case .span:
+            if takesCount {
+                declarations.append("addingCount: Int")
+                arguments.append("addingCount: addingCount")
+            }
+            declarations.append("\(label) output: inout OutputSpan<\(forms.element)>")
+            arguments.append("\(label): &output")
+        case .other(let declaration, let argument):
+            declarations.append(declaration)
+            arguments.append(argument)
+        }
+    }
+    return (declarations.joined(separator: ", "), arguments.joined(separator: ", "))
+}
+
+/// What an output span form checks before it appends, each as a Swift condition and the message
+/// for when it fails. An `aligned` op also needs the lanes it appends to start at an address
+/// aligned to the vector size.
+func outputSpanChecks(_ extent: SpanExtent) -> [(condition: String, message: String)] {
+    guard case .vectors(let count, let aligned) = extent else {
+        return [
+            ("addingCount >= 0 && addingCount <= laneCount", "Count out of bounds"),
+            (
+                "addingCount <= output.freeCapacity",
+                "OutputSpan has less free capacity than the count"
+            ),
+        ]
+    }
+    var checks = [
+        count > 1
+            ? (
+                "output.freeCapacity >= \(count) * laneCount",
+                "OutputSpan has less free capacity than \(count) vectors have lanes"
+            )
+            : (
+                "output.freeCapacity >= laneCount",
+                "OutputSpan has less free capacity than a vector has lanes"
+            )
+    ]
+    if aligned {
+        checks.append(
+            (
+                "output.span.withUnsafeBufferPointer { (UInt(bitPattern: $0.baseAddress) "
+                    + "&+ UInt($0.count &* MemoryLayout<Lane>.stride)) "
+                    + "% UInt(laneCount * MemoryLayout<Lane>.stride) == 0 }",
+                "OutputSpan does not continue at an address aligned to the vector size"
+            )
+        )
+    }
+    return checks
+}
+
+/// The members that append to an `OutputSpan` where `forms`' store op takes a pointer. Like the
+/// span forms, a checked form traps when the output span has too little free capacity, the count
+/// is out of bounds, or the lanes would be misaligned, and an `@unsafe` unchecked one only
+/// asserts it. An empty `OutputSpan` can have no buffer at all, which only a `first` op can be
+/// given, to append no lanes to.
+func outputSpanMembers(_ forms: SpanForms) -> String {
+    let name = outputSpanName(forms)
+    let checked = outputSpanSignature(forms, checked: true)
+    let unchecked = outputSpanSignature(forms, checked: false)
+    let checks = outputSpanChecks(forms.extent)
+    let preconditions = checks.map { "precondition(\($0.condition), \"\($0.message)\")" }
+    let assertions = checks.map { "assert(\($0.condition), \"\($0.message)\")" }
+    let (pointer, appendedCount) =
+        switch forms.extent {
+        case .first:
+            ("buffer.baseAddress?.advanced(by: initializedCount)", "addingCount")
+        case .vectors(let count, _):
+            (
+                "buffer.baseAddress.unsafelyUnwrapped + initializedCount",
+                count > 1 ? "\(count) * laneCount" : "laneCount"
+            )
+        }
+    return """
+            \(spanAvailability)
+            @export(implementation) @inline(always)
+            public static func \(name)(\(checked.parameters)) {
+                \(preconditions.joined(separator: "\n        "))
+                unsafe \(name)(\(unchecked.arguments))
+            }
+
+            \(spanAvailability)
+            @unsafe @export(implementation) @inline(always)
+            public static func \(name)(\(unchecked.parameters)) {
+                \(assertions.joined(separator: "\n        "))
+                unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+                    \(forms.bridgeCall(pointer, "addingCount"))
+                    initializedCount &+= \(appendedCount)
+                }
+            }
+
+
+        """
+}
+
+func outputSpanRequirements(_ forms: SpanForms, indent: String) -> String {
+    let name = outputSpanName(forms)
+    let checked = outputSpanSignature(forms, checked: true)
+    let unchecked = outputSpanSignature(forms, checked: false)
+    var output = "\(indent)\(spanAvailability)\n"
+    output += "\(indent)static func \(name)(\(checked.parameters))\n"
+    output += "\(indent)\(spanAvailability)\n"
+    output += "\(indent)@unsafe static func \(name)(\(unchecked.parameters))\n"
     return output
 }
 
@@ -850,6 +977,9 @@ func protocolRequirements(_ requirementOps: [Op], indent: String) -> String {
         output += "\(indent)static func \(op.swiftName)(\(signature.parameters))\(returnClause)\n"
         if let forms = spanForms(of: op, for: elements[0]) {
             output += spanRequirements(forms, indent: indent)
+            if forms.isMutable {
+                output += outputSpanRequirements(forms, indent: indent)
+            }
         }
     }
     return output
@@ -930,6 +1060,9 @@ func generateElement(_ element: Element) -> String {
         available += "    }\n\n"
         if let forms = spanForms(of: op, for: element) {
             available += spanMembers(forms)
+            if forms.isMutable {
+                available += outputSpanMembers(forms)
+            }
         }
     }
 
