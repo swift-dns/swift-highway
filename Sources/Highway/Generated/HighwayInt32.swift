@@ -422,6 +422,16 @@ public enum HighwayInt32: HighwayElement, HighwayIntegerElement, SendableMetatyp
     }
 
     @export(implementation) @inline(always)
+    public static func slideUpLanes(_ a: Vector, by lanes: Int) -> Vector {
+        HighwayOps.slideUpLanesI32(a, lanes)
+    }
+
+    @export(implementation) @inline(always)
+    public static func slide1Up(_ a: Vector) -> Vector {
+        HighwayOps.slide1UpI32(a)
+    }
+
+    @export(implementation) @inline(always)
     public static func loadInterleaved2(
         from: UnsafePointer<Lane>,
         _ v0: inout Vector,
@@ -834,6 +844,11 @@ public enum HighwayInt32: HighwayElement, HighwayIntegerElement, SendableMetatyp
         span.withUnsafeBufferPointer {
             unsafe HighwayOps.loadFirstWideningI16ToI32($0.baseAddress, $0.count)
         }
+    }
+
+    @export(implementation) @inline(always)
+    public static func repeatingBlock(_ v0: Lane, _ v1: Lane, _ v2: Lane, _ v3: Lane) -> Vector {
+        HighwayOps.repeatingBlockI32(v0, v1, v2, v3)
     }
 
 }

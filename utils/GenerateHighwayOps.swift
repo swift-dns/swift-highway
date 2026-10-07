@@ -122,6 +122,7 @@ enum Parameter {
     case lanePointer
     case count
     case shiftAmount
+    case laneAmount
     case outVector
 }
 
@@ -246,6 +247,8 @@ let ops: [Op] = [
     Op("firstLane", "GetLane", [.vector], .lane, .all),
 
     Op("reversed", "Reverse", [.tag, .vector], .vector, .all),
+    Op("slideUpLanes", "SlideUpLanes", [.tag, .vector, .laneAmount], .vector, .all),
+    Op("slide1Up", "Slide1Up", [.tag, .vector], .vector, .all),
     Op("tableLookupBytes", "TableLookupBytes", [.vector, .vector], .vector, .integer(bits: [8])),
 
     Op(
@@ -322,6 +325,13 @@ func wideningSources(of element: Element) -> [Element] {
 
 func wideningFunctionName(_ op: WideningOp, from narrow: Element, to wide: Element) -> String {
     "\(op.swiftName)\(narrow.suffix)To\(wide.suffix)"
+}
+
+let repeatingBlockName = "repeatingBlock"
+
+/// The parameters of `repeatingBlock`, one per lane of a 128-bit block.
+func repeatingBlockLanes(of element: Element) -> [String] {
+    (0..<(128 / element.bits)).map { "v\($0)" }
 }
 
 struct Binding {
@@ -425,6 +435,17 @@ func bindings(of op: Op, for element: Element) -> [Binding] {
                     argument: "bits",
                     swiftLabel: "by",
                     swiftName: "bits",
+                    swiftType: "Int",
+                    isInOut: false
+                )
+            )
+        case .laneAmount:
+            result.append(
+                Binding(
+                    declaration: "size_t lanes",
+                    argument: "lanes",
+                    swiftLabel: "by",
+                    swiftName: "lanes",
                     swiftType: "Int",
                     isInOut: false
                 )
@@ -569,6 +590,12 @@ func generateHeader() -> String {
                 output += "hn::\(op.highwayName)(\(narrowTag), from\(countArgument))); }\n"
             }
         }
+
+        let blockLanes = repeatingBlockLanes(of: element)
+        output += "HWY_INLINE \(element.vector) \(repeatingBlockName)\(element.suffix)("
+        output += blockLanes.map { "\(element.cType) \($0)" }.joined(separator: ", ")
+        output += ") { return hn::Dup128VecFromValues(\(element.tag)(), "
+        output += "\(blockLanes.joined(separator: ", "))); }\n"
         output += "\n"
     }
 
@@ -1080,6 +1107,15 @@ func generateElement(_ element: Element) -> String {
             available += spanMembers(spanForms(of: op, from: narrow, to: element))
         }
     }
+
+    let blockLanes = repeatingBlockLanes(of: element)
+    available += "    @export(implementation) @inline(always)\n"
+    available += "    public static func \(repeatingBlockName)("
+    available += blockLanes.map { "_ \($0): Lane" }.joined(separator: ", ")
+    available += ") -> Vector {\n"
+    available += "        HighwayOps.\(repeatingBlockName)\(element.suffix)("
+    available += "\(blockLanes.joined(separator: ", ")))\n"
+    available += "    }\n\n"
 
     available += "}\n\n\(unavailableSendableConformance(of: element.namespace))\n"
 

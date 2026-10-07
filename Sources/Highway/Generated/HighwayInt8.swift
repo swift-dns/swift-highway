@@ -412,6 +412,16 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
     }
 
     @export(implementation) @inline(always)
+    public static func slideUpLanes(_ a: Vector, by lanes: Int) -> Vector {
+        HighwayOps.slideUpLanesI8(a, lanes)
+    }
+
+    @export(implementation) @inline(always)
+    public static func slide1Up(_ a: Vector) -> Vector {
+        HighwayOps.slide1UpI8(a)
+    }
+
+    @export(implementation) @inline(always)
     public static func tableLookupBytes(_ a: Vector, _ b: Vector) -> Vector {
         HighwayOps.tableLookupBytesI8(a, b)
     }
@@ -761,6 +771,45 @@ public enum HighwayInt8: HighwayElement, HighwayIntegerElement, SendableMetatype
             )
             initializedCount &+= 4 * laneCount
         }
+    }
+
+    @export(implementation) @inline(always)
+    public static func repeatingBlock(
+        _ v0: Lane,
+        _ v1: Lane,
+        _ v2: Lane,
+        _ v3: Lane,
+        _ v4: Lane,
+        _ v5: Lane,
+        _ v6: Lane,
+        _ v7: Lane,
+        _ v8: Lane,
+        _ v9: Lane,
+        _ v10: Lane,
+        _ v11: Lane,
+        _ v12: Lane,
+        _ v13: Lane,
+        _ v14: Lane,
+        _ v15: Lane
+    ) -> Vector {
+        HighwayOps.repeatingBlockI8(
+            v0,
+            v1,
+            v2,
+            v3,
+            v4,
+            v5,
+            v6,
+            v7,
+            v8,
+            v9,
+            v10,
+            v11,
+            v12,
+            v13,
+            v14,
+            v15
+        )
     }
 
 }
