@@ -62,6 +62,8 @@ HWY_INLINE size_t trueCountU8(MaskU8 mask) { return hn::CountTrue(TagU8(), mask)
 HWY_INLINE intptr_t firstTrueIndexU8(MaskU8 mask) { return hn::FindFirstTrue(TagU8(), mask); }
 HWY_INLINE uint8_t firstLaneU8(VectorU8 a) { return hn::GetLane(a); }
 HWY_INLINE VectorU8 reversedU8(VectorU8 a) { return hn::Reverse(TagU8(), a); }
+HWY_INLINE VectorU8 slideUpLanesU8(VectorU8 a, size_t lanes) { return hn::SlideUpLanes(TagU8(), a, lanes); }
+HWY_INLINE VectorU8 slide1UpU8(VectorU8 a) { return hn::Slide1Up(TagU8(), a); }
 HWY_INLINE VectorU8 tableLookupBytesU8(VectorU8 a, VectorU8 b) { return hn::TableLookupBytes(a, b); }
 HWY_INLINE void loadInterleaved2U8(const uint8_t* from, VectorU8& v0, VectorU8& v1) { hn::LoadInterleaved2(TagU8(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3U8(const uint8_t* from, VectorU8& v0, VectorU8& v1, VectorU8& v2) { hn::LoadInterleaved3(TagU8(), from, v0, v1, v2); }
@@ -69,6 +71,7 @@ HWY_INLINE void loadInterleaved4U8(const uint8_t* from, VectorU8& v0, VectorU8& 
 HWY_INLINE void storeInterleaved2U8(VectorU8 a, VectorU8 b, uint8_t* to) { hn::StoreInterleaved2(a, b, TagU8(), to); }
 HWY_INLINE void storeInterleaved3U8(VectorU8 a, VectorU8 b, VectorU8 c, uint8_t* to) { hn::StoreInterleaved3(a, b, c, TagU8(), to); }
 HWY_INLINE void storeInterleaved4U8(VectorU8 a, VectorU8 b, VectorU8 c, VectorU8 d, uint8_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU8(), to); }
+HWY_INLINE VectorU8 repeatingBlockU8(uint8_t v0, uint8_t v1, uint8_t v2, uint8_t v3, uint8_t v4, uint8_t v5, uint8_t v6, uint8_t v7, uint8_t v8, uint8_t v9, uint8_t v10, uint8_t v11, uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15) { return hn::Dup128VecFromValues(TagU8(), v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15); }
 
 using TagU16 = hn::ScalableTag<uint16_t>;
 using VectorU16 = hn::VFromD<TagU16>;
@@ -115,6 +118,8 @@ HWY_INLINE uint16_t smallestU16(VectorU16 a) { return hn::ReduceMin(TagU16(), a)
 HWY_INLINE uint16_t largestU16(VectorU16 a) { return hn::ReduceMax(TagU16(), a); }
 HWY_INLINE uint16_t firstLaneU16(VectorU16 a) { return hn::GetLane(a); }
 HWY_INLINE VectorU16 reversedU16(VectorU16 a) { return hn::Reverse(TagU16(), a); }
+HWY_INLINE VectorU16 slideUpLanesU16(VectorU16 a, size_t lanes) { return hn::SlideUpLanes(TagU16(), a, lanes); }
+HWY_INLINE VectorU16 slide1UpU16(VectorU16 a) { return hn::Slide1Up(TagU16(), a); }
 HWY_INLINE void loadInterleaved2U16(const uint16_t* from, VectorU16& v0, VectorU16& v1) { hn::LoadInterleaved2(TagU16(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3U16(const uint16_t* from, VectorU16& v0, VectorU16& v1, VectorU16& v2) { hn::LoadInterleaved3(TagU16(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4U16(const uint16_t* from, VectorU16& v0, VectorU16& v1, VectorU16& v2, VectorU16& v3) { hn::LoadInterleaved4(TagU16(), from, v0, v1, v2, v3); }
@@ -123,6 +128,7 @@ HWY_INLINE void storeInterleaved3U16(VectorU16 a, VectorU16 b, VectorU16 c, uint
 HWY_INLINE void storeInterleaved4U16(VectorU16 a, VectorU16 b, VectorU16 c, VectorU16 d, uint16_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU16(), to); }
 HWY_INLINE VectorU16 loadWideningU8ToU16(const uint8_t* from) { return hn::PromoteTo(TagU16(), hn::LoadU(hn::Rebind<uint8_t, TagU16>(), from)); }
 HWY_INLINE VectorU16 loadFirstWideningU8ToU16(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU16(), hn::LoadN(hn::Rebind<uint8_t, TagU16>(), from, count)); }
+HWY_INLINE VectorU16 repeatingBlockU16(uint16_t v0, uint16_t v1, uint16_t v2, uint16_t v3, uint16_t v4, uint16_t v5, uint16_t v6, uint16_t v7) { return hn::Dup128VecFromValues(TagU16(), v0, v1, v2, v3, v4, v5, v6, v7); }
 
 using TagU32 = hn::ScalableTag<uint32_t>;
 using VectorU32 = hn::VFromD<TagU32>;
@@ -166,6 +172,8 @@ HWY_INLINE uint32_t smallestU32(VectorU32 a) { return hn::ReduceMin(TagU32(), a)
 HWY_INLINE uint32_t largestU32(VectorU32 a) { return hn::ReduceMax(TagU32(), a); }
 HWY_INLINE uint32_t firstLaneU32(VectorU32 a) { return hn::GetLane(a); }
 HWY_INLINE VectorU32 reversedU32(VectorU32 a) { return hn::Reverse(TagU32(), a); }
+HWY_INLINE VectorU32 slideUpLanesU32(VectorU32 a, size_t lanes) { return hn::SlideUpLanes(TagU32(), a, lanes); }
+HWY_INLINE VectorU32 slide1UpU32(VectorU32 a) { return hn::Slide1Up(TagU32(), a); }
 HWY_INLINE void loadInterleaved2U32(const uint32_t* from, VectorU32& v0, VectorU32& v1) { hn::LoadInterleaved2(TagU32(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3U32(const uint32_t* from, VectorU32& v0, VectorU32& v1, VectorU32& v2) { hn::LoadInterleaved3(TagU32(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4U32(const uint32_t* from, VectorU32& v0, VectorU32& v1, VectorU32& v2, VectorU32& v3) { hn::LoadInterleaved4(TagU32(), from, v0, v1, v2, v3); }
@@ -176,6 +184,7 @@ HWY_INLINE VectorU32 loadWideningU8ToU32(const uint8_t* from) { return hn::Promo
 HWY_INLINE VectorU32 loadWideningU16ToU32(const uint16_t* from) { return hn::PromoteTo(TagU32(), hn::LoadU(hn::Rebind<uint16_t, TagU32>(), from)); }
 HWY_INLINE VectorU32 loadFirstWideningU8ToU32(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU32(), hn::LoadN(hn::Rebind<uint8_t, TagU32>(), from, count)); }
 HWY_INLINE VectorU32 loadFirstWideningU16ToU32(const uint16_t* from, size_t count) { return hn::PromoteTo(TagU32(), hn::LoadN(hn::Rebind<uint16_t, TagU32>(), from, count)); }
+HWY_INLINE VectorU32 repeatingBlockU32(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3) { return hn::Dup128VecFromValues(TagU32(), v0, v1, v2, v3); }
 
 using TagU64 = hn::ScalableTag<uint64_t>;
 using VectorU64 = hn::VFromD<TagU64>;
@@ -219,6 +228,8 @@ HWY_INLINE uint64_t smallestU64(VectorU64 a) { return hn::ReduceMin(TagU64(), a)
 HWY_INLINE uint64_t largestU64(VectorU64 a) { return hn::ReduceMax(TagU64(), a); }
 HWY_INLINE uint64_t firstLaneU64(VectorU64 a) { return hn::GetLane(a); }
 HWY_INLINE VectorU64 reversedU64(VectorU64 a) { return hn::Reverse(TagU64(), a); }
+HWY_INLINE VectorU64 slideUpLanesU64(VectorU64 a, size_t lanes) { return hn::SlideUpLanes(TagU64(), a, lanes); }
+HWY_INLINE VectorU64 slide1UpU64(VectorU64 a) { return hn::Slide1Up(TagU64(), a); }
 HWY_INLINE void loadInterleaved2U64(const uint64_t* from, VectorU64& v0, VectorU64& v1) { hn::LoadInterleaved2(TagU64(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3U64(const uint64_t* from, VectorU64& v0, VectorU64& v1, VectorU64& v2) { hn::LoadInterleaved3(TagU64(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4U64(const uint64_t* from, VectorU64& v0, VectorU64& v1, VectorU64& v2, VectorU64& v3) { hn::LoadInterleaved4(TagU64(), from, v0, v1, v2, v3); }
@@ -231,6 +242,7 @@ HWY_INLINE VectorU64 loadWideningU32ToU64(const uint32_t* from) { return hn::Pro
 HWY_INLINE VectorU64 loadFirstWideningU8ToU64(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint8_t, TagU64>(), from, count)); }
 HWY_INLINE VectorU64 loadFirstWideningU16ToU64(const uint16_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint16_t, TagU64>(), from, count)); }
 HWY_INLINE VectorU64 loadFirstWideningU32ToU64(const uint32_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint32_t, TagU64>(), from, count)); }
+HWY_INLINE VectorU64 repeatingBlockU64(uint64_t v0, uint64_t v1) { return hn::Dup128VecFromValues(TagU64(), v0, v1); }
 
 using TagI8 = hn::ScalableTag<int8_t>;
 using VectorI8 = hn::VFromD<TagI8>;
@@ -274,6 +286,8 @@ HWY_INLINE size_t trueCountI8(MaskI8 mask) { return hn::CountTrue(TagI8(), mask)
 HWY_INLINE intptr_t firstTrueIndexI8(MaskI8 mask) { return hn::FindFirstTrue(TagI8(), mask); }
 HWY_INLINE int8_t firstLaneI8(VectorI8 a) { return hn::GetLane(a); }
 HWY_INLINE VectorI8 reversedI8(VectorI8 a) { return hn::Reverse(TagI8(), a); }
+HWY_INLINE VectorI8 slideUpLanesI8(VectorI8 a, size_t lanes) { return hn::SlideUpLanes(TagI8(), a, lanes); }
+HWY_INLINE VectorI8 slide1UpI8(VectorI8 a) { return hn::Slide1Up(TagI8(), a); }
 HWY_INLINE VectorI8 tableLookupBytesI8(VectorI8 a, VectorI8 b) { return hn::TableLookupBytes(a, b); }
 HWY_INLINE void loadInterleaved2I8(const int8_t* from, VectorI8& v0, VectorI8& v1) { hn::LoadInterleaved2(TagI8(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3I8(const int8_t* from, VectorI8& v0, VectorI8& v1, VectorI8& v2) { hn::LoadInterleaved3(TagI8(), from, v0, v1, v2); }
@@ -281,6 +295,7 @@ HWY_INLINE void loadInterleaved4I8(const int8_t* from, VectorI8& v0, VectorI8& v
 HWY_INLINE void storeInterleaved2I8(VectorI8 a, VectorI8 b, int8_t* to) { hn::StoreInterleaved2(a, b, TagI8(), to); }
 HWY_INLINE void storeInterleaved3I8(VectorI8 a, VectorI8 b, VectorI8 c, int8_t* to) { hn::StoreInterleaved3(a, b, c, TagI8(), to); }
 HWY_INLINE void storeInterleaved4I8(VectorI8 a, VectorI8 b, VectorI8 c, VectorI8 d, int8_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI8(), to); }
+HWY_INLINE VectorI8 repeatingBlockI8(int8_t v0, int8_t v1, int8_t v2, int8_t v3, int8_t v4, int8_t v5, int8_t v6, int8_t v7, int8_t v8, int8_t v9, int8_t v10, int8_t v11, int8_t v12, int8_t v13, int8_t v14, int8_t v15) { return hn::Dup128VecFromValues(TagI8(), v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15); }
 
 using TagI16 = hn::ScalableTag<int16_t>;
 using VectorI16 = hn::VFromD<TagI16>;
@@ -328,6 +343,8 @@ HWY_INLINE int16_t smallestI16(VectorI16 a) { return hn::ReduceMin(TagI16(), a);
 HWY_INLINE int16_t largestI16(VectorI16 a) { return hn::ReduceMax(TagI16(), a); }
 HWY_INLINE int16_t firstLaneI16(VectorI16 a) { return hn::GetLane(a); }
 HWY_INLINE VectorI16 reversedI16(VectorI16 a) { return hn::Reverse(TagI16(), a); }
+HWY_INLINE VectorI16 slideUpLanesI16(VectorI16 a, size_t lanes) { return hn::SlideUpLanes(TagI16(), a, lanes); }
+HWY_INLINE VectorI16 slide1UpI16(VectorI16 a) { return hn::Slide1Up(TagI16(), a); }
 HWY_INLINE void loadInterleaved2I16(const int16_t* from, VectorI16& v0, VectorI16& v1) { hn::LoadInterleaved2(TagI16(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3I16(const int16_t* from, VectorI16& v0, VectorI16& v1, VectorI16& v2) { hn::LoadInterleaved3(TagI16(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4I16(const int16_t* from, VectorI16& v0, VectorI16& v1, VectorI16& v2, VectorI16& v3) { hn::LoadInterleaved4(TagI16(), from, v0, v1, v2, v3); }
@@ -336,6 +353,7 @@ HWY_INLINE void storeInterleaved3I16(VectorI16 a, VectorI16 b, VectorI16 c, int1
 HWY_INLINE void storeInterleaved4I16(VectorI16 a, VectorI16 b, VectorI16 c, VectorI16 d, int16_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI16(), to); }
 HWY_INLINE VectorI16 loadWideningI8ToI16(const int8_t* from) { return hn::PromoteTo(TagI16(), hn::LoadU(hn::Rebind<int8_t, TagI16>(), from)); }
 HWY_INLINE VectorI16 loadFirstWideningI8ToI16(const int8_t* from, size_t count) { return hn::PromoteTo(TagI16(), hn::LoadN(hn::Rebind<int8_t, TagI16>(), from, count)); }
+HWY_INLINE VectorI16 repeatingBlockI16(int16_t v0, int16_t v1, int16_t v2, int16_t v3, int16_t v4, int16_t v5, int16_t v6, int16_t v7) { return hn::Dup128VecFromValues(TagI16(), v0, v1, v2, v3, v4, v5, v6, v7); }
 
 using TagI32 = hn::ScalableTag<int32_t>;
 using VectorI32 = hn::VFromD<TagI32>;
@@ -381,6 +399,8 @@ HWY_INLINE int32_t smallestI32(VectorI32 a) { return hn::ReduceMin(TagI32(), a);
 HWY_INLINE int32_t largestI32(VectorI32 a) { return hn::ReduceMax(TagI32(), a); }
 HWY_INLINE int32_t firstLaneI32(VectorI32 a) { return hn::GetLane(a); }
 HWY_INLINE VectorI32 reversedI32(VectorI32 a) { return hn::Reverse(TagI32(), a); }
+HWY_INLINE VectorI32 slideUpLanesI32(VectorI32 a, size_t lanes) { return hn::SlideUpLanes(TagI32(), a, lanes); }
+HWY_INLINE VectorI32 slide1UpI32(VectorI32 a) { return hn::Slide1Up(TagI32(), a); }
 HWY_INLINE void loadInterleaved2I32(const int32_t* from, VectorI32& v0, VectorI32& v1) { hn::LoadInterleaved2(TagI32(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3I32(const int32_t* from, VectorI32& v0, VectorI32& v1, VectorI32& v2) { hn::LoadInterleaved3(TagI32(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4I32(const int32_t* from, VectorI32& v0, VectorI32& v1, VectorI32& v2, VectorI32& v3) { hn::LoadInterleaved4(TagI32(), from, v0, v1, v2, v3); }
@@ -391,6 +411,7 @@ HWY_INLINE VectorI32 loadWideningI8ToI32(const int8_t* from) { return hn::Promot
 HWY_INLINE VectorI32 loadWideningI16ToI32(const int16_t* from) { return hn::PromoteTo(TagI32(), hn::LoadU(hn::Rebind<int16_t, TagI32>(), from)); }
 HWY_INLINE VectorI32 loadFirstWideningI8ToI32(const int8_t* from, size_t count) { return hn::PromoteTo(TagI32(), hn::LoadN(hn::Rebind<int8_t, TagI32>(), from, count)); }
 HWY_INLINE VectorI32 loadFirstWideningI16ToI32(const int16_t* from, size_t count) { return hn::PromoteTo(TagI32(), hn::LoadN(hn::Rebind<int16_t, TagI32>(), from, count)); }
+HWY_INLINE VectorI32 repeatingBlockI32(int32_t v0, int32_t v1, int32_t v2, int32_t v3) { return hn::Dup128VecFromValues(TagI32(), v0, v1, v2, v3); }
 
 using TagI64 = hn::ScalableTag<int64_t>;
 using VectorI64 = hn::VFromD<TagI64>;
@@ -436,6 +457,8 @@ HWY_INLINE int64_t smallestI64(VectorI64 a) { return hn::ReduceMin(TagI64(), a);
 HWY_INLINE int64_t largestI64(VectorI64 a) { return hn::ReduceMax(TagI64(), a); }
 HWY_INLINE int64_t firstLaneI64(VectorI64 a) { return hn::GetLane(a); }
 HWY_INLINE VectorI64 reversedI64(VectorI64 a) { return hn::Reverse(TagI64(), a); }
+HWY_INLINE VectorI64 slideUpLanesI64(VectorI64 a, size_t lanes) { return hn::SlideUpLanes(TagI64(), a, lanes); }
+HWY_INLINE VectorI64 slide1UpI64(VectorI64 a) { return hn::Slide1Up(TagI64(), a); }
 HWY_INLINE void loadInterleaved2I64(const int64_t* from, VectorI64& v0, VectorI64& v1) { hn::LoadInterleaved2(TagI64(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3I64(const int64_t* from, VectorI64& v0, VectorI64& v1, VectorI64& v2) { hn::LoadInterleaved3(TagI64(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4I64(const int64_t* from, VectorI64& v0, VectorI64& v1, VectorI64& v2, VectorI64& v3) { hn::LoadInterleaved4(TagI64(), from, v0, v1, v2, v3); }
@@ -448,6 +471,7 @@ HWY_INLINE VectorI64 loadWideningI32ToI64(const int32_t* from) { return hn::Prom
 HWY_INLINE VectorI64 loadFirstWideningI8ToI64(const int8_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int8_t, TagI64>(), from, count)); }
 HWY_INLINE VectorI64 loadFirstWideningI16ToI64(const int16_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int16_t, TagI64>(), from, count)); }
 HWY_INLINE VectorI64 loadFirstWideningI32ToI64(const int32_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int32_t, TagI64>(), from, count)); }
+HWY_INLINE VectorI64 repeatingBlockI64(int64_t v0, int64_t v1) { return hn::Dup128VecFromValues(TagI64(), v0, v1); }
 
 using TagF32 = hn::ScalableTag<float>;
 using VectorF32 = hn::VFromD<TagF32>;
@@ -489,12 +513,15 @@ HWY_INLINE float smallestF32(VectorF32 a) { return hn::ReduceMin(TagF32(), a); }
 HWY_INLINE float largestF32(VectorF32 a) { return hn::ReduceMax(TagF32(), a); }
 HWY_INLINE float firstLaneF32(VectorF32 a) { return hn::GetLane(a); }
 HWY_INLINE VectorF32 reversedF32(VectorF32 a) { return hn::Reverse(TagF32(), a); }
+HWY_INLINE VectorF32 slideUpLanesF32(VectorF32 a, size_t lanes) { return hn::SlideUpLanes(TagF32(), a, lanes); }
+HWY_INLINE VectorF32 slide1UpF32(VectorF32 a) { return hn::Slide1Up(TagF32(), a); }
 HWY_INLINE void loadInterleaved2F32(const float* from, VectorF32& v0, VectorF32& v1) { hn::LoadInterleaved2(TagF32(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3F32(const float* from, VectorF32& v0, VectorF32& v1, VectorF32& v2) { hn::LoadInterleaved3(TagF32(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4F32(const float* from, VectorF32& v0, VectorF32& v1, VectorF32& v2, VectorF32& v3) { hn::LoadInterleaved4(TagF32(), from, v0, v1, v2, v3); }
 HWY_INLINE void storeInterleaved2F32(VectorF32 a, VectorF32 b, float* to) { hn::StoreInterleaved2(a, b, TagF32(), to); }
 HWY_INLINE void storeInterleaved3F32(VectorF32 a, VectorF32 b, VectorF32 c, float* to) { hn::StoreInterleaved3(a, b, c, TagF32(), to); }
 HWY_INLINE void storeInterleaved4F32(VectorF32 a, VectorF32 b, VectorF32 c, VectorF32 d, float* to) { hn::StoreInterleaved4(a, b, c, d, TagF32(), to); }
+HWY_INLINE VectorF32 repeatingBlockF32(float v0, float v1, float v2, float v3) { return hn::Dup128VecFromValues(TagF32(), v0, v1, v2, v3); }
 
 using TagF64 = hn::ScalableTag<double>;
 using VectorF64 = hn::VFromD<TagF64>;
@@ -536,6 +563,8 @@ HWY_INLINE double smallestF64(VectorF64 a) { return hn::ReduceMin(TagF64(), a); 
 HWY_INLINE double largestF64(VectorF64 a) { return hn::ReduceMax(TagF64(), a); }
 HWY_INLINE double firstLaneF64(VectorF64 a) { return hn::GetLane(a); }
 HWY_INLINE VectorF64 reversedF64(VectorF64 a) { return hn::Reverse(TagF64(), a); }
+HWY_INLINE VectorF64 slideUpLanesF64(VectorF64 a, size_t lanes) { return hn::SlideUpLanes(TagF64(), a, lanes); }
+HWY_INLINE VectorF64 slide1UpF64(VectorF64 a) { return hn::Slide1Up(TagF64(), a); }
 HWY_INLINE void loadInterleaved2F64(const double* from, VectorF64& v0, VectorF64& v1) { hn::LoadInterleaved2(TagF64(), from, v0, v1); }
 HWY_INLINE void loadInterleaved3F64(const double* from, VectorF64& v0, VectorF64& v1, VectorF64& v2) { hn::LoadInterleaved3(TagF64(), from, v0, v1, v2); }
 HWY_INLINE void loadInterleaved4F64(const double* from, VectorF64& v0, VectorF64& v1, VectorF64& v2, VectorF64& v3) { hn::LoadInterleaved4(TagF64(), from, v0, v1, v2, v3); }
@@ -544,6 +573,7 @@ HWY_INLINE void storeInterleaved3F64(VectorF64 a, VectorF64 b, VectorF64 c, doub
 HWY_INLINE void storeInterleaved4F64(VectorF64 a, VectorF64 b, VectorF64 c, VectorF64 d, double* to) { hn::StoreInterleaved4(a, b, c, d, TagF64(), to); }
 HWY_INLINE VectorF64 loadWideningF32ToF64(const float* from) { return hn::PromoteTo(TagF64(), hn::LoadU(hn::Rebind<float, TagF64>(), from)); }
 HWY_INLINE VectorF64 loadFirstWideningF32ToF64(const float* from, size_t count) { return hn::PromoteTo(TagF64(), hn::LoadN(hn::Rebind<float, TagF64>(), from, count)); }
+HWY_INLINE VectorF64 repeatingBlockF64(double v0, double v1) { return hn::Dup128VecFromValues(TagF64(), v0, v1); }
 
 }  // namespace HighwayOps
 

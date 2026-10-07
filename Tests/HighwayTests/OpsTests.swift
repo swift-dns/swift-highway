@@ -113,6 +113,63 @@ struct OpsTests {
         #expect(largest == a.max())
     }
 
+    @Test("A repeated block fills every 128-bit block with its lanes")
+    func repeatingBlock() {
+        typealias H = HighwayUInt8
+        typealias D = HighwayDouble
+        var output = ContiguousArray<UInt8>(repeating: 0, count: H.laneCount)
+        var doubles = ContiguousArray<Double>(repeating: 0, count: D.laneCount)
+
+        var destination = output.mutableSpan
+        H.store(
+            H.repeatingBlock(
+                0x10,
+                0x11,
+                0x12,
+                0x13,
+                0x14,
+                0x15,
+                0x16,
+                0x17,
+                0x18,
+                0x19,
+                0x1A,
+                0x1B,
+                0x1C,
+                0x1D,
+                0x1E,
+                0x1F
+            ),
+            to: &destination
+        )
+        var doubleDestination = doubles.mutableSpan
+        D.store(D.repeatingBlock(-0.5, 2.25), to: &doubleDestination)
+
+        #expect(Array(output) == (0..<H.laneCount).map { UInt8(0x10 + $0 % 16) })
+        #expect(Array(doubles) == (0..<D.laneCount).map { $0 % 2 == 0 ? -0.5 : 2.25 })
+    }
+
+    @Test("A slide up moves the lanes up and zeroes the lanes it leaves behind")
+    func slideUp() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        let input = ContiguousArray((0..<lanes).map { UInt8($0 &+ 1) })
+        let vector = H.load(from: input.span)
+
+        for amount in 0..<lanes {
+            var output = ContiguousArray<UInt8>(repeating: 0xEE, count: lanes)
+            var destination = output.mutableSpan
+            H.store(H.slideUpLanes(vector, by: amount), to: &destination)
+            #expect(Array(output.prefix(amount)) == [UInt8](repeating: 0, count: amount))
+            #expect(Array(output.dropFirst(amount)) == Array(input.prefix(lanes - amount)))
+        }
+
+        var output = ContiguousArray<UInt8>(repeating: 0xEE, count: lanes)
+        var destination = output.mutableSpan
+        H.store(H.slide1Up(vector), to: &destination)
+        #expect(Array(output) == [0] + Array(input.prefix(lanes - 1)))
+    }
+
     @Test("A partial load only reads the lanes it is asked for")
     func partialLoad() {
         typealias H = HighwayUInt8

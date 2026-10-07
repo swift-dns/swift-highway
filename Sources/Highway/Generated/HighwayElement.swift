@@ -100,6 +100,8 @@ public protocol HighwayElement {
     static func firstTrueIndex(_ mask: Mask) -> Int
     static func firstLane(_ a: Vector) -> Lane
     static func reversed(_ a: Vector) -> Vector
+    static func slideUpLanes(_ a: Vector, by lanes: Int) -> Vector
+    static func slide1Up(_ a: Vector) -> Vector
     static func loadInterleaved2(from: UnsafePointer<Lane>, _ v0: inout Vector, _ v1: inout Vector)
     @available(SwiftStdlib 5.1, *)
     static func loadInterleaved2(from span: Span<Lane>, _ v0: inout Vector, _ v1: inout Vector)
