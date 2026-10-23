@@ -1,4 +1,3 @@
-#if !$Embedded && !os(WASI)
 import Highway
 import Testing
 
@@ -638,4 +637,3 @@ struct OpsTests {
     }
     #endif
 }
-#endif

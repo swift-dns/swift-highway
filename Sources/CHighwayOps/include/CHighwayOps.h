@@ -3,578 +3,2315 @@
 #ifndef SWIFT_HIGHWAY_OPS_H
 #define SWIFT_HIGHWAY_OPS_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-// HWY_DISABLED_TARGETS is set by the build, see Package.swift.
-#include "hwy/highway.h"
+#define CHIGHWAY_OPS_INLINE static inline __attribute__((always_inline))
 
-namespace HighwayOps {
-namespace hn = hwy::HWY_NAMESPACE;
+#if defined(CHIGHWAY_OPS_PORTABLE)
+#define CHIGHWAY_OPS_NEON 0
+#define CHIGHWAY_OPS_X86 0
+#elif defined(__aarch64__)
+#define CHIGHWAY_OPS_NEON 1
+#define CHIGHWAY_OPS_X86 0
+#elif defined(__SSE4_2__)
+#define CHIGHWAY_OPS_NEON 0
+#define CHIGHWAY_OPS_X86 3
+#elif defined(__SSSE3__)
+#define CHIGHWAY_OPS_NEON 0
+#define CHIGHWAY_OPS_X86 2
+#elif defined(__SSE2__)
+#define CHIGHWAY_OPS_NEON 0
+#define CHIGHWAY_OPS_X86 1
+#else
+#define CHIGHWAY_OPS_NEON 0
+#define CHIGHWAY_OPS_X86 0
+#endif
 
-/// Whether the static target only emulates vectors, in which case a caller is better off
+/// Whether the target only emulates vectors, in which case a caller is better off
 /// with its own scalar code.
-HWY_INLINE bool isEmulated() {
-  return HWY_TARGET == HWY_SCALAR || HWY_TARGET == HWY_EMU128;
+CHIGHWAY_OPS_INLINE bool chighway_ops_is_emulated(void) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 || defined(__ARM_NEON) || defined(__SSE2__) || \
+    defined(__ALTIVEC__) || defined(__VEC__) || defined(__loongarch_sx) ||               \
+    defined(__wasm_simd128__) || defined(__riscv_v)
+  return false;
+#else
+  return true;
+#endif
 }
 
 /// The name of the target the ops below were compiled for.
-HWY_INLINE const char* targetName() { return hwy::TargetName(HWY_TARGET); }
+CHIGHWAY_OPS_INLINE const char* chighway_ops_target_name(void) {
+#if CHIGHWAY_OPS_NEON
+  return "NEON";
+#elif CHIGHWAY_OPS_X86 >= 3
+  return "SSE4";
+#elif CHIGHWAY_OPS_X86 >= 2
+  return "SSSE3";
+#elif CHIGHWAY_OPS_X86 >= 1
+  return "SSE2";
+#else
+  return "EMU128";
+#endif
+}
 
-using TagU8 = hn::ScalableTag<uint8_t>;
-using VectorU8 = hn::VFromD<TagU8>;
-using MaskU8 = hn::MFromD<TagU8>;
-HWY_INLINE size_t laneCountU8() { return hn::Lanes(TagU8()); }
-HWY_INLINE VectorU8 zeroU8() { return hn::Zero(TagU8()); }
-HWY_INLINE VectorU8 repeatingU8(uint8_t value) { return hn::Set(TagU8(), value); }
-HWY_INLINE VectorU8 iotaU8(uint8_t value) { return hn::Iota(TagU8(), value); }
-HWY_INLINE VectorU8 loadU8(const uint8_t* from) { return hn::LoadU(TagU8(), from); }
-HWY_INLINE VectorU8 loadAlignedU8(const uint8_t* from) { return hn::Load(TagU8(), from); }
-HWY_INLINE VectorU8 loadFirstU8(const uint8_t* from, size_t count) { return hn::LoadN(TagU8(), from, count); }
-HWY_INLINE void storeU8(VectorU8 a, uint8_t* to) { hn::StoreU(a, TagU8(), to); }
-HWY_INLINE void storeAlignedU8(VectorU8 a, uint8_t* to) { hn::Store(a, TagU8(), to); }
-HWY_INLINE void storeFirstU8(VectorU8 a, uint8_t* to, size_t count) { hn::StoreN(a, TagU8(), to, count); }
-HWY_INLINE VectorU8 addingU8(VectorU8 a, VectorU8 b) { return hn::Add(a, b); }
-HWY_INLINE VectorU8 subtractingU8(VectorU8 a, VectorU8 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorU8 minimumU8(VectorU8 a, VectorU8 b) { return hn::Min(a, b); }
-HWY_INLINE VectorU8 maximumU8(VectorU8 a, VectorU8 b) { return hn::Max(a, b); }
-HWY_INLINE VectorU8 saturatingAddingU8(VectorU8 a, VectorU8 b) { return hn::SaturatedAdd(a, b); }
-HWY_INLINE VectorU8 saturatingSubtractingU8(VectorU8 a, VectorU8 b) { return hn::SaturatedSub(a, b); }
-HWY_INLINE VectorU8 roundedAverageU8(VectorU8 a, VectorU8 b) { return hn::AverageRound(a, b); }
-HWY_INLINE VectorU8 bitwiseAndU8(VectorU8 a, VectorU8 b) { return hn::And(a, b); }
-HWY_INLINE VectorU8 bitwiseOrU8(VectorU8 a, VectorU8 b) { return hn::Or(a, b); }
-HWY_INLINE VectorU8 bitwiseXorU8(VectorU8 a, VectorU8 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorU8 bitwiseNotU8(VectorU8 a) { return hn::Not(a); }
-HWY_INLINE VectorU8 bitwiseAndNotU8(VectorU8 a, VectorU8 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorU8 shiftedLeftU8(VectorU8 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorU8 shiftedRightU8(VectorU8 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskU8 equalToU8(VectorU8 a, VectorU8 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskU8 notEqualToU8(VectorU8 a, VectorU8 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskU8 lessThanU8(VectorU8 a, VectorU8 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskU8 greaterThanU8(VectorU8 a, VectorU8 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorU8 selectingU8(MaskU8 mask, VectorU8 a, VectorU8 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorU8 selectingOrZeroU8(MaskU8 mask, VectorU8 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorU8 zeroingSelectedU8(MaskU8 mask, VectorU8 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskU8 firstLanesU8(size_t count) { return hn::FirstN(TagU8(), count); }
-HWY_INLINE bool allTrueU8(MaskU8 mask) { return hn::AllTrue(TagU8(), mask); }
-HWY_INLINE bool allFalseU8(MaskU8 mask) { return hn::AllFalse(TagU8(), mask); }
-HWY_INLINE size_t trueCountU8(MaskU8 mask) { return hn::CountTrue(TagU8(), mask); }
-HWY_INLINE intptr_t firstTrueIndexU8(MaskU8 mask) { return hn::FindFirstTrue(TagU8(), mask); }
-HWY_INLINE uint8_t firstLaneU8(VectorU8 a) { return hn::GetLane(a); }
-HWY_INLINE VectorU8 reversedU8(VectorU8 a) { return hn::Reverse(TagU8(), a); }
-HWY_INLINE VectorU8 slideUpLanesU8(VectorU8 a, size_t lanes) { return hn::SlideUpLanes(TagU8(), a, lanes); }
-HWY_INLINE VectorU8 slide1UpU8(VectorU8 a) { return hn::Slide1Up(TagU8(), a); }
-HWY_INLINE VectorU8 tableLookupBytesU8(VectorU8 a, VectorU8 b) { return hn::TableLookupBytes(a, b); }
-HWY_INLINE void loadInterleaved2U8(const uint8_t* from, VectorU8& v0, VectorU8& v1) { hn::LoadInterleaved2(TagU8(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3U8(const uint8_t* from, VectorU8& v0, VectorU8& v1, VectorU8& v2) { hn::LoadInterleaved3(TagU8(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4U8(const uint8_t* from, VectorU8& v0, VectorU8& v1, VectorU8& v2, VectorU8& v3) { hn::LoadInterleaved4(TagU8(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2U8(VectorU8 a, VectorU8 b, uint8_t* to) { hn::StoreInterleaved2(a, b, TagU8(), to); }
-HWY_INLINE void storeInterleaved3U8(VectorU8 a, VectorU8 b, VectorU8 c, uint8_t* to) { hn::StoreInterleaved3(a, b, c, TagU8(), to); }
-HWY_INLINE void storeInterleaved4U8(VectorU8 a, VectorU8 b, VectorU8 c, VectorU8 d, uint8_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU8(), to); }
-HWY_INLINE VectorU8 repeatingBlockU8(uint8_t v0, uint8_t v1, uint8_t v2, uint8_t v3, uint8_t v4, uint8_t v5, uint8_t v6, uint8_t v7, uint8_t v8, uint8_t v9, uint8_t v10, uint8_t v11, uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15) { return hn::Dup128VecFromValues(TagU8(), v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15); }
+typedef uint8_t chighway_ops_vector_u8 __attribute__((vector_size(16)));
+typedef int8_t chighway_ops_mask_u8 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_u8(void) {
+  return 16;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_zero_u8(void) {
+  return (chighway_ops_vector_u8){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_repeating_u8(uint8_t value) {
+  return (chighway_ops_vector_u8){value, value, value, value, value, value, value, value, value, value, value, value, value, value, value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_iota_u8(uint8_t value) {
+  return (chighway_ops_vector_u8){value, value, value, value, value, value, value, value, value, value, value, value, value, value, value, value} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_load_u8(const uint8_t* from) {
+  chighway_ops_vector_u8 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_load_aligned_u8(const uint8_t* from) {
+  chighway_ops_vector_u8 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_load_first_u8(const uint8_t* from, size_t count) {
+  chighway_ops_vector_u8 v = {0};
+  __builtin_memcpy(&v, from, (count < 16 ? count : 16) * sizeof(uint8_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_u8(chighway_ops_vector_u8 a, uint8_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u8(chighway_ops_vector_u8 a, uint8_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u8(chighway_ops_vector_u8 a, uint8_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 16 ? count : 16) * sizeof(uint8_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_adding_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return a + b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_subtracting_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return a - b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_minimum_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_maximum_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_saturating_adding_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return __builtin_elementwise_add_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_saturating_subtracting_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return __builtin_elementwise_sub_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_rounded_average_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return (a | b) - ((a ^ b) >> 1);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_bitwise_and_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_bitwise_or_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_bitwise_xor_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_bitwise_not_u8(chighway_ops_vector_u8 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_bitwise_and_not_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_shifted_left_u8(chighway_ops_vector_u8 a, int bits) {
+  if (bits < 0 || bits >= 8) {
+    return (chighway_ops_vector_u8){0};
+  }
+  return a << bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_shifted_right_u8(chighway_ops_vector_u8 a, int bits) {
+  if (bits < 0 || bits >= 8) {
+    return (chighway_ops_vector_u8){0};
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_equal_to_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return (chighway_ops_mask_u8)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_not_equal_to_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return (chighway_ops_mask_u8)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_less_than_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return (chighway_ops_mask_u8)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_greater_than_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return (chighway_ops_mask_u8)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_selecting_u8(chighway_ops_mask_u8 mask, chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  return ((chighway_ops_vector_u8)mask & a) | (~(chighway_ops_vector_u8)mask & b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_selecting_or_zero_u8(chighway_ops_mask_u8 mask, chighway_ops_vector_u8 a) {
+  return (chighway_ops_vector_u8)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_zeroing_selected_u8(chighway_ops_mask_u8 mask, chighway_ops_vector_u8 a) {
+  return ~(chighway_ops_vector_u8)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_first_lanes_u8(size_t count) {
+  const uint8_t n = (uint8_t)(count < 16 ? count : 16);
+  return (chighway_ops_mask_u8)((chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15} < (chighway_ops_vector_u8){n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u8(chighway_ops_mask_u8 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u8(chighway_ops_mask_u8 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u8(chighway_ops_mask_u8 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u8(chighway_ops_mask_u8 mask) {
+  for (size_t i = 0; i < 16; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE uint8_t chighway_ops_first_lane_u8(chighway_ops_vector_u8 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_reversed_u8(chighway_ops_vector_u8 a) {
+  return __builtin_shufflevector(a, a, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_slide_up_lanes_u8(chighway_ops_vector_u8 a, size_t lanes) {
+  chighway_ops_vector_u8 result = {0};
+  for (size_t i = lanes; i < 16; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_slide1_up_u8(chighway_ops_vector_u8 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_u8){0}, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_table_lookup_bytes_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+  chighway_ops_vector_u8 result;
+  for (size_t i = 0; i < 16; ++i) {
+    const uint8_t index = (uint8_t)b[i];
+    result[i] = index < 16 ? a[index] : 0;
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u8(const uint8_t* from, chighway_ops_vector_u8* v0, chighway_ops_vector_u8* v1) {
+  chighway_ops_vector_u8 r0, r1;
+  for (size_t i = 0; i < 16; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u8(const uint8_t* from, chighway_ops_vector_u8* v0, chighway_ops_vector_u8* v1, chighway_ops_vector_u8* v2) {
+  chighway_ops_vector_u8 r0, r1, r2;
+  for (size_t i = 0; i < 16; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u8(const uint8_t* from, chighway_ops_vector_u8* v0, chighway_ops_vector_u8* v1, chighway_ops_vector_u8* v2, chighway_ops_vector_u8* v3) {
+  chighway_ops_vector_u8 r0, r1, r2, r3;
+  for (size_t i = 0; i < 16; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b, uint8_t* to) {
+  for (size_t i = 0; i < 16; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b, chighway_ops_vector_u8 c, uint8_t* to) {
+  for (size_t i = 0; i < 16; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b, chighway_ops_vector_u8 c, chighway_ops_vector_u8 d, uint8_t* to) {
+  for (size_t i = 0; i < 16; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_repeating_block_u8(uint8_t v0, uint8_t v1, uint8_t v2, uint8_t v3, uint8_t v4, uint8_t v5, uint8_t v6, uint8_t v7, uint8_t v8, uint8_t v9, uint8_t v10, uint8_t v11, uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15) {
+  return (chighway_ops_vector_u8){v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15};
+}
 
-using TagU16 = hn::ScalableTag<uint16_t>;
-using VectorU16 = hn::VFromD<TagU16>;
-using MaskU16 = hn::MFromD<TagU16>;
-HWY_INLINE size_t laneCountU16() { return hn::Lanes(TagU16()); }
-HWY_INLINE VectorU16 zeroU16() { return hn::Zero(TagU16()); }
-HWY_INLINE VectorU16 repeatingU16(uint16_t value) { return hn::Set(TagU16(), value); }
-HWY_INLINE VectorU16 iotaU16(uint16_t value) { return hn::Iota(TagU16(), value); }
-HWY_INLINE VectorU16 loadU16(const uint16_t* from) { return hn::LoadU(TagU16(), from); }
-HWY_INLINE VectorU16 loadAlignedU16(const uint16_t* from) { return hn::Load(TagU16(), from); }
-HWY_INLINE VectorU16 loadFirstU16(const uint16_t* from, size_t count) { return hn::LoadN(TagU16(), from, count); }
-HWY_INLINE void storeU16(VectorU16 a, uint16_t* to) { hn::StoreU(a, TagU16(), to); }
-HWY_INLINE void storeAlignedU16(VectorU16 a, uint16_t* to) { hn::Store(a, TagU16(), to); }
-HWY_INLINE void storeFirstU16(VectorU16 a, uint16_t* to, size_t count) { hn::StoreN(a, TagU16(), to, count); }
-HWY_INLINE VectorU16 addingU16(VectorU16 a, VectorU16 b) { return hn::Add(a, b); }
-HWY_INLINE VectorU16 subtractingU16(VectorU16 a, VectorU16 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorU16 multiplyingU16(VectorU16 a, VectorU16 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorU16 minimumU16(VectorU16 a, VectorU16 b) { return hn::Min(a, b); }
-HWY_INLINE VectorU16 maximumU16(VectorU16 a, VectorU16 b) { return hn::Max(a, b); }
-HWY_INLINE VectorU16 saturatingAddingU16(VectorU16 a, VectorU16 b) { return hn::SaturatedAdd(a, b); }
-HWY_INLINE VectorU16 saturatingSubtractingU16(VectorU16 a, VectorU16 b) { return hn::SaturatedSub(a, b); }
-HWY_INLINE VectorU16 roundedAverageU16(VectorU16 a, VectorU16 b) { return hn::AverageRound(a, b); }
-HWY_INLINE VectorU16 bitwiseAndU16(VectorU16 a, VectorU16 b) { return hn::And(a, b); }
-HWY_INLINE VectorU16 bitwiseOrU16(VectorU16 a, VectorU16 b) { return hn::Or(a, b); }
-HWY_INLINE VectorU16 bitwiseXorU16(VectorU16 a, VectorU16 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorU16 bitwiseNotU16(VectorU16 a) { return hn::Not(a); }
-HWY_INLINE VectorU16 bitwiseAndNotU16(VectorU16 a, VectorU16 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorU16 shiftedLeftU16(VectorU16 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorU16 shiftedRightU16(VectorU16 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskU16 equalToU16(VectorU16 a, VectorU16 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskU16 notEqualToU16(VectorU16 a, VectorU16 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskU16 lessThanU16(VectorU16 a, VectorU16 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskU16 greaterThanU16(VectorU16 a, VectorU16 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorU16 selectingU16(MaskU16 mask, VectorU16 a, VectorU16 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorU16 selectingOrZeroU16(MaskU16 mask, VectorU16 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorU16 zeroingSelectedU16(MaskU16 mask, VectorU16 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskU16 firstLanesU16(size_t count) { return hn::FirstN(TagU16(), count); }
-HWY_INLINE bool allTrueU16(MaskU16 mask) { return hn::AllTrue(TagU16(), mask); }
-HWY_INLINE bool allFalseU16(MaskU16 mask) { return hn::AllFalse(TagU16(), mask); }
-HWY_INLINE size_t trueCountU16(MaskU16 mask) { return hn::CountTrue(TagU16(), mask); }
-HWY_INLINE intptr_t firstTrueIndexU16(MaskU16 mask) { return hn::FindFirstTrue(TagU16(), mask); }
-HWY_INLINE uint16_t sumU16(VectorU16 a) { return hn::ReduceSum(TagU16(), a); }
-HWY_INLINE uint16_t smallestU16(VectorU16 a) { return hn::ReduceMin(TagU16(), a); }
-HWY_INLINE uint16_t largestU16(VectorU16 a) { return hn::ReduceMax(TagU16(), a); }
-HWY_INLINE uint16_t firstLaneU16(VectorU16 a) { return hn::GetLane(a); }
-HWY_INLINE VectorU16 reversedU16(VectorU16 a) { return hn::Reverse(TagU16(), a); }
-HWY_INLINE VectorU16 slideUpLanesU16(VectorU16 a, size_t lanes) { return hn::SlideUpLanes(TagU16(), a, lanes); }
-HWY_INLINE VectorU16 slide1UpU16(VectorU16 a) { return hn::Slide1Up(TagU16(), a); }
-HWY_INLINE void loadInterleaved2U16(const uint16_t* from, VectorU16& v0, VectorU16& v1) { hn::LoadInterleaved2(TagU16(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3U16(const uint16_t* from, VectorU16& v0, VectorU16& v1, VectorU16& v2) { hn::LoadInterleaved3(TagU16(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4U16(const uint16_t* from, VectorU16& v0, VectorU16& v1, VectorU16& v2, VectorU16& v3) { hn::LoadInterleaved4(TagU16(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2U16(VectorU16 a, VectorU16 b, uint16_t* to) { hn::StoreInterleaved2(a, b, TagU16(), to); }
-HWY_INLINE void storeInterleaved3U16(VectorU16 a, VectorU16 b, VectorU16 c, uint16_t* to) { hn::StoreInterleaved3(a, b, c, TagU16(), to); }
-HWY_INLINE void storeInterleaved4U16(VectorU16 a, VectorU16 b, VectorU16 c, VectorU16 d, uint16_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU16(), to); }
-HWY_INLINE VectorU16 loadWideningU8ToU16(const uint8_t* from) { return hn::PromoteTo(TagU16(), hn::LoadU(hn::Rebind<uint8_t, TagU16>(), from)); }
-HWY_INLINE VectorU16 loadFirstWideningU8ToU16(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU16(), hn::LoadN(hn::Rebind<uint8_t, TagU16>(), from, count)); }
-HWY_INLINE VectorU16 repeatingBlockU16(uint16_t v0, uint16_t v1, uint16_t v2, uint16_t v3, uint16_t v4, uint16_t v5, uint16_t v6, uint16_t v7) { return hn::Dup128VecFromValues(TagU16(), v0, v1, v2, v3, v4, v5, v6, v7); }
+typedef uint16_t chighway_ops_vector_u16 __attribute__((vector_size(16)));
+typedef int16_t chighway_ops_mask_u16 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_u16(void) {
+  return 8;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_zero_u16(void) {
+  return (chighway_ops_vector_u16){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_repeating_u16(uint16_t value) {
+  return (chighway_ops_vector_u16){value, value, value, value, value, value, value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_iota_u16(uint16_t value) {
+  return (chighway_ops_vector_u16){value, value, value, value, value, value, value, value} + (chighway_ops_vector_u16){0, 1, 2, 3, 4, 5, 6, 7};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_u16(const uint16_t* from) {
+  chighway_ops_vector_u16 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_aligned_u16(const uint16_t* from) {
+  chighway_ops_vector_u16 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_first_u16(const uint16_t* from, size_t count) {
+  chighway_ops_vector_u16 v = {0};
+  __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(uint16_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_u16(chighway_ops_vector_u16 a, uint16_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u16(chighway_ops_vector_u16 a, uint16_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u16(chighway_ops_vector_u16 a, uint16_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 8 ? count : 8) * sizeof(uint16_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_adding_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return a + b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_subtracting_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return a - b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_multiplying_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return a * b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_minimum_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_maximum_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_saturating_adding_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return __builtin_elementwise_add_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_saturating_subtracting_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return __builtin_elementwise_sub_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_rounded_average_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return (a | b) - ((a ^ b) >> 1);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_bitwise_and_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_bitwise_or_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_bitwise_xor_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_bitwise_not_u16(chighway_ops_vector_u16 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_bitwise_and_not_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_shifted_left_u16(chighway_ops_vector_u16 a, int bits) {
+  if (bits < 0 || bits >= 16) {
+    return (chighway_ops_vector_u16){0};
+  }
+  return a << bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_shifted_right_u16(chighway_ops_vector_u16 a, int bits) {
+  if (bits < 0 || bits >= 16) {
+    return (chighway_ops_vector_u16){0};
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_equal_to_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return (chighway_ops_mask_u16)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_not_equal_to_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return (chighway_ops_mask_u16)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_less_than_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return (chighway_ops_mask_u16)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_greater_than_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return (chighway_ops_mask_u16)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_selecting_u16(chighway_ops_mask_u16 mask, chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+  return ((chighway_ops_vector_u16)mask & a) | (~(chighway_ops_vector_u16)mask & b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_selecting_or_zero_u16(chighway_ops_mask_u16 mask, chighway_ops_vector_u16 a) {
+  return (chighway_ops_vector_u16)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_zeroing_selected_u16(chighway_ops_mask_u16 mask, chighway_ops_vector_u16 a) {
+  return ~(chighway_ops_vector_u16)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_first_lanes_u16(size_t count) {
+  const uint16_t n = (uint16_t)(count < 8 ? count : 8);
+  return (chighway_ops_mask_u16)((chighway_ops_vector_u16){0, 1, 2, 3, 4, 5, 6, 7} < (chighway_ops_vector_u16){n, n, n, n, n, n, n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u16(chighway_ops_mask_u16 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u16(chighway_ops_mask_u16 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u16(chighway_ops_mask_u16 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u16(chighway_ops_mask_u16 mask) {
+  for (size_t i = 0; i < 8; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE uint16_t chighway_ops_sum_u16(chighway_ops_vector_u16 a) {
+  return __builtin_reduce_add(a);
+}
+CHIGHWAY_OPS_INLINE uint16_t chighway_ops_smallest_u16(chighway_ops_vector_u16 a) {
+  return __builtin_reduce_min(a);
+}
+CHIGHWAY_OPS_INLINE uint16_t chighway_ops_largest_u16(chighway_ops_vector_u16 a) {
+  return __builtin_reduce_max(a);
+}
+CHIGHWAY_OPS_INLINE uint16_t chighway_ops_first_lane_u16(chighway_ops_vector_u16 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_reversed_u16(chighway_ops_vector_u16 a) {
+  return __builtin_shufflevector(a, a, 7, 6, 5, 4, 3, 2, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_slide_up_lanes_u16(chighway_ops_vector_u16 a, size_t lanes) {
+  chighway_ops_vector_u16 result = {0};
+  for (size_t i = lanes; i < 8; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_slide1_up_u16(chighway_ops_vector_u16 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_u16){0}, 8, 0, 1, 2, 3, 4, 5, 6);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u16(const uint16_t* from, chighway_ops_vector_u16* v0, chighway_ops_vector_u16* v1) {
+  chighway_ops_vector_u16 r0, r1;
+  for (size_t i = 0; i < 8; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u16(const uint16_t* from, chighway_ops_vector_u16* v0, chighway_ops_vector_u16* v1, chighway_ops_vector_u16* v2) {
+  chighway_ops_vector_u16 r0, r1, r2;
+  for (size_t i = 0; i < 8; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u16(const uint16_t* from, chighway_ops_vector_u16* v0, chighway_ops_vector_u16* v1, chighway_ops_vector_u16* v2, chighway_ops_vector_u16* v3) {
+  chighway_ops_vector_u16 r0, r1, r2, r3;
+  for (size_t i = 0; i < 8; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b, uint16_t* to) {
+  for (size_t i = 0; i < 8; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b, chighway_ops_vector_u16 c, uint16_t* to) {
+  for (size_t i = 0; i < 8; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b, chighway_ops_vector_u16 c, chighway_ops_vector_u16 d, uint16_t* to) {
+  for (size_t i = 0; i < 8; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_widening_u8_to_u16(const uint8_t* from) {
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_u16);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_first_widening_u8_to_u16(const uint8_t* from, size_t count) {
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(uint8_t));
+  return __builtin_convertvector(v, chighway_ops_vector_u16);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_repeating_block_u16(uint16_t v0, uint16_t v1, uint16_t v2, uint16_t v3, uint16_t v4, uint16_t v5, uint16_t v6, uint16_t v7) {
+  return (chighway_ops_vector_u16){v0, v1, v2, v3, v4, v5, v6, v7};
+}
 
-using TagU32 = hn::ScalableTag<uint32_t>;
-using VectorU32 = hn::VFromD<TagU32>;
-using MaskU32 = hn::MFromD<TagU32>;
-HWY_INLINE size_t laneCountU32() { return hn::Lanes(TagU32()); }
-HWY_INLINE VectorU32 zeroU32() { return hn::Zero(TagU32()); }
-HWY_INLINE VectorU32 repeatingU32(uint32_t value) { return hn::Set(TagU32(), value); }
-HWY_INLINE VectorU32 iotaU32(uint32_t value) { return hn::Iota(TagU32(), value); }
-HWY_INLINE VectorU32 loadU32(const uint32_t* from) { return hn::LoadU(TagU32(), from); }
-HWY_INLINE VectorU32 loadAlignedU32(const uint32_t* from) { return hn::Load(TagU32(), from); }
-HWY_INLINE VectorU32 loadFirstU32(const uint32_t* from, size_t count) { return hn::LoadN(TagU32(), from, count); }
-HWY_INLINE void storeU32(VectorU32 a, uint32_t* to) { hn::StoreU(a, TagU32(), to); }
-HWY_INLINE void storeAlignedU32(VectorU32 a, uint32_t* to) { hn::Store(a, TagU32(), to); }
-HWY_INLINE void storeFirstU32(VectorU32 a, uint32_t* to, size_t count) { hn::StoreN(a, TagU32(), to, count); }
-HWY_INLINE VectorU32 addingU32(VectorU32 a, VectorU32 b) { return hn::Add(a, b); }
-HWY_INLINE VectorU32 subtractingU32(VectorU32 a, VectorU32 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorU32 multiplyingU32(VectorU32 a, VectorU32 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorU32 minimumU32(VectorU32 a, VectorU32 b) { return hn::Min(a, b); }
-HWY_INLINE VectorU32 maximumU32(VectorU32 a, VectorU32 b) { return hn::Max(a, b); }
-HWY_INLINE VectorU32 bitwiseAndU32(VectorU32 a, VectorU32 b) { return hn::And(a, b); }
-HWY_INLINE VectorU32 bitwiseOrU32(VectorU32 a, VectorU32 b) { return hn::Or(a, b); }
-HWY_INLINE VectorU32 bitwiseXorU32(VectorU32 a, VectorU32 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorU32 bitwiseNotU32(VectorU32 a) { return hn::Not(a); }
-HWY_INLINE VectorU32 bitwiseAndNotU32(VectorU32 a, VectorU32 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorU32 shiftedLeftU32(VectorU32 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorU32 shiftedRightU32(VectorU32 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskU32 equalToU32(VectorU32 a, VectorU32 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskU32 notEqualToU32(VectorU32 a, VectorU32 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskU32 lessThanU32(VectorU32 a, VectorU32 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskU32 greaterThanU32(VectorU32 a, VectorU32 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorU32 selectingU32(MaskU32 mask, VectorU32 a, VectorU32 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorU32 selectingOrZeroU32(MaskU32 mask, VectorU32 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorU32 zeroingSelectedU32(MaskU32 mask, VectorU32 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskU32 firstLanesU32(size_t count) { return hn::FirstN(TagU32(), count); }
-HWY_INLINE bool allTrueU32(MaskU32 mask) { return hn::AllTrue(TagU32(), mask); }
-HWY_INLINE bool allFalseU32(MaskU32 mask) { return hn::AllFalse(TagU32(), mask); }
-HWY_INLINE size_t trueCountU32(MaskU32 mask) { return hn::CountTrue(TagU32(), mask); }
-HWY_INLINE intptr_t firstTrueIndexU32(MaskU32 mask) { return hn::FindFirstTrue(TagU32(), mask); }
-HWY_INLINE uint32_t sumU32(VectorU32 a) { return hn::ReduceSum(TagU32(), a); }
-HWY_INLINE uint32_t smallestU32(VectorU32 a) { return hn::ReduceMin(TagU32(), a); }
-HWY_INLINE uint32_t largestU32(VectorU32 a) { return hn::ReduceMax(TagU32(), a); }
-HWY_INLINE uint32_t firstLaneU32(VectorU32 a) { return hn::GetLane(a); }
-HWY_INLINE VectorU32 reversedU32(VectorU32 a) { return hn::Reverse(TagU32(), a); }
-HWY_INLINE VectorU32 slideUpLanesU32(VectorU32 a, size_t lanes) { return hn::SlideUpLanes(TagU32(), a, lanes); }
-HWY_INLINE VectorU32 slide1UpU32(VectorU32 a) { return hn::Slide1Up(TagU32(), a); }
-HWY_INLINE void loadInterleaved2U32(const uint32_t* from, VectorU32& v0, VectorU32& v1) { hn::LoadInterleaved2(TagU32(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3U32(const uint32_t* from, VectorU32& v0, VectorU32& v1, VectorU32& v2) { hn::LoadInterleaved3(TagU32(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4U32(const uint32_t* from, VectorU32& v0, VectorU32& v1, VectorU32& v2, VectorU32& v3) { hn::LoadInterleaved4(TagU32(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2U32(VectorU32 a, VectorU32 b, uint32_t* to) { hn::StoreInterleaved2(a, b, TagU32(), to); }
-HWY_INLINE void storeInterleaved3U32(VectorU32 a, VectorU32 b, VectorU32 c, uint32_t* to) { hn::StoreInterleaved3(a, b, c, TagU32(), to); }
-HWY_INLINE void storeInterleaved4U32(VectorU32 a, VectorU32 b, VectorU32 c, VectorU32 d, uint32_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU32(), to); }
-HWY_INLINE VectorU32 loadWideningU8ToU32(const uint8_t* from) { return hn::PromoteTo(TagU32(), hn::LoadU(hn::Rebind<uint8_t, TagU32>(), from)); }
-HWY_INLINE VectorU32 loadWideningU16ToU32(const uint16_t* from) { return hn::PromoteTo(TagU32(), hn::LoadU(hn::Rebind<uint16_t, TagU32>(), from)); }
-HWY_INLINE VectorU32 loadFirstWideningU8ToU32(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU32(), hn::LoadN(hn::Rebind<uint8_t, TagU32>(), from, count)); }
-HWY_INLINE VectorU32 loadFirstWideningU16ToU32(const uint16_t* from, size_t count) { return hn::PromoteTo(TagU32(), hn::LoadN(hn::Rebind<uint16_t, TagU32>(), from, count)); }
-HWY_INLINE VectorU32 repeatingBlockU32(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3) { return hn::Dup128VecFromValues(TagU32(), v0, v1, v2, v3); }
+typedef uint32_t chighway_ops_vector_u32 __attribute__((vector_size(16)));
+typedef int32_t chighway_ops_mask_u32 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_u32(void) {
+  return 4;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_zero_u32(void) {
+  return (chighway_ops_vector_u32){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_repeating_u32(uint32_t value) {
+  return (chighway_ops_vector_u32){value, value, value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_iota_u32(uint32_t value) {
+  return (chighway_ops_vector_u32){value, value, value, value} + (chighway_ops_vector_u32){0, 1, 2, 3};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_u32(const uint32_t* from) {
+  chighway_ops_vector_u32 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_aligned_u32(const uint32_t* from) {
+  chighway_ops_vector_u32 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_first_u32(const uint32_t* from, size_t count) {
+  chighway_ops_vector_u32 v = {0};
+  __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(uint32_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_u32(chighway_ops_vector_u32 a, uint32_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u32(chighway_ops_vector_u32 a, uint32_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u32(chighway_ops_vector_u32 a, uint32_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 4 ? count : 4) * sizeof(uint32_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_adding_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return a + b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_subtracting_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return a - b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_multiplying_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return a * b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_minimum_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_maximum_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_bitwise_and_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_bitwise_or_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_bitwise_xor_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_bitwise_not_u32(chighway_ops_vector_u32 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_bitwise_and_not_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_shifted_left_u32(chighway_ops_vector_u32 a, int bits) {
+  if (bits < 0 || bits >= 32) {
+    return (chighway_ops_vector_u32){0};
+  }
+  return a << bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_shifted_right_u32(chighway_ops_vector_u32 a, int bits) {
+  if (bits < 0 || bits >= 32) {
+    return (chighway_ops_vector_u32){0};
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_equal_to_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return (chighway_ops_mask_u32)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_not_equal_to_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return (chighway_ops_mask_u32)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_less_than_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return (chighway_ops_mask_u32)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_greater_than_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return (chighway_ops_mask_u32)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_selecting_u32(chighway_ops_mask_u32 mask, chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+  return ((chighway_ops_vector_u32)mask & a) | (~(chighway_ops_vector_u32)mask & b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_selecting_or_zero_u32(chighway_ops_mask_u32 mask, chighway_ops_vector_u32 a) {
+  return (chighway_ops_vector_u32)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_zeroing_selected_u32(chighway_ops_mask_u32 mask, chighway_ops_vector_u32 a) {
+  return ~(chighway_ops_vector_u32)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_first_lanes_u32(size_t count) {
+  const uint32_t n = (uint32_t)(count < 4 ? count : 4);
+  return (chighway_ops_mask_u32)((chighway_ops_vector_u32){0, 1, 2, 3} < (chighway_ops_vector_u32){n, n, n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u32(chighway_ops_mask_u32 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u32(chighway_ops_mask_u32 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u32(chighway_ops_mask_u32 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u32(chighway_ops_mask_u32 mask) {
+  for (size_t i = 0; i < 4; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE uint32_t chighway_ops_sum_u32(chighway_ops_vector_u32 a) {
+  return __builtin_reduce_add(a);
+}
+CHIGHWAY_OPS_INLINE uint32_t chighway_ops_smallest_u32(chighway_ops_vector_u32 a) {
+  return __builtin_reduce_min(a);
+}
+CHIGHWAY_OPS_INLINE uint32_t chighway_ops_largest_u32(chighway_ops_vector_u32 a) {
+  return __builtin_reduce_max(a);
+}
+CHIGHWAY_OPS_INLINE uint32_t chighway_ops_first_lane_u32(chighway_ops_vector_u32 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_reversed_u32(chighway_ops_vector_u32 a) {
+  return __builtin_shufflevector(a, a, 3, 2, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_slide_up_lanes_u32(chighway_ops_vector_u32 a, size_t lanes) {
+  chighway_ops_vector_u32 result = {0};
+  for (size_t i = lanes; i < 4; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_slide1_up_u32(chighway_ops_vector_u32 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_u32){0}, 4, 0, 1, 2);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u32(const uint32_t* from, chighway_ops_vector_u32* v0, chighway_ops_vector_u32* v1) {
+  chighway_ops_vector_u32 r0, r1;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u32(const uint32_t* from, chighway_ops_vector_u32* v0, chighway_ops_vector_u32* v1, chighway_ops_vector_u32* v2) {
+  chighway_ops_vector_u32 r0, r1, r2;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u32(const uint32_t* from, chighway_ops_vector_u32* v0, chighway_ops_vector_u32* v1, chighway_ops_vector_u32* v2, chighway_ops_vector_u32* v3) {
+  chighway_ops_vector_u32 r0, r1, r2, r3;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b, uint32_t* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b, chighway_ops_vector_u32 c, uint32_t* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b, chighway_ops_vector_u32 c, chighway_ops_vector_u32 d, uint32_t* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_widening_u8_to_u32(const uint8_t* from) {
+  typedef uint8_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_u32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_widening_u16_to_u32(const uint16_t* from) {
+  typedef uint16_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_u32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_first_widening_u8_to_u32(const uint8_t* from, size_t count) {
+  typedef uint8_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(uint8_t));
+  return __builtin_convertvector(v, chighway_ops_vector_u32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_first_widening_u16_to_u32(const uint16_t* from, size_t count) {
+  typedef uint16_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(uint16_t));
+  return __builtin_convertvector(v, chighway_ops_vector_u32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_repeating_block_u32(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3) {
+  return (chighway_ops_vector_u32){v0, v1, v2, v3};
+}
 
-using TagU64 = hn::ScalableTag<uint64_t>;
-using VectorU64 = hn::VFromD<TagU64>;
-using MaskU64 = hn::MFromD<TagU64>;
-HWY_INLINE size_t laneCountU64() { return hn::Lanes(TagU64()); }
-HWY_INLINE VectorU64 zeroU64() { return hn::Zero(TagU64()); }
-HWY_INLINE VectorU64 repeatingU64(uint64_t value) { return hn::Set(TagU64(), value); }
-HWY_INLINE VectorU64 iotaU64(uint64_t value) { return hn::Iota(TagU64(), value); }
-HWY_INLINE VectorU64 loadU64(const uint64_t* from) { return hn::LoadU(TagU64(), from); }
-HWY_INLINE VectorU64 loadAlignedU64(const uint64_t* from) { return hn::Load(TagU64(), from); }
-HWY_INLINE VectorU64 loadFirstU64(const uint64_t* from, size_t count) { return hn::LoadN(TagU64(), from, count); }
-HWY_INLINE void storeU64(VectorU64 a, uint64_t* to) { hn::StoreU(a, TagU64(), to); }
-HWY_INLINE void storeAlignedU64(VectorU64 a, uint64_t* to) { hn::Store(a, TagU64(), to); }
-HWY_INLINE void storeFirstU64(VectorU64 a, uint64_t* to, size_t count) { hn::StoreN(a, TagU64(), to, count); }
-HWY_INLINE VectorU64 addingU64(VectorU64 a, VectorU64 b) { return hn::Add(a, b); }
-HWY_INLINE VectorU64 subtractingU64(VectorU64 a, VectorU64 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorU64 multiplyingU64(VectorU64 a, VectorU64 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorU64 minimumU64(VectorU64 a, VectorU64 b) { return hn::Min(a, b); }
-HWY_INLINE VectorU64 maximumU64(VectorU64 a, VectorU64 b) { return hn::Max(a, b); }
-HWY_INLINE VectorU64 bitwiseAndU64(VectorU64 a, VectorU64 b) { return hn::And(a, b); }
-HWY_INLINE VectorU64 bitwiseOrU64(VectorU64 a, VectorU64 b) { return hn::Or(a, b); }
-HWY_INLINE VectorU64 bitwiseXorU64(VectorU64 a, VectorU64 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorU64 bitwiseNotU64(VectorU64 a) { return hn::Not(a); }
-HWY_INLINE VectorU64 bitwiseAndNotU64(VectorU64 a, VectorU64 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorU64 shiftedLeftU64(VectorU64 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorU64 shiftedRightU64(VectorU64 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskU64 equalToU64(VectorU64 a, VectorU64 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskU64 notEqualToU64(VectorU64 a, VectorU64 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskU64 lessThanU64(VectorU64 a, VectorU64 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskU64 greaterThanU64(VectorU64 a, VectorU64 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorU64 selectingU64(MaskU64 mask, VectorU64 a, VectorU64 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorU64 selectingOrZeroU64(MaskU64 mask, VectorU64 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorU64 zeroingSelectedU64(MaskU64 mask, VectorU64 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskU64 firstLanesU64(size_t count) { return hn::FirstN(TagU64(), count); }
-HWY_INLINE bool allTrueU64(MaskU64 mask) { return hn::AllTrue(TagU64(), mask); }
-HWY_INLINE bool allFalseU64(MaskU64 mask) { return hn::AllFalse(TagU64(), mask); }
-HWY_INLINE size_t trueCountU64(MaskU64 mask) { return hn::CountTrue(TagU64(), mask); }
-HWY_INLINE intptr_t firstTrueIndexU64(MaskU64 mask) { return hn::FindFirstTrue(TagU64(), mask); }
-HWY_INLINE uint64_t sumU64(VectorU64 a) { return hn::ReduceSum(TagU64(), a); }
-HWY_INLINE uint64_t smallestU64(VectorU64 a) { return hn::ReduceMin(TagU64(), a); }
-HWY_INLINE uint64_t largestU64(VectorU64 a) { return hn::ReduceMax(TagU64(), a); }
-HWY_INLINE uint64_t firstLaneU64(VectorU64 a) { return hn::GetLane(a); }
-HWY_INLINE VectorU64 reversedU64(VectorU64 a) { return hn::Reverse(TagU64(), a); }
-HWY_INLINE VectorU64 slideUpLanesU64(VectorU64 a, size_t lanes) { return hn::SlideUpLanes(TagU64(), a, lanes); }
-HWY_INLINE VectorU64 slide1UpU64(VectorU64 a) { return hn::Slide1Up(TagU64(), a); }
-HWY_INLINE void loadInterleaved2U64(const uint64_t* from, VectorU64& v0, VectorU64& v1) { hn::LoadInterleaved2(TagU64(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3U64(const uint64_t* from, VectorU64& v0, VectorU64& v1, VectorU64& v2) { hn::LoadInterleaved3(TagU64(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4U64(const uint64_t* from, VectorU64& v0, VectorU64& v1, VectorU64& v2, VectorU64& v3) { hn::LoadInterleaved4(TagU64(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2U64(VectorU64 a, VectorU64 b, uint64_t* to) { hn::StoreInterleaved2(a, b, TagU64(), to); }
-HWY_INLINE void storeInterleaved3U64(VectorU64 a, VectorU64 b, VectorU64 c, uint64_t* to) { hn::StoreInterleaved3(a, b, c, TagU64(), to); }
-HWY_INLINE void storeInterleaved4U64(VectorU64 a, VectorU64 b, VectorU64 c, VectorU64 d, uint64_t* to) { hn::StoreInterleaved4(a, b, c, d, TagU64(), to); }
-HWY_INLINE VectorU64 loadWideningU8ToU64(const uint8_t* from) { return hn::PromoteTo(TagU64(), hn::LoadU(hn::Rebind<uint8_t, TagU64>(), from)); }
-HWY_INLINE VectorU64 loadWideningU16ToU64(const uint16_t* from) { return hn::PromoteTo(TagU64(), hn::LoadU(hn::Rebind<uint16_t, TagU64>(), from)); }
-HWY_INLINE VectorU64 loadWideningU32ToU64(const uint32_t* from) { return hn::PromoteTo(TagU64(), hn::LoadU(hn::Rebind<uint32_t, TagU64>(), from)); }
-HWY_INLINE VectorU64 loadFirstWideningU8ToU64(const uint8_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint8_t, TagU64>(), from, count)); }
-HWY_INLINE VectorU64 loadFirstWideningU16ToU64(const uint16_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint16_t, TagU64>(), from, count)); }
-HWY_INLINE VectorU64 loadFirstWideningU32ToU64(const uint32_t* from, size_t count) { return hn::PromoteTo(TagU64(), hn::LoadN(hn::Rebind<uint32_t, TagU64>(), from, count)); }
-HWY_INLINE VectorU64 repeatingBlockU64(uint64_t v0, uint64_t v1) { return hn::Dup128VecFromValues(TagU64(), v0, v1); }
+typedef uint64_t chighway_ops_vector_u64 __attribute__((vector_size(16)));
+typedef int64_t chighway_ops_mask_u64 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_u64(void) {
+  return 2;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_zero_u64(void) {
+  return (chighway_ops_vector_u64){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_repeating_u64(uint64_t value) {
+  return (chighway_ops_vector_u64){value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_iota_u64(uint64_t value) {
+  return (chighway_ops_vector_u64){value, value} + (chighway_ops_vector_u64){0, 1};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_u64(const uint64_t* from) {
+  chighway_ops_vector_u64 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_aligned_u64(const uint64_t* from) {
+  chighway_ops_vector_u64 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_u64(const uint64_t* from, size_t count) {
+  chighway_ops_vector_u64 v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint64_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_u64(chighway_ops_vector_u64 a, uint64_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u64(chighway_ops_vector_u64 a, uint64_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u64(chighway_ops_vector_u64 a, uint64_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 2 ? count : 2) * sizeof(uint64_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_adding_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return a + b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_subtracting_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return a - b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_multiplying_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return a * b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_minimum_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_maximum_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_bitwise_and_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_bitwise_or_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_bitwise_xor_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_bitwise_not_u64(chighway_ops_vector_u64 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_bitwise_and_not_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_shifted_left_u64(chighway_ops_vector_u64 a, int bits) {
+  if (bits < 0 || bits >= 64) {
+    return (chighway_ops_vector_u64){0};
+  }
+  return a << bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_shifted_right_u64(chighway_ops_vector_u64 a, int bits) {
+  if (bits < 0 || bits >= 64) {
+    return (chighway_ops_vector_u64){0};
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_equal_to_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return (chighway_ops_mask_u64)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_not_equal_to_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return (chighway_ops_mask_u64)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_less_than_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return (chighway_ops_mask_u64)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_greater_than_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return (chighway_ops_mask_u64)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_selecting_u64(chighway_ops_mask_u64 mask, chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+  return ((chighway_ops_vector_u64)mask & a) | (~(chighway_ops_vector_u64)mask & b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_selecting_or_zero_u64(chighway_ops_mask_u64 mask, chighway_ops_vector_u64 a) {
+  return (chighway_ops_vector_u64)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_zeroing_selected_u64(chighway_ops_mask_u64 mask, chighway_ops_vector_u64 a) {
+  return ~(chighway_ops_vector_u64)mask & a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_first_lanes_u64(size_t count) {
+  const uint64_t n = (uint64_t)(count < 2 ? count : 2);
+  return (chighway_ops_mask_u64)((chighway_ops_vector_u64){0, 1} < (chighway_ops_vector_u64){n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u64(chighway_ops_mask_u64 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u64(chighway_ops_mask_u64 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u64(chighway_ops_mask_u64 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u64(chighway_ops_mask_u64 mask) {
+  for (size_t i = 0; i < 2; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE uint64_t chighway_ops_sum_u64(chighway_ops_vector_u64 a) {
+  return __builtin_reduce_add(a);
+}
+CHIGHWAY_OPS_INLINE uint64_t chighway_ops_smallest_u64(chighway_ops_vector_u64 a) {
+  return __builtin_reduce_min(a);
+}
+CHIGHWAY_OPS_INLINE uint64_t chighway_ops_largest_u64(chighway_ops_vector_u64 a) {
+  return __builtin_reduce_max(a);
+}
+CHIGHWAY_OPS_INLINE uint64_t chighway_ops_first_lane_u64(chighway_ops_vector_u64 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_reversed_u64(chighway_ops_vector_u64 a) {
+  return __builtin_shufflevector(a, a, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_slide_up_lanes_u64(chighway_ops_vector_u64 a, size_t lanes) {
+  chighway_ops_vector_u64 result = {0};
+  for (size_t i = lanes; i < 2; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_slide1_up_u64(chighway_ops_vector_u64 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_u64){0}, 2, 0);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u64(const uint64_t* from, chighway_ops_vector_u64* v0, chighway_ops_vector_u64* v1) {
+  chighway_ops_vector_u64 r0, r1;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u64(const uint64_t* from, chighway_ops_vector_u64* v0, chighway_ops_vector_u64* v1, chighway_ops_vector_u64* v2) {
+  chighway_ops_vector_u64 r0, r1, r2;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u64(const uint64_t* from, chighway_ops_vector_u64* v0, chighway_ops_vector_u64* v1, chighway_ops_vector_u64* v2, chighway_ops_vector_u64* v3) {
+  chighway_ops_vector_u64 r0, r1, r2, r3;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b, uint64_t* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b, chighway_ops_vector_u64 c, uint64_t* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b, chighway_ops_vector_u64 c, chighway_ops_vector_u64 d, uint64_t* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_widening_u8_to_u64(const uint8_t* from) {
+  typedef uint8_t narrow_vector __attribute__((vector_size(2)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_u64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_widening_u16_to_u64(const uint16_t* from) {
+  typedef uint16_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_u64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_widening_u32_to_u64(const uint32_t* from) {
+  typedef uint32_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_u64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_widening_u8_to_u64(const uint8_t* from, size_t count) {
+  typedef uint8_t narrow_vector __attribute__((vector_size(2)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint8_t));
+  return __builtin_convertvector(v, chighway_ops_vector_u64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_widening_u16_to_u64(const uint16_t* from, size_t count) {
+  typedef uint16_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint16_t));
+  return __builtin_convertvector(v, chighway_ops_vector_u64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_widening_u32_to_u64(const uint32_t* from, size_t count) {
+  typedef uint32_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint32_t));
+  return __builtin_convertvector(v, chighway_ops_vector_u64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_repeating_block_u64(uint64_t v0, uint64_t v1) {
+  return (chighway_ops_vector_u64){v0, v1};
+}
 
-using TagI8 = hn::ScalableTag<int8_t>;
-using VectorI8 = hn::VFromD<TagI8>;
-using MaskI8 = hn::MFromD<TagI8>;
-HWY_INLINE size_t laneCountI8() { return hn::Lanes(TagI8()); }
-HWY_INLINE VectorI8 zeroI8() { return hn::Zero(TagI8()); }
-HWY_INLINE VectorI8 repeatingI8(int8_t value) { return hn::Set(TagI8(), value); }
-HWY_INLINE VectorI8 iotaI8(int8_t value) { return hn::Iota(TagI8(), value); }
-HWY_INLINE VectorI8 loadI8(const int8_t* from) { return hn::LoadU(TagI8(), from); }
-HWY_INLINE VectorI8 loadAlignedI8(const int8_t* from) { return hn::Load(TagI8(), from); }
-HWY_INLINE VectorI8 loadFirstI8(const int8_t* from, size_t count) { return hn::LoadN(TagI8(), from, count); }
-HWY_INLINE void storeI8(VectorI8 a, int8_t* to) { hn::StoreU(a, TagI8(), to); }
-HWY_INLINE void storeAlignedI8(VectorI8 a, int8_t* to) { hn::Store(a, TagI8(), to); }
-HWY_INLINE void storeFirstI8(VectorI8 a, int8_t* to, size_t count) { hn::StoreN(a, TagI8(), to, count); }
-HWY_INLINE VectorI8 addingI8(VectorI8 a, VectorI8 b) { return hn::Add(a, b); }
-HWY_INLINE VectorI8 subtractingI8(VectorI8 a, VectorI8 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorI8 minimumI8(VectorI8 a, VectorI8 b) { return hn::Min(a, b); }
-HWY_INLINE VectorI8 maximumI8(VectorI8 a, VectorI8 b) { return hn::Max(a, b); }
-HWY_INLINE VectorI8 negatedI8(VectorI8 a) { return hn::Neg(a); }
-HWY_INLINE VectorI8 magnitudeI8(VectorI8 a) { return hn::Abs(a); }
-HWY_INLINE VectorI8 saturatingAddingI8(VectorI8 a, VectorI8 b) { return hn::SaturatedAdd(a, b); }
-HWY_INLINE VectorI8 saturatingSubtractingI8(VectorI8 a, VectorI8 b) { return hn::SaturatedSub(a, b); }
-HWY_INLINE VectorI8 bitwiseAndI8(VectorI8 a, VectorI8 b) { return hn::And(a, b); }
-HWY_INLINE VectorI8 bitwiseOrI8(VectorI8 a, VectorI8 b) { return hn::Or(a, b); }
-HWY_INLINE VectorI8 bitwiseXorI8(VectorI8 a, VectorI8 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorI8 bitwiseNotI8(VectorI8 a) { return hn::Not(a); }
-HWY_INLINE VectorI8 bitwiseAndNotI8(VectorI8 a, VectorI8 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorI8 shiftedLeftI8(VectorI8 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorI8 shiftedRightI8(VectorI8 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskI8 equalToI8(VectorI8 a, VectorI8 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskI8 notEqualToI8(VectorI8 a, VectorI8 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskI8 lessThanI8(VectorI8 a, VectorI8 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskI8 greaterThanI8(VectorI8 a, VectorI8 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorI8 selectingI8(MaskI8 mask, VectorI8 a, VectorI8 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorI8 selectingOrZeroI8(MaskI8 mask, VectorI8 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorI8 zeroingSelectedI8(MaskI8 mask, VectorI8 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskI8 firstLanesI8(size_t count) { return hn::FirstN(TagI8(), count); }
-HWY_INLINE bool allTrueI8(MaskI8 mask) { return hn::AllTrue(TagI8(), mask); }
-HWY_INLINE bool allFalseI8(MaskI8 mask) { return hn::AllFalse(TagI8(), mask); }
-HWY_INLINE size_t trueCountI8(MaskI8 mask) { return hn::CountTrue(TagI8(), mask); }
-HWY_INLINE intptr_t firstTrueIndexI8(MaskI8 mask) { return hn::FindFirstTrue(TagI8(), mask); }
-HWY_INLINE int8_t firstLaneI8(VectorI8 a) { return hn::GetLane(a); }
-HWY_INLINE VectorI8 reversedI8(VectorI8 a) { return hn::Reverse(TagI8(), a); }
-HWY_INLINE VectorI8 slideUpLanesI8(VectorI8 a, size_t lanes) { return hn::SlideUpLanes(TagI8(), a, lanes); }
-HWY_INLINE VectorI8 slide1UpI8(VectorI8 a) { return hn::Slide1Up(TagI8(), a); }
-HWY_INLINE VectorI8 tableLookupBytesI8(VectorI8 a, VectorI8 b) { return hn::TableLookupBytes(a, b); }
-HWY_INLINE void loadInterleaved2I8(const int8_t* from, VectorI8& v0, VectorI8& v1) { hn::LoadInterleaved2(TagI8(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3I8(const int8_t* from, VectorI8& v0, VectorI8& v1, VectorI8& v2) { hn::LoadInterleaved3(TagI8(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4I8(const int8_t* from, VectorI8& v0, VectorI8& v1, VectorI8& v2, VectorI8& v3) { hn::LoadInterleaved4(TagI8(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2I8(VectorI8 a, VectorI8 b, int8_t* to) { hn::StoreInterleaved2(a, b, TagI8(), to); }
-HWY_INLINE void storeInterleaved3I8(VectorI8 a, VectorI8 b, VectorI8 c, int8_t* to) { hn::StoreInterleaved3(a, b, c, TagI8(), to); }
-HWY_INLINE void storeInterleaved4I8(VectorI8 a, VectorI8 b, VectorI8 c, VectorI8 d, int8_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI8(), to); }
-HWY_INLINE VectorI8 repeatingBlockI8(int8_t v0, int8_t v1, int8_t v2, int8_t v3, int8_t v4, int8_t v5, int8_t v6, int8_t v7, int8_t v8, int8_t v9, int8_t v10, int8_t v11, int8_t v12, int8_t v13, int8_t v14, int8_t v15) { return hn::Dup128VecFromValues(TagI8(), v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15); }
+typedef int8_t chighway_ops_vector_i8 __attribute__((vector_size(16)));
+typedef int8_t chighway_ops_mask_i8 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_i8(void) {
+  return 16;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_zero_i8(void) {
+  return (chighway_ops_vector_i8){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_repeating_i8(int8_t value) {
+  return (chighway_ops_vector_i8){value, value, value, value, value, value, value, value, value, value, value, value, value, value, value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_iota_i8(int8_t value) {
+  return (chighway_ops_vector_i8)((chighway_ops_vector_u8){(uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value, (uint8_t)value} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_load_i8(const int8_t* from) {
+  chighway_ops_vector_i8 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_load_aligned_i8(const int8_t* from) {
+  chighway_ops_vector_i8 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_load_first_i8(const int8_t* from, size_t count) {
+  chighway_ops_vector_i8 v = {0};
+  __builtin_memcpy(&v, from, (count < 16 ? count : 16) * sizeof(int8_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_i8(chighway_ops_vector_i8 a, int8_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i8(chighway_ops_vector_i8 a, int8_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i8(chighway_ops_vector_i8 a, int8_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 16 ? count : 16) * sizeof(int8_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_adding_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return (chighway_ops_vector_i8)((chighway_ops_vector_u8)a + (chighway_ops_vector_u8)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_subtracting_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return (chighway_ops_vector_i8)((chighway_ops_vector_u8)a - (chighway_ops_vector_u8)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_minimum_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_maximum_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_negated_i8(chighway_ops_vector_i8 a) {
+  return (chighway_ops_vector_i8)((chighway_ops_vector_u8){0} - (chighway_ops_vector_u8)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_magnitude_i8(chighway_ops_vector_i8 a) {
+  return __builtin_elementwise_abs(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_saturating_adding_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return __builtin_elementwise_add_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_saturating_subtracting_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return __builtin_elementwise_sub_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_bitwise_and_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_bitwise_or_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_bitwise_xor_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_bitwise_not_i8(chighway_ops_vector_i8 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_bitwise_and_not_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_shifted_left_i8(chighway_ops_vector_i8 a, int bits) {
+  if (bits < 0 || bits >= 8) {
+    return (chighway_ops_vector_i8){0};
+  }
+  return (chighway_ops_vector_i8)((chighway_ops_vector_u8)a << bits);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_shifted_right_i8(chighway_ops_vector_i8 a, int bits) {
+  if (bits < 0 || bits >= 8) {
+    bits = 7;
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_equal_to_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return (chighway_ops_mask_i8)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_not_equal_to_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return (chighway_ops_mask_i8)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_less_than_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return (chighway_ops_mask_i8)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_greater_than_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return (chighway_ops_mask_i8)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_selecting_i8(chighway_ops_mask_i8 mask, chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  return (chighway_ops_vector_i8)(((chighway_ops_vector_u8)mask & (chighway_ops_vector_u8)a) | (~(chighway_ops_vector_u8)mask & (chighway_ops_vector_u8)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_selecting_or_zero_i8(chighway_ops_mask_i8 mask, chighway_ops_vector_i8 a) {
+  return (chighway_ops_vector_i8)((chighway_ops_vector_u8)mask & (chighway_ops_vector_u8)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_zeroing_selected_i8(chighway_ops_mask_i8 mask, chighway_ops_vector_i8 a) {
+  return (chighway_ops_vector_i8)(~(chighway_ops_vector_u8)mask & (chighway_ops_vector_u8)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_first_lanes_i8(size_t count) {
+  const uint8_t n = (uint8_t)(count < 16 ? count : 16);
+  return (chighway_ops_mask_i8)((chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15} < (chighway_ops_vector_u8){n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i8(chighway_ops_mask_i8 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i8(chighway_ops_mask_i8 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i8(chighway_ops_mask_i8 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i8(chighway_ops_mask_i8 mask) {
+  for (size_t i = 0; i < 16; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE int8_t chighway_ops_first_lane_i8(chighway_ops_vector_i8 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_reversed_i8(chighway_ops_vector_i8 a) {
+  return __builtin_shufflevector(a, a, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_slide_up_lanes_i8(chighway_ops_vector_i8 a, size_t lanes) {
+  chighway_ops_vector_i8 result = {0};
+  for (size_t i = lanes; i < 16; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_slide1_up_i8(chighway_ops_vector_i8 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_i8){0}, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_table_lookup_bytes_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+  chighway_ops_vector_i8 result;
+  for (size_t i = 0; i < 16; ++i) {
+    const uint8_t index = (uint8_t)b[i];
+    result[i] = index < 16 ? a[index] : 0;
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i8(const int8_t* from, chighway_ops_vector_i8* v0, chighway_ops_vector_i8* v1) {
+  chighway_ops_vector_i8 r0, r1;
+  for (size_t i = 0; i < 16; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i8(const int8_t* from, chighway_ops_vector_i8* v0, chighway_ops_vector_i8* v1, chighway_ops_vector_i8* v2) {
+  chighway_ops_vector_i8 r0, r1, r2;
+  for (size_t i = 0; i < 16; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i8(const int8_t* from, chighway_ops_vector_i8* v0, chighway_ops_vector_i8* v1, chighway_ops_vector_i8* v2, chighway_ops_vector_i8* v3) {
+  chighway_ops_vector_i8 r0, r1, r2, r3;
+  for (size_t i = 0; i < 16; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b, int8_t* to) {
+  for (size_t i = 0; i < 16; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b, chighway_ops_vector_i8 c, int8_t* to) {
+  for (size_t i = 0; i < 16; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b, chighway_ops_vector_i8 c, chighway_ops_vector_i8 d, int8_t* to) {
+  for (size_t i = 0; i < 16; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_repeating_block_i8(int8_t v0, int8_t v1, int8_t v2, int8_t v3, int8_t v4, int8_t v5, int8_t v6, int8_t v7, int8_t v8, int8_t v9, int8_t v10, int8_t v11, int8_t v12, int8_t v13, int8_t v14, int8_t v15) {
+  return (chighway_ops_vector_i8){v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15};
+}
 
-using TagI16 = hn::ScalableTag<int16_t>;
-using VectorI16 = hn::VFromD<TagI16>;
-using MaskI16 = hn::MFromD<TagI16>;
-HWY_INLINE size_t laneCountI16() { return hn::Lanes(TagI16()); }
-HWY_INLINE VectorI16 zeroI16() { return hn::Zero(TagI16()); }
-HWY_INLINE VectorI16 repeatingI16(int16_t value) { return hn::Set(TagI16(), value); }
-HWY_INLINE VectorI16 iotaI16(int16_t value) { return hn::Iota(TagI16(), value); }
-HWY_INLINE VectorI16 loadI16(const int16_t* from) { return hn::LoadU(TagI16(), from); }
-HWY_INLINE VectorI16 loadAlignedI16(const int16_t* from) { return hn::Load(TagI16(), from); }
-HWY_INLINE VectorI16 loadFirstI16(const int16_t* from, size_t count) { return hn::LoadN(TagI16(), from, count); }
-HWY_INLINE void storeI16(VectorI16 a, int16_t* to) { hn::StoreU(a, TagI16(), to); }
-HWY_INLINE void storeAlignedI16(VectorI16 a, int16_t* to) { hn::Store(a, TagI16(), to); }
-HWY_INLINE void storeFirstI16(VectorI16 a, int16_t* to, size_t count) { hn::StoreN(a, TagI16(), to, count); }
-HWY_INLINE VectorI16 addingI16(VectorI16 a, VectorI16 b) { return hn::Add(a, b); }
-HWY_INLINE VectorI16 subtractingI16(VectorI16 a, VectorI16 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorI16 multiplyingI16(VectorI16 a, VectorI16 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorI16 minimumI16(VectorI16 a, VectorI16 b) { return hn::Min(a, b); }
-HWY_INLINE VectorI16 maximumI16(VectorI16 a, VectorI16 b) { return hn::Max(a, b); }
-HWY_INLINE VectorI16 negatedI16(VectorI16 a) { return hn::Neg(a); }
-HWY_INLINE VectorI16 magnitudeI16(VectorI16 a) { return hn::Abs(a); }
-HWY_INLINE VectorI16 saturatingAddingI16(VectorI16 a, VectorI16 b) { return hn::SaturatedAdd(a, b); }
-HWY_INLINE VectorI16 saturatingSubtractingI16(VectorI16 a, VectorI16 b) { return hn::SaturatedSub(a, b); }
-HWY_INLINE VectorI16 bitwiseAndI16(VectorI16 a, VectorI16 b) { return hn::And(a, b); }
-HWY_INLINE VectorI16 bitwiseOrI16(VectorI16 a, VectorI16 b) { return hn::Or(a, b); }
-HWY_INLINE VectorI16 bitwiseXorI16(VectorI16 a, VectorI16 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorI16 bitwiseNotI16(VectorI16 a) { return hn::Not(a); }
-HWY_INLINE VectorI16 bitwiseAndNotI16(VectorI16 a, VectorI16 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorI16 shiftedLeftI16(VectorI16 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorI16 shiftedRightI16(VectorI16 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskI16 equalToI16(VectorI16 a, VectorI16 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskI16 notEqualToI16(VectorI16 a, VectorI16 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskI16 lessThanI16(VectorI16 a, VectorI16 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskI16 greaterThanI16(VectorI16 a, VectorI16 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorI16 selectingI16(MaskI16 mask, VectorI16 a, VectorI16 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorI16 selectingOrZeroI16(MaskI16 mask, VectorI16 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorI16 zeroingSelectedI16(MaskI16 mask, VectorI16 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskI16 firstLanesI16(size_t count) { return hn::FirstN(TagI16(), count); }
-HWY_INLINE bool allTrueI16(MaskI16 mask) { return hn::AllTrue(TagI16(), mask); }
-HWY_INLINE bool allFalseI16(MaskI16 mask) { return hn::AllFalse(TagI16(), mask); }
-HWY_INLINE size_t trueCountI16(MaskI16 mask) { return hn::CountTrue(TagI16(), mask); }
-HWY_INLINE intptr_t firstTrueIndexI16(MaskI16 mask) { return hn::FindFirstTrue(TagI16(), mask); }
-HWY_INLINE int16_t sumI16(VectorI16 a) { return hn::ReduceSum(TagI16(), a); }
-HWY_INLINE int16_t smallestI16(VectorI16 a) { return hn::ReduceMin(TagI16(), a); }
-HWY_INLINE int16_t largestI16(VectorI16 a) { return hn::ReduceMax(TagI16(), a); }
-HWY_INLINE int16_t firstLaneI16(VectorI16 a) { return hn::GetLane(a); }
-HWY_INLINE VectorI16 reversedI16(VectorI16 a) { return hn::Reverse(TagI16(), a); }
-HWY_INLINE VectorI16 slideUpLanesI16(VectorI16 a, size_t lanes) { return hn::SlideUpLanes(TagI16(), a, lanes); }
-HWY_INLINE VectorI16 slide1UpI16(VectorI16 a) { return hn::Slide1Up(TagI16(), a); }
-HWY_INLINE void loadInterleaved2I16(const int16_t* from, VectorI16& v0, VectorI16& v1) { hn::LoadInterleaved2(TagI16(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3I16(const int16_t* from, VectorI16& v0, VectorI16& v1, VectorI16& v2) { hn::LoadInterleaved3(TagI16(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4I16(const int16_t* from, VectorI16& v0, VectorI16& v1, VectorI16& v2, VectorI16& v3) { hn::LoadInterleaved4(TagI16(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2I16(VectorI16 a, VectorI16 b, int16_t* to) { hn::StoreInterleaved2(a, b, TagI16(), to); }
-HWY_INLINE void storeInterleaved3I16(VectorI16 a, VectorI16 b, VectorI16 c, int16_t* to) { hn::StoreInterleaved3(a, b, c, TagI16(), to); }
-HWY_INLINE void storeInterleaved4I16(VectorI16 a, VectorI16 b, VectorI16 c, VectorI16 d, int16_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI16(), to); }
-HWY_INLINE VectorI16 loadWideningI8ToI16(const int8_t* from) { return hn::PromoteTo(TagI16(), hn::LoadU(hn::Rebind<int8_t, TagI16>(), from)); }
-HWY_INLINE VectorI16 loadFirstWideningI8ToI16(const int8_t* from, size_t count) { return hn::PromoteTo(TagI16(), hn::LoadN(hn::Rebind<int8_t, TagI16>(), from, count)); }
-HWY_INLINE VectorI16 repeatingBlockI16(int16_t v0, int16_t v1, int16_t v2, int16_t v3, int16_t v4, int16_t v5, int16_t v6, int16_t v7) { return hn::Dup128VecFromValues(TagI16(), v0, v1, v2, v3, v4, v5, v6, v7); }
+typedef int16_t chighway_ops_vector_i16 __attribute__((vector_size(16)));
+typedef int16_t chighway_ops_mask_i16 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_i16(void) {
+  return 8;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_zero_i16(void) {
+  return (chighway_ops_vector_i16){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_repeating_i16(int16_t value) {
+  return (chighway_ops_vector_i16){value, value, value, value, value, value, value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_iota_i16(int16_t value) {
+  return (chighway_ops_vector_i16)((chighway_ops_vector_u16){(uint16_t)value, (uint16_t)value, (uint16_t)value, (uint16_t)value, (uint16_t)value, (uint16_t)value, (uint16_t)value, (uint16_t)value} + (chighway_ops_vector_u16){0, 1, 2, 3, 4, 5, 6, 7});
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_i16(const int16_t* from) {
+  chighway_ops_vector_i16 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_aligned_i16(const int16_t* from) {
+  chighway_ops_vector_i16 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_first_i16(const int16_t* from, size_t count) {
+  chighway_ops_vector_i16 v = {0};
+  __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(int16_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_i16(chighway_ops_vector_i16 a, int16_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i16(chighway_ops_vector_i16 a, int16_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i16(chighway_ops_vector_i16 a, int16_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 8 ? count : 8) * sizeof(int16_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_adding_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_vector_i16)((chighway_ops_vector_u16)a + (chighway_ops_vector_u16)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_subtracting_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_vector_i16)((chighway_ops_vector_u16)a - (chighway_ops_vector_u16)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_multiplying_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_vector_i16)((chighway_ops_vector_u16)a * (chighway_ops_vector_u16)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_minimum_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_maximum_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_negated_i16(chighway_ops_vector_i16 a) {
+  return (chighway_ops_vector_i16)((chighway_ops_vector_u16){0} - (chighway_ops_vector_u16)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_magnitude_i16(chighway_ops_vector_i16 a) {
+  return __builtin_elementwise_abs(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_saturating_adding_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return __builtin_elementwise_add_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_saturating_subtracting_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return __builtin_elementwise_sub_sat(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_bitwise_and_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_bitwise_or_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_bitwise_xor_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_bitwise_not_i16(chighway_ops_vector_i16 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_bitwise_and_not_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_shifted_left_i16(chighway_ops_vector_i16 a, int bits) {
+  if (bits < 0 || bits >= 16) {
+    return (chighway_ops_vector_i16){0};
+  }
+  return (chighway_ops_vector_i16)((chighway_ops_vector_u16)a << bits);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_shifted_right_i16(chighway_ops_vector_i16 a, int bits) {
+  if (bits < 0 || bits >= 16) {
+    bits = 15;
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_equal_to_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_mask_i16)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_not_equal_to_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_mask_i16)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_less_than_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_mask_i16)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_greater_than_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_mask_i16)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_selecting_i16(chighway_ops_mask_i16 mask, chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+  return (chighway_ops_vector_i16)(((chighway_ops_vector_u16)mask & (chighway_ops_vector_u16)a) | (~(chighway_ops_vector_u16)mask & (chighway_ops_vector_u16)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_selecting_or_zero_i16(chighway_ops_mask_i16 mask, chighway_ops_vector_i16 a) {
+  return (chighway_ops_vector_i16)((chighway_ops_vector_u16)mask & (chighway_ops_vector_u16)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_zeroing_selected_i16(chighway_ops_mask_i16 mask, chighway_ops_vector_i16 a) {
+  return (chighway_ops_vector_i16)(~(chighway_ops_vector_u16)mask & (chighway_ops_vector_u16)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_first_lanes_i16(size_t count) {
+  const uint16_t n = (uint16_t)(count < 8 ? count : 8);
+  return (chighway_ops_mask_i16)((chighway_ops_vector_u16){0, 1, 2, 3, 4, 5, 6, 7} < (chighway_ops_vector_u16){n, n, n, n, n, n, n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i16(chighway_ops_mask_i16 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i16(chighway_ops_mask_i16 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i16(chighway_ops_mask_i16 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i16(chighway_ops_mask_i16 mask) {
+  for (size_t i = 0; i < 8; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE int16_t chighway_ops_sum_i16(chighway_ops_vector_i16 a) {
+  return __builtin_reduce_add(a);
+}
+CHIGHWAY_OPS_INLINE int16_t chighway_ops_smallest_i16(chighway_ops_vector_i16 a) {
+  return __builtin_reduce_min(a);
+}
+CHIGHWAY_OPS_INLINE int16_t chighway_ops_largest_i16(chighway_ops_vector_i16 a) {
+  return __builtin_reduce_max(a);
+}
+CHIGHWAY_OPS_INLINE int16_t chighway_ops_first_lane_i16(chighway_ops_vector_i16 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_reversed_i16(chighway_ops_vector_i16 a) {
+  return __builtin_shufflevector(a, a, 7, 6, 5, 4, 3, 2, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_slide_up_lanes_i16(chighway_ops_vector_i16 a, size_t lanes) {
+  chighway_ops_vector_i16 result = {0};
+  for (size_t i = lanes; i < 8; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_slide1_up_i16(chighway_ops_vector_i16 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_i16){0}, 8, 0, 1, 2, 3, 4, 5, 6);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i16(const int16_t* from, chighway_ops_vector_i16* v0, chighway_ops_vector_i16* v1) {
+  chighway_ops_vector_i16 r0, r1;
+  for (size_t i = 0; i < 8; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i16(const int16_t* from, chighway_ops_vector_i16* v0, chighway_ops_vector_i16* v1, chighway_ops_vector_i16* v2) {
+  chighway_ops_vector_i16 r0, r1, r2;
+  for (size_t i = 0; i < 8; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i16(const int16_t* from, chighway_ops_vector_i16* v0, chighway_ops_vector_i16* v1, chighway_ops_vector_i16* v2, chighway_ops_vector_i16* v3) {
+  chighway_ops_vector_i16 r0, r1, r2, r3;
+  for (size_t i = 0; i < 8; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b, int16_t* to) {
+  for (size_t i = 0; i < 8; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b, chighway_ops_vector_i16 c, int16_t* to) {
+  for (size_t i = 0; i < 8; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b, chighway_ops_vector_i16 c, chighway_ops_vector_i16 d, int16_t* to) {
+  for (size_t i = 0; i < 8; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_widening_i8_to_i16(const int8_t* from) {
+  typedef int8_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i16);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_first_widening_i8_to_i16(const int8_t* from, size_t count) {
+  typedef int8_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(int8_t));
+  return __builtin_convertvector(v, chighway_ops_vector_i16);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_repeating_block_i16(int16_t v0, int16_t v1, int16_t v2, int16_t v3, int16_t v4, int16_t v5, int16_t v6, int16_t v7) {
+  return (chighway_ops_vector_i16){v0, v1, v2, v3, v4, v5, v6, v7};
+}
 
-using TagI32 = hn::ScalableTag<int32_t>;
-using VectorI32 = hn::VFromD<TagI32>;
-using MaskI32 = hn::MFromD<TagI32>;
-HWY_INLINE size_t laneCountI32() { return hn::Lanes(TagI32()); }
-HWY_INLINE VectorI32 zeroI32() { return hn::Zero(TagI32()); }
-HWY_INLINE VectorI32 repeatingI32(int32_t value) { return hn::Set(TagI32(), value); }
-HWY_INLINE VectorI32 iotaI32(int32_t value) { return hn::Iota(TagI32(), value); }
-HWY_INLINE VectorI32 loadI32(const int32_t* from) { return hn::LoadU(TagI32(), from); }
-HWY_INLINE VectorI32 loadAlignedI32(const int32_t* from) { return hn::Load(TagI32(), from); }
-HWY_INLINE VectorI32 loadFirstI32(const int32_t* from, size_t count) { return hn::LoadN(TagI32(), from, count); }
-HWY_INLINE void storeI32(VectorI32 a, int32_t* to) { hn::StoreU(a, TagI32(), to); }
-HWY_INLINE void storeAlignedI32(VectorI32 a, int32_t* to) { hn::Store(a, TagI32(), to); }
-HWY_INLINE void storeFirstI32(VectorI32 a, int32_t* to, size_t count) { hn::StoreN(a, TagI32(), to, count); }
-HWY_INLINE VectorI32 addingI32(VectorI32 a, VectorI32 b) { return hn::Add(a, b); }
-HWY_INLINE VectorI32 subtractingI32(VectorI32 a, VectorI32 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorI32 multiplyingI32(VectorI32 a, VectorI32 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorI32 minimumI32(VectorI32 a, VectorI32 b) { return hn::Min(a, b); }
-HWY_INLINE VectorI32 maximumI32(VectorI32 a, VectorI32 b) { return hn::Max(a, b); }
-HWY_INLINE VectorI32 negatedI32(VectorI32 a) { return hn::Neg(a); }
-HWY_INLINE VectorI32 magnitudeI32(VectorI32 a) { return hn::Abs(a); }
-HWY_INLINE VectorI32 bitwiseAndI32(VectorI32 a, VectorI32 b) { return hn::And(a, b); }
-HWY_INLINE VectorI32 bitwiseOrI32(VectorI32 a, VectorI32 b) { return hn::Or(a, b); }
-HWY_INLINE VectorI32 bitwiseXorI32(VectorI32 a, VectorI32 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorI32 bitwiseNotI32(VectorI32 a) { return hn::Not(a); }
-HWY_INLINE VectorI32 bitwiseAndNotI32(VectorI32 a, VectorI32 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorI32 shiftedLeftI32(VectorI32 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorI32 shiftedRightI32(VectorI32 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskI32 equalToI32(VectorI32 a, VectorI32 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskI32 notEqualToI32(VectorI32 a, VectorI32 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskI32 lessThanI32(VectorI32 a, VectorI32 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskI32 greaterThanI32(VectorI32 a, VectorI32 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorI32 selectingI32(MaskI32 mask, VectorI32 a, VectorI32 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorI32 selectingOrZeroI32(MaskI32 mask, VectorI32 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorI32 zeroingSelectedI32(MaskI32 mask, VectorI32 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskI32 firstLanesI32(size_t count) { return hn::FirstN(TagI32(), count); }
-HWY_INLINE bool allTrueI32(MaskI32 mask) { return hn::AllTrue(TagI32(), mask); }
-HWY_INLINE bool allFalseI32(MaskI32 mask) { return hn::AllFalse(TagI32(), mask); }
-HWY_INLINE size_t trueCountI32(MaskI32 mask) { return hn::CountTrue(TagI32(), mask); }
-HWY_INLINE intptr_t firstTrueIndexI32(MaskI32 mask) { return hn::FindFirstTrue(TagI32(), mask); }
-HWY_INLINE int32_t sumI32(VectorI32 a) { return hn::ReduceSum(TagI32(), a); }
-HWY_INLINE int32_t smallestI32(VectorI32 a) { return hn::ReduceMin(TagI32(), a); }
-HWY_INLINE int32_t largestI32(VectorI32 a) { return hn::ReduceMax(TagI32(), a); }
-HWY_INLINE int32_t firstLaneI32(VectorI32 a) { return hn::GetLane(a); }
-HWY_INLINE VectorI32 reversedI32(VectorI32 a) { return hn::Reverse(TagI32(), a); }
-HWY_INLINE VectorI32 slideUpLanesI32(VectorI32 a, size_t lanes) { return hn::SlideUpLanes(TagI32(), a, lanes); }
-HWY_INLINE VectorI32 slide1UpI32(VectorI32 a) { return hn::Slide1Up(TagI32(), a); }
-HWY_INLINE void loadInterleaved2I32(const int32_t* from, VectorI32& v0, VectorI32& v1) { hn::LoadInterleaved2(TagI32(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3I32(const int32_t* from, VectorI32& v0, VectorI32& v1, VectorI32& v2) { hn::LoadInterleaved3(TagI32(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4I32(const int32_t* from, VectorI32& v0, VectorI32& v1, VectorI32& v2, VectorI32& v3) { hn::LoadInterleaved4(TagI32(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2I32(VectorI32 a, VectorI32 b, int32_t* to) { hn::StoreInterleaved2(a, b, TagI32(), to); }
-HWY_INLINE void storeInterleaved3I32(VectorI32 a, VectorI32 b, VectorI32 c, int32_t* to) { hn::StoreInterleaved3(a, b, c, TagI32(), to); }
-HWY_INLINE void storeInterleaved4I32(VectorI32 a, VectorI32 b, VectorI32 c, VectorI32 d, int32_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI32(), to); }
-HWY_INLINE VectorI32 loadWideningI8ToI32(const int8_t* from) { return hn::PromoteTo(TagI32(), hn::LoadU(hn::Rebind<int8_t, TagI32>(), from)); }
-HWY_INLINE VectorI32 loadWideningI16ToI32(const int16_t* from) { return hn::PromoteTo(TagI32(), hn::LoadU(hn::Rebind<int16_t, TagI32>(), from)); }
-HWY_INLINE VectorI32 loadFirstWideningI8ToI32(const int8_t* from, size_t count) { return hn::PromoteTo(TagI32(), hn::LoadN(hn::Rebind<int8_t, TagI32>(), from, count)); }
-HWY_INLINE VectorI32 loadFirstWideningI16ToI32(const int16_t* from, size_t count) { return hn::PromoteTo(TagI32(), hn::LoadN(hn::Rebind<int16_t, TagI32>(), from, count)); }
-HWY_INLINE VectorI32 repeatingBlockI32(int32_t v0, int32_t v1, int32_t v2, int32_t v3) { return hn::Dup128VecFromValues(TagI32(), v0, v1, v2, v3); }
+typedef int32_t chighway_ops_vector_i32 __attribute__((vector_size(16)));
+typedef int32_t chighway_ops_mask_i32 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_i32(void) {
+  return 4;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_zero_i32(void) {
+  return (chighway_ops_vector_i32){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_repeating_i32(int32_t value) {
+  return (chighway_ops_vector_i32){value, value, value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_iota_i32(int32_t value) {
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32){(uint32_t)value, (uint32_t)value, (uint32_t)value, (uint32_t)value} + (chighway_ops_vector_u32){0, 1, 2, 3});
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_i32(const int32_t* from) {
+  chighway_ops_vector_i32 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_aligned_i32(const int32_t* from) {
+  chighway_ops_vector_i32 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_first_i32(const int32_t* from, size_t count) {
+  chighway_ops_vector_i32 v = {0};
+  __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(int32_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_i32(chighway_ops_vector_i32 a, int32_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i32(chighway_ops_vector_i32 a, int32_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i32(chighway_ops_vector_i32 a, int32_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 4 ? count : 4) * sizeof(int32_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_adding_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a + (chighway_ops_vector_u32)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_subtracting_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a - (chighway_ops_vector_u32)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_multiplying_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a * (chighway_ops_vector_u32)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_minimum_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_maximum_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_negated_i32(chighway_ops_vector_i32 a) {
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32){0} - (chighway_ops_vector_u32)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_magnitude_i32(chighway_ops_vector_i32 a) {
+  return __builtin_elementwise_abs(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_bitwise_and_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_bitwise_or_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_bitwise_xor_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_bitwise_not_i32(chighway_ops_vector_i32 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_bitwise_and_not_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_shifted_left_i32(chighway_ops_vector_i32 a, int bits) {
+  if (bits < 0 || bits >= 32) {
+    return (chighway_ops_vector_i32){0};
+  }
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a << bits);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_shifted_right_i32(chighway_ops_vector_i32 a, int bits) {
+  if (bits < 0 || bits >= 32) {
+    bits = 31;
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_equal_to_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_mask_i32)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_not_equal_to_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_mask_i32)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_less_than_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_mask_i32)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_greater_than_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_mask_i32)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_selecting_i32(chighway_ops_mask_i32 mask, chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+  return (chighway_ops_vector_i32)(((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_selecting_or_zero_i32(chighway_ops_mask_i32 mask, chighway_ops_vector_i32 a) {
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_zeroing_selected_i32(chighway_ops_mask_i32 mask, chighway_ops_vector_i32 a) {
+  return (chighway_ops_vector_i32)(~(chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_first_lanes_i32(size_t count) {
+  const uint32_t n = (uint32_t)(count < 4 ? count : 4);
+  return (chighway_ops_mask_i32)((chighway_ops_vector_u32){0, 1, 2, 3} < (chighway_ops_vector_u32){n, n, n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i32(chighway_ops_mask_i32 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i32(chighway_ops_mask_i32 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i32(chighway_ops_mask_i32 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i32(chighway_ops_mask_i32 mask) {
+  for (size_t i = 0; i < 4; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE int32_t chighway_ops_sum_i32(chighway_ops_vector_i32 a) {
+  return __builtin_reduce_add(a);
+}
+CHIGHWAY_OPS_INLINE int32_t chighway_ops_smallest_i32(chighway_ops_vector_i32 a) {
+  return __builtin_reduce_min(a);
+}
+CHIGHWAY_OPS_INLINE int32_t chighway_ops_largest_i32(chighway_ops_vector_i32 a) {
+  return __builtin_reduce_max(a);
+}
+CHIGHWAY_OPS_INLINE int32_t chighway_ops_first_lane_i32(chighway_ops_vector_i32 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_reversed_i32(chighway_ops_vector_i32 a) {
+  return __builtin_shufflevector(a, a, 3, 2, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_slide_up_lanes_i32(chighway_ops_vector_i32 a, size_t lanes) {
+  chighway_ops_vector_i32 result = {0};
+  for (size_t i = lanes; i < 4; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_slide1_up_i32(chighway_ops_vector_i32 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_i32){0}, 4, 0, 1, 2);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i32(const int32_t* from, chighway_ops_vector_i32* v0, chighway_ops_vector_i32* v1) {
+  chighway_ops_vector_i32 r0, r1;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i32(const int32_t* from, chighway_ops_vector_i32* v0, chighway_ops_vector_i32* v1, chighway_ops_vector_i32* v2) {
+  chighway_ops_vector_i32 r0, r1, r2;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i32(const int32_t* from, chighway_ops_vector_i32* v0, chighway_ops_vector_i32* v1, chighway_ops_vector_i32* v2, chighway_ops_vector_i32* v3) {
+  chighway_ops_vector_i32 r0, r1, r2, r3;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b, int32_t* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b, chighway_ops_vector_i32 c, int32_t* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b, chighway_ops_vector_i32 c, chighway_ops_vector_i32 d, int32_t* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_widening_i8_to_i32(const int8_t* from) {
+  typedef int8_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_widening_i16_to_i32(const int16_t* from) {
+  typedef int16_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_first_widening_i8_to_i32(const int8_t* from, size_t count) {
+  typedef int8_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(int8_t));
+  return __builtin_convertvector(v, chighway_ops_vector_i32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_first_widening_i16_to_i32(const int16_t* from, size_t count) {
+  typedef int16_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(int16_t));
+  return __builtin_convertvector(v, chighway_ops_vector_i32);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_repeating_block_i32(int32_t v0, int32_t v1, int32_t v2, int32_t v3) {
+  return (chighway_ops_vector_i32){v0, v1, v2, v3};
+}
 
-using TagI64 = hn::ScalableTag<int64_t>;
-using VectorI64 = hn::VFromD<TagI64>;
-using MaskI64 = hn::MFromD<TagI64>;
-HWY_INLINE size_t laneCountI64() { return hn::Lanes(TagI64()); }
-HWY_INLINE VectorI64 zeroI64() { return hn::Zero(TagI64()); }
-HWY_INLINE VectorI64 repeatingI64(int64_t value) { return hn::Set(TagI64(), value); }
-HWY_INLINE VectorI64 iotaI64(int64_t value) { return hn::Iota(TagI64(), value); }
-HWY_INLINE VectorI64 loadI64(const int64_t* from) { return hn::LoadU(TagI64(), from); }
-HWY_INLINE VectorI64 loadAlignedI64(const int64_t* from) { return hn::Load(TagI64(), from); }
-HWY_INLINE VectorI64 loadFirstI64(const int64_t* from, size_t count) { return hn::LoadN(TagI64(), from, count); }
-HWY_INLINE void storeI64(VectorI64 a, int64_t* to) { hn::StoreU(a, TagI64(), to); }
-HWY_INLINE void storeAlignedI64(VectorI64 a, int64_t* to) { hn::Store(a, TagI64(), to); }
-HWY_INLINE void storeFirstI64(VectorI64 a, int64_t* to, size_t count) { hn::StoreN(a, TagI64(), to, count); }
-HWY_INLINE VectorI64 addingI64(VectorI64 a, VectorI64 b) { return hn::Add(a, b); }
-HWY_INLINE VectorI64 subtractingI64(VectorI64 a, VectorI64 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorI64 multiplyingI64(VectorI64 a, VectorI64 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorI64 minimumI64(VectorI64 a, VectorI64 b) { return hn::Min(a, b); }
-HWY_INLINE VectorI64 maximumI64(VectorI64 a, VectorI64 b) { return hn::Max(a, b); }
-HWY_INLINE VectorI64 negatedI64(VectorI64 a) { return hn::Neg(a); }
-HWY_INLINE VectorI64 magnitudeI64(VectorI64 a) { return hn::Abs(a); }
-HWY_INLINE VectorI64 bitwiseAndI64(VectorI64 a, VectorI64 b) { return hn::And(a, b); }
-HWY_INLINE VectorI64 bitwiseOrI64(VectorI64 a, VectorI64 b) { return hn::Or(a, b); }
-HWY_INLINE VectorI64 bitwiseXorI64(VectorI64 a, VectorI64 b) { return hn::Xor(a, b); }
-HWY_INLINE VectorI64 bitwiseNotI64(VectorI64 a) { return hn::Not(a); }
-HWY_INLINE VectorI64 bitwiseAndNotI64(VectorI64 a, VectorI64 b) { return hn::AndNot(a, b); }
-HWY_INLINE VectorI64 shiftedLeftI64(VectorI64 a, int bits) { return hn::ShiftLeftSame(a, bits); }
-HWY_INLINE VectorI64 shiftedRightI64(VectorI64 a, int bits) { return hn::ShiftRightSame(a, bits); }
-HWY_INLINE MaskI64 equalToI64(VectorI64 a, VectorI64 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskI64 notEqualToI64(VectorI64 a, VectorI64 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskI64 lessThanI64(VectorI64 a, VectorI64 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskI64 greaterThanI64(VectorI64 a, VectorI64 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorI64 selectingI64(MaskI64 mask, VectorI64 a, VectorI64 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorI64 selectingOrZeroI64(MaskI64 mask, VectorI64 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorI64 zeroingSelectedI64(MaskI64 mask, VectorI64 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskI64 firstLanesI64(size_t count) { return hn::FirstN(TagI64(), count); }
-HWY_INLINE bool allTrueI64(MaskI64 mask) { return hn::AllTrue(TagI64(), mask); }
-HWY_INLINE bool allFalseI64(MaskI64 mask) { return hn::AllFalse(TagI64(), mask); }
-HWY_INLINE size_t trueCountI64(MaskI64 mask) { return hn::CountTrue(TagI64(), mask); }
-HWY_INLINE intptr_t firstTrueIndexI64(MaskI64 mask) { return hn::FindFirstTrue(TagI64(), mask); }
-HWY_INLINE int64_t sumI64(VectorI64 a) { return hn::ReduceSum(TagI64(), a); }
-HWY_INLINE int64_t smallestI64(VectorI64 a) { return hn::ReduceMin(TagI64(), a); }
-HWY_INLINE int64_t largestI64(VectorI64 a) { return hn::ReduceMax(TagI64(), a); }
-HWY_INLINE int64_t firstLaneI64(VectorI64 a) { return hn::GetLane(a); }
-HWY_INLINE VectorI64 reversedI64(VectorI64 a) { return hn::Reverse(TagI64(), a); }
-HWY_INLINE VectorI64 slideUpLanesI64(VectorI64 a, size_t lanes) { return hn::SlideUpLanes(TagI64(), a, lanes); }
-HWY_INLINE VectorI64 slide1UpI64(VectorI64 a) { return hn::Slide1Up(TagI64(), a); }
-HWY_INLINE void loadInterleaved2I64(const int64_t* from, VectorI64& v0, VectorI64& v1) { hn::LoadInterleaved2(TagI64(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3I64(const int64_t* from, VectorI64& v0, VectorI64& v1, VectorI64& v2) { hn::LoadInterleaved3(TagI64(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4I64(const int64_t* from, VectorI64& v0, VectorI64& v1, VectorI64& v2, VectorI64& v3) { hn::LoadInterleaved4(TagI64(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2I64(VectorI64 a, VectorI64 b, int64_t* to) { hn::StoreInterleaved2(a, b, TagI64(), to); }
-HWY_INLINE void storeInterleaved3I64(VectorI64 a, VectorI64 b, VectorI64 c, int64_t* to) { hn::StoreInterleaved3(a, b, c, TagI64(), to); }
-HWY_INLINE void storeInterleaved4I64(VectorI64 a, VectorI64 b, VectorI64 c, VectorI64 d, int64_t* to) { hn::StoreInterleaved4(a, b, c, d, TagI64(), to); }
-HWY_INLINE VectorI64 loadWideningI8ToI64(const int8_t* from) { return hn::PromoteTo(TagI64(), hn::LoadU(hn::Rebind<int8_t, TagI64>(), from)); }
-HWY_INLINE VectorI64 loadWideningI16ToI64(const int16_t* from) { return hn::PromoteTo(TagI64(), hn::LoadU(hn::Rebind<int16_t, TagI64>(), from)); }
-HWY_INLINE VectorI64 loadWideningI32ToI64(const int32_t* from) { return hn::PromoteTo(TagI64(), hn::LoadU(hn::Rebind<int32_t, TagI64>(), from)); }
-HWY_INLINE VectorI64 loadFirstWideningI8ToI64(const int8_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int8_t, TagI64>(), from, count)); }
-HWY_INLINE VectorI64 loadFirstWideningI16ToI64(const int16_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int16_t, TagI64>(), from, count)); }
-HWY_INLINE VectorI64 loadFirstWideningI32ToI64(const int32_t* from, size_t count) { return hn::PromoteTo(TagI64(), hn::LoadN(hn::Rebind<int32_t, TagI64>(), from, count)); }
-HWY_INLINE VectorI64 repeatingBlockI64(int64_t v0, int64_t v1) { return hn::Dup128VecFromValues(TagI64(), v0, v1); }
+typedef int64_t chighway_ops_vector_i64 __attribute__((vector_size(16)));
+typedef int64_t chighway_ops_mask_i64 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_i64(void) {
+  return 2;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_zero_i64(void) {
+  return (chighway_ops_vector_i64){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_repeating_i64(int64_t value) {
+  return (chighway_ops_vector_i64){value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_iota_i64(int64_t value) {
+  return (chighway_ops_vector_i64)((chighway_ops_vector_u64){(uint64_t)value, (uint64_t)value} + (chighway_ops_vector_u64){0, 1});
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_i64(const int64_t* from) {
+  chighway_ops_vector_i64 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_aligned_i64(const int64_t* from) {
+  chighway_ops_vector_i64 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_i64(const int64_t* from, size_t count) {
+  chighway_ops_vector_i64 v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int64_t));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_i64(chighway_ops_vector_i64 a, int64_t* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i64(chighway_ops_vector_i64 a, int64_t* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i64(chighway_ops_vector_i64 a, int64_t* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 2 ? count : 2) * sizeof(int64_t));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_adding_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_vector_i64)((chighway_ops_vector_u64)a + (chighway_ops_vector_u64)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_subtracting_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_vector_i64)((chighway_ops_vector_u64)a - (chighway_ops_vector_u64)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_multiplying_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_vector_i64)((chighway_ops_vector_u64)a * (chighway_ops_vector_u64)b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_minimum_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return __builtin_elementwise_min(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_maximum_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return __builtin_elementwise_max(a, b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_negated_i64(chighway_ops_vector_i64 a) {
+  return (chighway_ops_vector_i64)((chighway_ops_vector_u64){0} - (chighway_ops_vector_u64)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_magnitude_i64(chighway_ops_vector_i64 a) {
+  return __builtin_elementwise_abs(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_bitwise_and_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_bitwise_or_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return a | b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_bitwise_xor_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return a ^ b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_bitwise_not_i64(chighway_ops_vector_i64 a) {
+  return ~a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_bitwise_and_not_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return ~a & b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_shifted_left_i64(chighway_ops_vector_i64 a, int bits) {
+  if (bits < 0 || bits >= 64) {
+    return (chighway_ops_vector_i64){0};
+  }
+  return (chighway_ops_vector_i64)((chighway_ops_vector_u64)a << bits);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_shifted_right_i64(chighway_ops_vector_i64 a, int bits) {
+  if (bits < 0 || bits >= 64) {
+    bits = 63;
+  }
+  return a >> bits;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_equal_to_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_mask_i64)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_not_equal_to_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_mask_i64)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_less_than_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_mask_i64)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_greater_than_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_mask_i64)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_selecting_i64(chighway_ops_mask_i64 mask, chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+  return (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_selecting_or_zero_i64(chighway_ops_mask_i64 mask, chighway_ops_vector_i64 a) {
+  return (chighway_ops_vector_i64)((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_zeroing_selected_i64(chighway_ops_mask_i64 mask, chighway_ops_vector_i64 a) {
+  return (chighway_ops_vector_i64)(~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_first_lanes_i64(size_t count) {
+  const uint64_t n = (uint64_t)(count < 2 ? count : 2);
+  return (chighway_ops_mask_i64)((chighway_ops_vector_u64){0, 1} < (chighway_ops_vector_u64){n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i64(chighway_ops_mask_i64 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i64(chighway_ops_mask_i64 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i64(chighway_ops_mask_i64 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i64(chighway_ops_mask_i64 mask) {
+  for (size_t i = 0; i < 2; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE int64_t chighway_ops_sum_i64(chighway_ops_vector_i64 a) {
+  return __builtin_reduce_add(a);
+}
+CHIGHWAY_OPS_INLINE int64_t chighway_ops_smallest_i64(chighway_ops_vector_i64 a) {
+  return __builtin_reduce_min(a);
+}
+CHIGHWAY_OPS_INLINE int64_t chighway_ops_largest_i64(chighway_ops_vector_i64 a) {
+  return __builtin_reduce_max(a);
+}
+CHIGHWAY_OPS_INLINE int64_t chighway_ops_first_lane_i64(chighway_ops_vector_i64 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_reversed_i64(chighway_ops_vector_i64 a) {
+  return __builtin_shufflevector(a, a, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_slide_up_lanes_i64(chighway_ops_vector_i64 a, size_t lanes) {
+  chighway_ops_vector_i64 result = {0};
+  for (size_t i = lanes; i < 2; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_slide1_up_i64(chighway_ops_vector_i64 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_i64){0}, 2, 0);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i64(const int64_t* from, chighway_ops_vector_i64* v0, chighway_ops_vector_i64* v1) {
+  chighway_ops_vector_i64 r0, r1;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i64(const int64_t* from, chighway_ops_vector_i64* v0, chighway_ops_vector_i64* v1, chighway_ops_vector_i64* v2) {
+  chighway_ops_vector_i64 r0, r1, r2;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i64(const int64_t* from, chighway_ops_vector_i64* v0, chighway_ops_vector_i64* v1, chighway_ops_vector_i64* v2, chighway_ops_vector_i64* v3) {
+  chighway_ops_vector_i64 r0, r1, r2, r3;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b, int64_t* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b, chighway_ops_vector_i64 c, int64_t* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b, chighway_ops_vector_i64 c, chighway_ops_vector_i64 d, int64_t* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_widening_i8_to_i64(const int8_t* from) {
+  typedef int8_t narrow_vector __attribute__((vector_size(2)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_widening_i16_to_i64(const int16_t* from) {
+  typedef int16_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_widening_i32_to_i64(const int32_t* from) {
+  typedef int32_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_widening_i8_to_i64(const int8_t* from, size_t count) {
+  typedef int8_t narrow_vector __attribute__((vector_size(2)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int8_t));
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_widening_i16_to_i64(const int16_t* from, size_t count) {
+  typedef int16_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int16_t));
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_widening_i32_to_i64(const int32_t* from, size_t count) {
+  typedef int32_t narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int32_t));
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_repeating_block_i64(int64_t v0, int64_t v1) {
+  return (chighway_ops_vector_i64){v0, v1};
+}
 
-using TagF32 = hn::ScalableTag<float>;
-using VectorF32 = hn::VFromD<TagF32>;
-using MaskF32 = hn::MFromD<TagF32>;
-HWY_INLINE size_t laneCountF32() { return hn::Lanes(TagF32()); }
-HWY_INLINE VectorF32 zeroF32() { return hn::Zero(TagF32()); }
-HWY_INLINE VectorF32 repeatingF32(float value) { return hn::Set(TagF32(), value); }
-HWY_INLINE VectorF32 iotaF32(float value) { return hn::Iota(TagF32(), value); }
-HWY_INLINE VectorF32 loadF32(const float* from) { return hn::LoadU(TagF32(), from); }
-HWY_INLINE VectorF32 loadAlignedF32(const float* from) { return hn::Load(TagF32(), from); }
-HWY_INLINE VectorF32 loadFirstF32(const float* from, size_t count) { return hn::LoadN(TagF32(), from, count); }
-HWY_INLINE void storeF32(VectorF32 a, float* to) { hn::StoreU(a, TagF32(), to); }
-HWY_INLINE void storeAlignedF32(VectorF32 a, float* to) { hn::Store(a, TagF32(), to); }
-HWY_INLINE void storeFirstF32(VectorF32 a, float* to, size_t count) { hn::StoreN(a, TagF32(), to, count); }
-HWY_INLINE VectorF32 addingF32(VectorF32 a, VectorF32 b) { return hn::Add(a, b); }
-HWY_INLINE VectorF32 subtractingF32(VectorF32 a, VectorF32 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorF32 multiplyingF32(VectorF32 a, VectorF32 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorF32 dividingF32(VectorF32 a, VectorF32 b) { return hn::Div(a, b); }
-HWY_INLINE VectorF32 minimumF32(VectorF32 a, VectorF32 b) { return hn::Min(a, b); }
-HWY_INLINE VectorF32 maximumF32(VectorF32 a, VectorF32 b) { return hn::Max(a, b); }
-HWY_INLINE VectorF32 negatedF32(VectorF32 a) { return hn::Neg(a); }
-HWY_INLINE VectorF32 magnitudeF32(VectorF32 a) { return hn::Abs(a); }
-HWY_INLINE VectorF32 squareRootF32(VectorF32 a) { return hn::Sqrt(a); }
-HWY_INLINE VectorF32 multiplyAddingF32(VectorF32 a, VectorF32 b, VectorF32 c) { return hn::MulAdd(a, b, c); }
-HWY_INLINE MaskF32 equalToF32(VectorF32 a, VectorF32 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskF32 notEqualToF32(VectorF32 a, VectorF32 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskF32 lessThanF32(VectorF32 a, VectorF32 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskF32 greaterThanF32(VectorF32 a, VectorF32 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorF32 selectingF32(MaskF32 mask, VectorF32 a, VectorF32 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorF32 selectingOrZeroF32(MaskF32 mask, VectorF32 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorF32 zeroingSelectedF32(MaskF32 mask, VectorF32 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskF32 firstLanesF32(size_t count) { return hn::FirstN(TagF32(), count); }
-HWY_INLINE bool allTrueF32(MaskF32 mask) { return hn::AllTrue(TagF32(), mask); }
-HWY_INLINE bool allFalseF32(MaskF32 mask) { return hn::AllFalse(TagF32(), mask); }
-HWY_INLINE size_t trueCountF32(MaskF32 mask) { return hn::CountTrue(TagF32(), mask); }
-HWY_INLINE intptr_t firstTrueIndexF32(MaskF32 mask) { return hn::FindFirstTrue(TagF32(), mask); }
-HWY_INLINE float sumF32(VectorF32 a) { return hn::ReduceSum(TagF32(), a); }
-HWY_INLINE float smallestF32(VectorF32 a) { return hn::ReduceMin(TagF32(), a); }
-HWY_INLINE float largestF32(VectorF32 a) { return hn::ReduceMax(TagF32(), a); }
-HWY_INLINE float firstLaneF32(VectorF32 a) { return hn::GetLane(a); }
-HWY_INLINE VectorF32 reversedF32(VectorF32 a) { return hn::Reverse(TagF32(), a); }
-HWY_INLINE VectorF32 slideUpLanesF32(VectorF32 a, size_t lanes) { return hn::SlideUpLanes(TagF32(), a, lanes); }
-HWY_INLINE VectorF32 slide1UpF32(VectorF32 a) { return hn::Slide1Up(TagF32(), a); }
-HWY_INLINE void loadInterleaved2F32(const float* from, VectorF32& v0, VectorF32& v1) { hn::LoadInterleaved2(TagF32(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3F32(const float* from, VectorF32& v0, VectorF32& v1, VectorF32& v2) { hn::LoadInterleaved3(TagF32(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4F32(const float* from, VectorF32& v0, VectorF32& v1, VectorF32& v2, VectorF32& v3) { hn::LoadInterleaved4(TagF32(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2F32(VectorF32 a, VectorF32 b, float* to) { hn::StoreInterleaved2(a, b, TagF32(), to); }
-HWY_INLINE void storeInterleaved3F32(VectorF32 a, VectorF32 b, VectorF32 c, float* to) { hn::StoreInterleaved3(a, b, c, TagF32(), to); }
-HWY_INLINE void storeInterleaved4F32(VectorF32 a, VectorF32 b, VectorF32 c, VectorF32 d, float* to) { hn::StoreInterleaved4(a, b, c, d, TagF32(), to); }
-HWY_INLINE VectorF32 repeatingBlockF32(float v0, float v1, float v2, float v3) { return hn::Dup128VecFromValues(TagF32(), v0, v1, v2, v3); }
+typedef float chighway_ops_vector_f32 __attribute__((vector_size(16)));
+typedef int32_t chighway_ops_mask_f32 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_f32(void) {
+  return 4;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_zero_f32(void) {
+  return (chighway_ops_vector_f32){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_repeating_f32(float value) {
+  return (chighway_ops_vector_f32){value, value, value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_iota_f32(float value) {
+  return (chighway_ops_vector_f32){value, value, value, value} + (chighway_ops_vector_f32){0, 1, 2, 3};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_load_f32(const float* from) {
+  chighway_ops_vector_f32 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_load_aligned_f32(const float* from) {
+  chighway_ops_vector_f32 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_load_first_f32(const float* from, size_t count) {
+  chighway_ops_vector_f32 v = {0};
+  __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(float));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_f32(chighway_ops_vector_f32 a, float* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_f32(chighway_ops_vector_f32 a, float* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_f32(chighway_ops_vector_f32 a, float* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 4 ? count : 4) * sizeof(float));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_adding_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return a + b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_subtracting_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return a - b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_multiplying_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return a * b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_dividing_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return a / b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_minimum_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  chighway_ops_mask_f32 take = (chighway_ops_mask_f32)(a < b) | ((chighway_ops_mask_f32)(b != b) & (chighway_ops_mask_f32)(a == a));
+  return (chighway_ops_vector_f32)(((chighway_ops_vector_u32)take & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)take & (chighway_ops_vector_u32)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_maximum_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  chighway_ops_mask_f32 take = (chighway_ops_mask_f32)(a > b) | ((chighway_ops_mask_f32)(b != b) & (chighway_ops_mask_f32)(a == a));
+  return (chighway_ops_vector_f32)(((chighway_ops_vector_u32)take & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)take & (chighway_ops_vector_u32)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_negated_f32(chighway_ops_vector_f32 a) {
+  return -a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_magnitude_f32(chighway_ops_vector_f32 a) {
+  return __builtin_elementwise_abs(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_square_root_f32(chighway_ops_vector_f32 a) {
+  return __builtin_elementwise_sqrt(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_multiply_adding_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, chighway_ops_vector_f32 c) {
+  #pragma clang fp contract(off)
+  return a * b + c;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_equal_to_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return (chighway_ops_mask_f32)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_not_equal_to_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return (chighway_ops_mask_f32)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_less_than_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return (chighway_ops_mask_f32)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_greater_than_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return (chighway_ops_mask_f32)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_selecting_f32(chighway_ops_mask_f32 mask, chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+  return (chighway_ops_vector_f32)(((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_selecting_or_zero_f32(chighway_ops_mask_f32 mask, chighway_ops_vector_f32 a) {
+  return (chighway_ops_vector_f32)((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_zeroing_selected_f32(chighway_ops_mask_f32 mask, chighway_ops_vector_f32 a) {
+  return (chighway_ops_vector_f32)(~(chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_first_lanes_f32(size_t count) {
+  const uint32_t n = (uint32_t)(count < 4 ? count : 4);
+  return (chighway_ops_mask_f32)((chighway_ops_vector_u32){0, 1, 2, 3} < (chighway_ops_vector_u32){n, n, n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_f32(chighway_ops_mask_f32 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_f32(chighway_ops_mask_f32 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_f32(chighway_ops_mask_f32 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_f32(chighway_ops_mask_f32 mask) {
+  for (size_t i = 0; i < 4; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE float chighway_ops_sum_f32(chighway_ops_vector_f32 a) {
+  float sum = 0;
+  for (size_t i = 0; i < 4; ++i) {
+    sum += a[i];
+  }
+  return sum;
+}
+CHIGHWAY_OPS_INLINE float chighway_ops_smallest_f32(chighway_ops_vector_f32 a) {
+  float result = __builtin_inff();
+  for (size_t i = 0; i < 4; ++i) {
+    result = result < a[i] ? result : a[i];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE float chighway_ops_largest_f32(chighway_ops_vector_f32 a) {
+  float result = -__builtin_inff();
+  for (size_t i = 0; i < 4; ++i) {
+    result = result > a[i] ? result : a[i];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE float chighway_ops_first_lane_f32(chighway_ops_vector_f32 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_reversed_f32(chighway_ops_vector_f32 a) {
+  return __builtin_shufflevector(a, a, 3, 2, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_slide_up_lanes_f32(chighway_ops_vector_f32 a, size_t lanes) {
+  chighway_ops_vector_f32 result = {0};
+  for (size_t i = lanes; i < 4; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_slide1_up_f32(chighway_ops_vector_f32 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_f32){0}, 4, 0, 1, 2);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_f32(const float* from, chighway_ops_vector_f32* v0, chighway_ops_vector_f32* v1) {
+  chighway_ops_vector_f32 r0, r1;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_f32(const float* from, chighway_ops_vector_f32* v0, chighway_ops_vector_f32* v1, chighway_ops_vector_f32* v2) {
+  chighway_ops_vector_f32 r0, r1, r2;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_f32(const float* from, chighway_ops_vector_f32* v0, chighway_ops_vector_f32* v1, chighway_ops_vector_f32* v2, chighway_ops_vector_f32* v3) {
+  chighway_ops_vector_f32 r0, r1, r2, r3;
+  for (size_t i = 0; i < 4; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, float* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, chighway_ops_vector_f32 c, float* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, chighway_ops_vector_f32 c, chighway_ops_vector_f32 d, float* to) {
+  for (size_t i = 0; i < 4; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_repeating_block_f32(float v0, float v1, float v2, float v3) {
+  return (chighway_ops_vector_f32){v0, v1, v2, v3};
+}
 
-using TagF64 = hn::ScalableTag<double>;
-using VectorF64 = hn::VFromD<TagF64>;
-using MaskF64 = hn::MFromD<TagF64>;
-HWY_INLINE size_t laneCountF64() { return hn::Lanes(TagF64()); }
-HWY_INLINE VectorF64 zeroF64() { return hn::Zero(TagF64()); }
-HWY_INLINE VectorF64 repeatingF64(double value) { return hn::Set(TagF64(), value); }
-HWY_INLINE VectorF64 iotaF64(double value) { return hn::Iota(TagF64(), value); }
-HWY_INLINE VectorF64 loadF64(const double* from) { return hn::LoadU(TagF64(), from); }
-HWY_INLINE VectorF64 loadAlignedF64(const double* from) { return hn::Load(TagF64(), from); }
-HWY_INLINE VectorF64 loadFirstF64(const double* from, size_t count) { return hn::LoadN(TagF64(), from, count); }
-HWY_INLINE void storeF64(VectorF64 a, double* to) { hn::StoreU(a, TagF64(), to); }
-HWY_INLINE void storeAlignedF64(VectorF64 a, double* to) { hn::Store(a, TagF64(), to); }
-HWY_INLINE void storeFirstF64(VectorF64 a, double* to, size_t count) { hn::StoreN(a, TagF64(), to, count); }
-HWY_INLINE VectorF64 addingF64(VectorF64 a, VectorF64 b) { return hn::Add(a, b); }
-HWY_INLINE VectorF64 subtractingF64(VectorF64 a, VectorF64 b) { return hn::Sub(a, b); }
-HWY_INLINE VectorF64 multiplyingF64(VectorF64 a, VectorF64 b) { return hn::Mul(a, b); }
-HWY_INLINE VectorF64 dividingF64(VectorF64 a, VectorF64 b) { return hn::Div(a, b); }
-HWY_INLINE VectorF64 minimumF64(VectorF64 a, VectorF64 b) { return hn::Min(a, b); }
-HWY_INLINE VectorF64 maximumF64(VectorF64 a, VectorF64 b) { return hn::Max(a, b); }
-HWY_INLINE VectorF64 negatedF64(VectorF64 a) { return hn::Neg(a); }
-HWY_INLINE VectorF64 magnitudeF64(VectorF64 a) { return hn::Abs(a); }
-HWY_INLINE VectorF64 squareRootF64(VectorF64 a) { return hn::Sqrt(a); }
-HWY_INLINE VectorF64 multiplyAddingF64(VectorF64 a, VectorF64 b, VectorF64 c) { return hn::MulAdd(a, b, c); }
-HWY_INLINE MaskF64 equalToF64(VectorF64 a, VectorF64 b) { return hn::Eq(a, b); }
-HWY_INLINE MaskF64 notEqualToF64(VectorF64 a, VectorF64 b) { return hn::Ne(a, b); }
-HWY_INLINE MaskF64 lessThanF64(VectorF64 a, VectorF64 b) { return hn::Lt(a, b); }
-HWY_INLINE MaskF64 greaterThanF64(VectorF64 a, VectorF64 b) { return hn::Gt(a, b); }
-HWY_INLINE VectorF64 selectingF64(MaskF64 mask, VectorF64 a, VectorF64 b) { return hn::IfThenElse(mask, a, b); }
-HWY_INLINE VectorF64 selectingOrZeroF64(MaskF64 mask, VectorF64 a) { return hn::IfThenElseZero(mask, a); }
-HWY_INLINE VectorF64 zeroingSelectedF64(MaskF64 mask, VectorF64 a) { return hn::IfThenZeroElse(mask, a); }
-HWY_INLINE MaskF64 firstLanesF64(size_t count) { return hn::FirstN(TagF64(), count); }
-HWY_INLINE bool allTrueF64(MaskF64 mask) { return hn::AllTrue(TagF64(), mask); }
-HWY_INLINE bool allFalseF64(MaskF64 mask) { return hn::AllFalse(TagF64(), mask); }
-HWY_INLINE size_t trueCountF64(MaskF64 mask) { return hn::CountTrue(TagF64(), mask); }
-HWY_INLINE intptr_t firstTrueIndexF64(MaskF64 mask) { return hn::FindFirstTrue(TagF64(), mask); }
-HWY_INLINE double sumF64(VectorF64 a) { return hn::ReduceSum(TagF64(), a); }
-HWY_INLINE double smallestF64(VectorF64 a) { return hn::ReduceMin(TagF64(), a); }
-HWY_INLINE double largestF64(VectorF64 a) { return hn::ReduceMax(TagF64(), a); }
-HWY_INLINE double firstLaneF64(VectorF64 a) { return hn::GetLane(a); }
-HWY_INLINE VectorF64 reversedF64(VectorF64 a) { return hn::Reverse(TagF64(), a); }
-HWY_INLINE VectorF64 slideUpLanesF64(VectorF64 a, size_t lanes) { return hn::SlideUpLanes(TagF64(), a, lanes); }
-HWY_INLINE VectorF64 slide1UpF64(VectorF64 a) { return hn::Slide1Up(TagF64(), a); }
-HWY_INLINE void loadInterleaved2F64(const double* from, VectorF64& v0, VectorF64& v1) { hn::LoadInterleaved2(TagF64(), from, v0, v1); }
-HWY_INLINE void loadInterleaved3F64(const double* from, VectorF64& v0, VectorF64& v1, VectorF64& v2) { hn::LoadInterleaved3(TagF64(), from, v0, v1, v2); }
-HWY_INLINE void loadInterleaved4F64(const double* from, VectorF64& v0, VectorF64& v1, VectorF64& v2, VectorF64& v3) { hn::LoadInterleaved4(TagF64(), from, v0, v1, v2, v3); }
-HWY_INLINE void storeInterleaved2F64(VectorF64 a, VectorF64 b, double* to) { hn::StoreInterleaved2(a, b, TagF64(), to); }
-HWY_INLINE void storeInterleaved3F64(VectorF64 a, VectorF64 b, VectorF64 c, double* to) { hn::StoreInterleaved3(a, b, c, TagF64(), to); }
-HWY_INLINE void storeInterleaved4F64(VectorF64 a, VectorF64 b, VectorF64 c, VectorF64 d, double* to) { hn::StoreInterleaved4(a, b, c, d, TagF64(), to); }
-HWY_INLINE VectorF64 loadWideningF32ToF64(const float* from) { return hn::PromoteTo(TagF64(), hn::LoadU(hn::Rebind<float, TagF64>(), from)); }
-HWY_INLINE VectorF64 loadFirstWideningF32ToF64(const float* from, size_t count) { return hn::PromoteTo(TagF64(), hn::LoadN(hn::Rebind<float, TagF64>(), from, count)); }
-HWY_INLINE VectorF64 repeatingBlockF64(double v0, double v1) { return hn::Dup128VecFromValues(TagF64(), v0, v1); }
-
-}  // namespace HighwayOps
+typedef double chighway_ops_vector_f64 __attribute__((vector_size(16)));
+typedef int64_t chighway_ops_mask_f64 __attribute__((vector_size(16)));
+CHIGHWAY_OPS_INLINE size_t chighway_ops_lane_count_f64(void) {
+  return 2;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_zero_f64(void) {
+  return (chighway_ops_vector_f64){0};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_repeating_f64(double value) {
+  return (chighway_ops_vector_f64){value, value};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_iota_f64(double value) {
+  return (chighway_ops_vector_f64){value, value} + (chighway_ops_vector_f64){0, 1};
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_f64(const double* from) {
+  chighway_ops_vector_f64 v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_aligned_f64(const double* from) {
+  chighway_ops_vector_f64 v;
+  __builtin_memcpy(&v, __builtin_assume_aligned(from, 16), sizeof v);
+  return v;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_first_f64(const double* from, size_t count) {
+  chighway_ops_vector_f64 v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(double));
+  return v;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_f64(chighway_ops_vector_f64 a, double* to) {
+  __builtin_memcpy(to, &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_f64(chighway_ops_vector_f64 a, double* to) {
+  __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_first_f64(chighway_ops_vector_f64 a, double* to, size_t count) {
+  __builtin_memcpy(to, &a, (count < 2 ? count : 2) * sizeof(double));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_adding_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return a + b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_subtracting_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return a - b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_multiplying_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return a * b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_dividing_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return a / b;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_minimum_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  chighway_ops_mask_f64 take = (chighway_ops_mask_f64)(a < b) | ((chighway_ops_mask_f64)(b != b) & (chighway_ops_mask_f64)(a == a));
+  return (chighway_ops_vector_f64)(((chighway_ops_vector_u64)take & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)take & (chighway_ops_vector_u64)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_maximum_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  chighway_ops_mask_f64 take = (chighway_ops_mask_f64)(a > b) | ((chighway_ops_mask_f64)(b != b) & (chighway_ops_mask_f64)(a == a));
+  return (chighway_ops_vector_f64)(((chighway_ops_vector_u64)take & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)take & (chighway_ops_vector_u64)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_negated_f64(chighway_ops_vector_f64 a) {
+  return -a;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_magnitude_f64(chighway_ops_vector_f64 a) {
+  return __builtin_elementwise_abs(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_square_root_f64(chighway_ops_vector_f64 a) {
+  return __builtin_elementwise_sqrt(a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_multiply_adding_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, chighway_ops_vector_f64 c) {
+  #pragma clang fp contract(off)
+  return a * b + c;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_equal_to_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return (chighway_ops_mask_f64)(a == b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_not_equal_to_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return (chighway_ops_mask_f64)(a != b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_less_than_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return (chighway_ops_mask_f64)(a < b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_greater_than_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return (chighway_ops_mask_f64)(a > b);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_selecting_f64(chighway_ops_mask_f64 mask, chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+  return (chighway_ops_vector_f64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b));
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_selecting_or_zero_f64(chighway_ops_mask_f64 mask, chighway_ops_vector_f64 a) {
+  return (chighway_ops_vector_f64)((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_zeroing_selected_f64(chighway_ops_mask_f64 mask, chighway_ops_vector_f64 a) {
+  return (chighway_ops_vector_f64)(~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_first_lanes_f64(size_t count) {
+  const uint64_t n = (uint64_t)(count < 2 ? count : 2);
+  return (chighway_ops_mask_f64)((chighway_ops_vector_u64){0, 1} < (chighway_ops_vector_u64){n, n});
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_f64(chighway_ops_mask_f64 mask) {
+  return __builtin_reduce_and(mask) != 0;
+}
+CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_f64(chighway_ops_mask_f64 mask) {
+  return __builtin_reduce_or(mask) == 0;
+}
+CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_f64(chighway_ops_mask_f64 mask) {
+  return (size_t)-__builtin_reduce_add(mask);
+}
+CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_f64(chighway_ops_mask_f64 mask) {
+  for (size_t i = 0; i < 2; ++i) {
+    if (mask[i]) {
+      return (intptr_t)i;
+    }
+  }
+  return -1;
+}
+CHIGHWAY_OPS_INLINE double chighway_ops_sum_f64(chighway_ops_vector_f64 a) {
+  double sum = 0;
+  for (size_t i = 0; i < 2; ++i) {
+    sum += a[i];
+  }
+  return sum;
+}
+CHIGHWAY_OPS_INLINE double chighway_ops_smallest_f64(chighway_ops_vector_f64 a) {
+  double result = __builtin_inf();
+  for (size_t i = 0; i < 2; ++i) {
+    result = result < a[i] ? result : a[i];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE double chighway_ops_largest_f64(chighway_ops_vector_f64 a) {
+  double result = -__builtin_inf();
+  for (size_t i = 0; i < 2; ++i) {
+    result = result > a[i] ? result : a[i];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE double chighway_ops_first_lane_f64(chighway_ops_vector_f64 a) {
+  return a[0];
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_reversed_f64(chighway_ops_vector_f64 a) {
+  return __builtin_shufflevector(a, a, 1, 0);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_slide_up_lanes_f64(chighway_ops_vector_f64 a, size_t lanes) {
+  chighway_ops_vector_f64 result = {0};
+  for (size_t i = lanes; i < 2; ++i) {
+    result[i] = a[i - lanes];
+  }
+  return result;
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_slide1_up_f64(chighway_ops_vector_f64 a) {
+  return __builtin_shufflevector(a, (chighway_ops_vector_f64){0}, 2, 0);
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_f64(const double* from, chighway_ops_vector_f64* v0, chighway_ops_vector_f64* v1) {
+  chighway_ops_vector_f64 r0, r1;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[2 * i];
+    r1[i] = from[2 * i + 1];
+  }
+  *v0 = r0;
+  *v1 = r1;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_f64(const double* from, chighway_ops_vector_f64* v0, chighway_ops_vector_f64* v1, chighway_ops_vector_f64* v2) {
+  chighway_ops_vector_f64 r0, r1, r2;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[3 * i];
+    r1[i] = from[3 * i + 1];
+    r2[i] = from[3 * i + 2];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_f64(const double* from, chighway_ops_vector_f64* v0, chighway_ops_vector_f64* v1, chighway_ops_vector_f64* v2, chighway_ops_vector_f64* v3) {
+  chighway_ops_vector_f64 r0, r1, r2, r3;
+  for (size_t i = 0; i < 2; ++i) {
+    r0[i] = from[4 * i];
+    r1[i] = from[4 * i + 1];
+    r2[i] = from[4 * i + 2];
+    r3[i] = from[4 * i + 3];
+  }
+  *v0 = r0;
+  *v1 = r1;
+  *v2 = r2;
+  *v3 = r3;
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, double* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[2 * i] = a[i];
+    to[2 * i + 1] = b[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, chighway_ops_vector_f64 c, double* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[3 * i] = a[i];
+    to[3 * i + 1] = b[i];
+    to[3 * i + 2] = c[i];
+  }
+}
+CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, chighway_ops_vector_f64 c, chighway_ops_vector_f64 d, double* to) {
+  for (size_t i = 0; i < 2; ++i) {
+    to[4 * i] = a[i];
+    to[4 * i + 1] = b[i];
+    to[4 * i + 2] = c[i];
+    to[4 * i + 3] = d[i];
+  }
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_widening_f32_to_f64(const float* from) {
+  typedef float narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_f64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_first_widening_f32_to_f64(const float* from, size_t count) {
+  typedef float narrow_vector __attribute__((vector_size(8)));
+  narrow_vector v = {0};
+  __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(float));
+  return __builtin_convertvector(v, chighway_ops_vector_f64);
+}
+CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_repeating_block_f64(double v0, double v1) {
+  return (chighway_ops_vector_f64){v0, v1};
+}
 
 #endif

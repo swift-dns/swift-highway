@@ -1,4 +1,3 @@
-#if !$Embedded && !os(WASI)
 import Highway
 import Testing
 
@@ -83,4 +82,3 @@ struct KernelTests {
         #expect(total == input.reduce(0, &+))
     }
 }
-#endif

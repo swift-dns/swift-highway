@@ -11,16 +11,15 @@ fatal() { error "$@"; exit 1; }
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly repository_root
 readonly version_file="${repository_root}/highway-version.json"
-readonly vendor_root="${repository_root}/Sources/CHighway"
+readonly vendor_root="${repository_root}/HighwayReference/CHighway"
 readonly include_root="${vendor_root}/include"
 readonly module_map="${include_root}/module.modulemap"
 readonly patch_root="${repository_root}/patches"
 
 # A module compiles every header it lists, so the module map lists only the ones the package's own
-# headers reach. The rest need a hosted C++ standard library, which platforms such as WASI lack.
+# headers reach.
 readonly -a module_seed_headers=(
   hwy/highway.h
-  hwy/contrib/sort/vqsort.h
 )
 
 clone_dir=""
@@ -88,8 +87,8 @@ verify_commit() {
   return 0
 }
 
-# The .cc files upstream itself compiles into libhwy and libhwy_contrib, so that vendoring
-# follows upstream rather than a list here that would silently drift away from it.
+# The .cc files upstream itself compiles into libhwy, so that vendoring follows upstream rather
+# than a list here that would silently drift away from it.
 library_sources_from_cmake() {
   local clone_dir="${1:?library_sources_from_cmake requires the clone directory}"
 
@@ -97,7 +96,7 @@ library_sources_from_cmake() {
   listed_sources="$(
     awk '
       /^[[:space:]]*set\([[:space:]]*HWY_SOURCES/ { in_block = 1 }
-      /^[[:space:]]*list\([[:space:]]*APPEND[[:space:]]+HWY_(CONTRIB_)?SOURCES/ { in_block = 1 }
+      /^[[:space:]]*list\([[:space:]]*APPEND[[:space:]]+HWY_SOURCES/ { in_block = 1 }
       in_block && match($0, /hwy\/[A-Za-z0-9_\/.-]+\.cc/) {
         print substr($0, RSTART, RLENGTH)
       }
@@ -105,12 +104,7 @@ library_sources_from_cmake() {
     ' "${clone_dir}/CMakeLists.txt"
   )"
 
-  local globbed_sources
-  globbed_sources="$(
-    cd -- "${clone_dir}" && printf -- '%s\n' hwy/contrib/sort/vqsort_*.cc
-  )"
-
-  printf -- '%s\n%s\n' "${listed_sources}" "${globbed_sources}" | sort -u
+  printf -- '%s\n' "${listed_sources}" | sort -u
   return 0
 }
 
@@ -120,6 +114,7 @@ copy_headers() {
   log "Copying headers..."
   if ! rsync --archive --quiet \
     --exclude='tests/' \
+    --exclude='contrib/' \
     --exclude='*_test.h' \
     --exclude='*_test_util.h' \
     --include='*/' \
