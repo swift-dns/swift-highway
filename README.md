@@ -166,8 +166,6 @@ Highway needs AES and PCLMUL for SSE4 and above, and no `x86-64-v*` level includ
 `Highway.targetName` reports what was chosen, and `Highway.isEmulated` is true on the targets
 that only emulate vectors, where scalar code is faster.
 
-Sorting is unaffected by all of this and always dispatches at run time.
-
 SVE and RVV are disabled: their vectors are sizeless, so they have no Swift type to be imported
 as. The platforms that have them use the widest fixed-size target they have instead.
 
@@ -176,8 +174,6 @@ Swift does not import, so flags that select them fail to build.
 
 ## What is not wrapped
 
-`thread_pool`, `image`, `matvec`, the `iguana` and `range_coder` codecs, `bit_pack`, `btree`,
-`profiler` and `nanobenchmark` are not exposed yet. Neither are the `float16_t`, `K32V32`,
-`K64V64` and `uint128_t` sort keys, which need Swift types to sort first.
-
-`unroller` is a C++ template framework for C++ authors and is not wrappable in principle.
+swift-highway wraps Highway's SIMD ops only. The libraries Highway builds on top of them, such as
+`vqsort`, `thread_pool`, `image`, `matvec`, `bit_pack`, `btree`, `unroller`, the `iguana` and
+`range_coder` codecs, `profiler` and `nanobenchmark`, are out of scope.

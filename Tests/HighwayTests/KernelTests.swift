@@ -82,14 +82,5 @@ struct KernelTests {
 
         #expect(total == input.reduce(0, &+))
     }
-
-    @Test("Sorting orders keys both ways")
-    func sortingExample() {
-        var keys: [Int32] = [5, 3, 9, 1, 7]
-        Highway.sort(&keys)
-        #expect(keys == [1, 3, 5, 7, 9])
-        Highway.sort(&keys, order: .descending)
-        #expect(keys == [9, 7, 5, 3, 1])
-    }
 }
 #endif
