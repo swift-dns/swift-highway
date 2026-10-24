@@ -19,6 +19,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # With SSE3 on, libstdc++'s std module and clang's intrinsics module include each other
+        # through mm_malloc.h, which nothing here uses, so its include guard is predefined.
         target:
           - name: NEON
             runner: ubuntu-24.04-arm
@@ -28,10 +30,10 @@ jobs:
             flags: ""
           - name: SSSE3
             runner: ubuntu-latest
-            flags: "-Xcc -mssse3"
+            flags: "-Xcc -mssse3 -Xcc -D__MM_MALLOC_H"
           - name: SSE4
             runner: ubuntu-latest
-            flags: "-Xcc -march=x86-64-v2 -Xcc -maes -Xcc -mpclmul"
+            flags: "-Xcc -march=x86-64-v2 -Xcc -maes -Xcc -mpclmul -Xcc -D__MM_MALLOC_H"
           - name: EMU128
             runner: ubuntu-latest
             flags: "-Xcc -DCHIGHWAY_OPS_PORTABLE -Xcc -DHWY_COMPILE_ONLY_EMU128"

@@ -27,7 +27,7 @@ Add the dependency to the target that wants it. No settings are needed, neither 
 
 ```diff
 dependencies: [
-+    .package(url: "https://github.com/swift-dns/swift-highway.git", exact: "1.0.0-alpha.3")
++    .package(url: "https://github.com/swift-dns/swift-highway.git", exact: "1.0.0-alpha.8")
 ],
 targets: [
     .target(
