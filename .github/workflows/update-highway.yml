@@ -51,6 +51,10 @@ jobs:
         id: upstream
         run: .github/scripts/latest-highway-tag.sh >> "${GITHUB_OUTPUT}"
 
+      - name: Keep the current quick reference
+        if: steps.upstream.outputs.is-outdated == 'true'
+        run: cp HighwayReference/CHighway/quick_reference.md "${RUNNER_TEMP}/previous-quick-reference.md"
+
       - name: Pin the new version
         if: steps.upstream.outputs.is-outdated == 'true'
         env:
@@ -69,13 +73,11 @@ jobs:
         if: steps.upstream.outputs.is-outdated == 'true'
         run: swift utils/GenerateHighwayOps.swift
 
-      - name: Build and test against the new version
+      - name: Report what upstream changed
         if: steps.upstream.outputs.is-outdated == 'true'
         run: |
-          swift test \
-            --disable-xctest \
-            --explicit-target-dependency-import-check error \
-            -Xswiftc -require-explicit-sendable
+          .github/scripts/highway-update-report.sh "${RUNNER_TEMP}/previous-quick-reference.md" \
+            > "${RUNNER_TEMP}/upstream-report.md"
 
       - name: Commit the update to a new branch
         if: steps.upstream.outputs.is-outdated == 'true'
@@ -112,6 +114,9 @@ jobs:
             printf '%s\n' "## Vendored highway updated to ${TAG} ✅" >> "${GITHUB_STEP_SUMMARY}"
             printf '%s\n' "" >> "${GITHUB_STEP_SUMMARY}"
             printf '%s\n' "Committed to \`${NEW_BRANCH}\`." >> "${GITHUB_STEP_SUMMARY}"
+            printf '%s\n' "A pull request from it runs reference-tests against the new version." >> "${GITHUB_STEP_SUMMARY}"
+            printf '%s\n' "" >> "${GITHUB_STEP_SUMMARY}"
+            cat "${RUNNER_TEMP}/upstream-report.md" >> "${GITHUB_STEP_SUMMARY}"
           else
             printf '%s\n' "## Vendored highway is already at ${TAG} ✅" >> "${GITHUB_STEP_SUMMARY}"
           fi
