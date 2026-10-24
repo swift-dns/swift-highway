@@ -1,4 +1,3 @@
-#if !$Embedded && !os(WASI)
 import Highway
 import Testing
 
@@ -93,6 +92,17 @@ struct OpsTests {
         }
 
         #expect(selected == a.map(Swift.abs))
+    }
+
+    @Test("First lanes select every lane for any count of at least the lane count")
+    func firstLanes() {
+        typealias H = HighwayUInt8
+        let lanes = H.laneCount
+        for count in [0, 1, lanes - 1, lanes, lanes + 1, 127, 128, 200, Int.max] {
+            let mask = H.firstLanes(count: count)
+            #expect(H.trueCount(mask) == min(count, lanes))
+            #expect(H.firstTrueIndex(mask) == (count == 0 ? -1 : 0))
+        }
     }
 
     @Test("Reductions match the scalar result")
@@ -638,4 +648,3 @@ struct OpsTests {
     }
     #endif
 }
-#endif
