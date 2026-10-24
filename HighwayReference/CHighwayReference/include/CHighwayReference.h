@@ -10,6 +10,21 @@
 // HWY_DISABLED_TARGETS is set by the build, see HighwayReference/Package.swift.
 #include "hwy/highway.h"
 
+#if CHIGHWAY_OPS_NEON
+#define CHIGHWAY_REFERENCE_TARGETS HWY_ALL_NEON
+#elif CHIGHWAY_OPS_X86 == 3
+#define CHIGHWAY_REFERENCE_TARGETS HWY_SSE4
+#elif CHIGHWAY_OPS_X86 == 2
+#define CHIGHWAY_REFERENCE_TARGETS HWY_SSSE3
+#elif CHIGHWAY_OPS_X86 == 1
+#define CHIGHWAY_REFERENCE_TARGETS HWY_SSE2
+#else
+#define CHIGHWAY_REFERENCE_TARGETS HWY_EMU128
+#endif
+#if !(HWY_TARGET & CHIGHWAY_REFERENCE_TARGETS)
+#error "highway's static target is not the port's"
+#endif
+
 namespace HighwayReference {
 namespace hn = hwy::HWY_NAMESPACE;
 
