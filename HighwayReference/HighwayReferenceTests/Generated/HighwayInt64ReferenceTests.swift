@@ -77,11 +77,38 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func loadBeforeGuardPage() {
+        let mismatches = Mismatches("load before a guard page")
+        let fromInputs = Inputs.buffers(H.Lane.self, count: 2, seed: 0xD80F_B52A_3FA3_D7AD)
+        for from in fromInputs {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(from) { source in
+                (unsafe H.load(from: source), unsafe port(HighwayReference.loadI64(source)))
+            }.result
+            mismatches.check(portResult, referenceResult, "from: \(describe(from))")
+        }
+        mismatches.record()
+    }
+
     @Test func loadAligned() {
         let mismatches = Mismatches("loadAligned")
         let fromInputs = Inputs.buffers(H.Lane.self, count: 2, seed: 0x4F21_0CB4_497D_1CFE)
         for from in fromInputs {
             let (portResult, referenceResult) = unsafe withAlignedLanes(from) { source in
+                (
+                    unsafe H.loadAligned(from: source),
+                    unsafe port(HighwayReference.loadAlignedI64(source))
+                )
+            }.result
+            mismatches.check(portResult, referenceResult, "from: \(describe(from))")
+        }
+        mismatches.record()
+    }
+
+    @Test func loadAlignedBeforeGuardPage() {
+        let mismatches = Mismatches("loadAligned before a guard page")
+        let fromInputs = Inputs.buffers(H.Lane.self, count: 2, seed: 0x4E56_7F38_3770_914F)
+        for from in fromInputs {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(from) { source in
                 (
                     unsafe H.loadAligned(from: source),
                     unsafe port(HighwayReference.loadAlignedI64(source))
@@ -112,6 +139,27 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func loadFirstBeforeGuardPage() {
+        let mismatches = Mismatches("loadFirst before a guard page")
+        let fromInputs = Inputs.buffers(H.Lane.self, count: 2, seed: 0x1647_6288_60AC_0299)
+        let countInputs = Inputs.bufferCounts(lanes: H.laneCount)
+        for (from, count) in everyPair(fromInputs, countInputs) {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(Array(from.prefix(count))) {
+                source in
+                (
+                    unsafe H.loadFirst(from: source, count: count),
+                    unsafe port(HighwayReference.loadFirstI64(source, count))
+                )
+            }.result
+            mismatches.check(
+                portResult,
+                referenceResult,
+                "from: \(describe(from)), count: \(count)"
+            )
+        }
+        mismatches.record()
+    }
+
     @Test func store() {
         let mismatches = Mismatches("store")
         let aInputs = Inputs.vectors(H.Vector.self, seed: 0xA114_46C0_5C43_5FB3)
@@ -125,6 +173,22 @@ struct HighwayInt64ReferenceTests {
             referenceLanes.withUnsafeMutableBufferPointer { destination in
                 unsafe HighwayReference.storeI64(reference(a), destination.baseAddress!)
             }
+            mismatches.check(portLanes, referenceLanes, "a: \(describe(a))")
+        }
+        mismatches.record()
+    }
+
+    @Test func storeBeforeGuardPage() {
+        let mismatches = Mismatches("store before a guard page")
+        let aInputs = Inputs.vectors(H.Vector.self, seed: 0x71C5_FB6F_0874_20D8)
+        let sentinel = Inputs.sentinel(H.Lane.self, count: 2)
+        for a in aInputs {
+            let portLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe H.store(a, to: destination)
+            }.lanes
+            let referenceLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe HighwayReference.storeI64(reference(a), destination)
+            }.lanes
             mismatches.check(portLanes, referenceLanes, "a: \(describe(a))")
         }
         mismatches.record()
@@ -146,6 +210,22 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func storeAlignedBeforeGuardPage() {
+        let mismatches = Mismatches("storeAligned before a guard page")
+        let aInputs = Inputs.vectors(H.Vector.self, seed: 0x7E9F_4EBB_CAFF_1754)
+        let sentinel = Inputs.sentinel(H.Lane.self, count: 2)
+        for a in aInputs {
+            let portLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe H.storeAligned(a, to: destination)
+            }.lanes
+            let referenceLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe HighwayReference.storeAlignedI64(reference(a), destination)
+            }.lanes
+            mismatches.check(portLanes, referenceLanes, "a: \(describe(a))")
+        }
+        mismatches.record()
+    }
+
     @Test func storeFirst() {
         let mismatches = Mismatches("storeFirst")
         let aInputs = Inputs.vectors(H.Vector.self, seed: 0xC390_8C2A_7C8D_736D)
@@ -160,6 +240,24 @@ struct HighwayInt64ReferenceTests {
             referenceLanes.withUnsafeMutableBufferPointer { destination in
                 unsafe HighwayReference.storeFirstI64(reference(a), destination.baseAddress!, count)
             }
+            mismatches.check(portLanes, referenceLanes, "a: \(describe(a)), count: \(count)")
+        }
+        mismatches.record()
+    }
+
+    @Test func storeFirstBeforeGuardPage() {
+        let mismatches = Mismatches("storeFirst before a guard page")
+        let aInputs = Inputs.vectors(H.Vector.self, seed: 0x1BA9_7E93_DE14_ECBA)
+        let countInputs = Inputs.bufferCounts(lanes: H.laneCount)
+        let sentinel = Inputs.sentinel(H.Lane.self, count: 2)
+        for (a, count) in everyPair(aInputs, countInputs) {
+            let portLanes = unsafe withGuardedLanes(Array(sentinel.prefix(count))) { destination in
+                unsafe H.storeFirst(a, to: destination, count: count)
+            }.lanes
+            let referenceLanes = unsafe withGuardedLanes(Array(sentinel.prefix(count))) {
+                destination in
+                unsafe HighwayReference.storeFirstI64(reference(a), destination, count)
+            }.lanes
             mismatches.check(portLanes, referenceLanes, "a: \(describe(a)), count: \(count)")
         }
         mismatches.record()
@@ -337,7 +435,9 @@ struct HighwayInt64ReferenceTests {
         for (a, bits) in everyPair(aInputs, bitsInputs) {
             mismatches.check(
                 H.shiftedLeft(a, by: bits),
-                port(HighwayReference.shiftedLeftI64(reference(a), Int32(bits))),
+                port(
+                    HighwayReference.shiftedLeftI64(reference(a), Int32(truncatingIfNeeded: bits))
+                ),
                 "a: \(describe(a)), bits: \(bits)"
             )
         }
@@ -357,7 +457,9 @@ struct HighwayInt64ReferenceTests {
         for (a, bits) in everyPair(aInputs, bitsInputs) {
             mismatches.check(
                 H.shiftedLeft(a, by: bits),
-                port(HighwayReference.shiftedLeftI64(reference(a), Int32(bits))),
+                port(
+                    HighwayReference.shiftedLeftI64(reference(a), Int32(truncatingIfNeeded: bits))
+                ),
                 "a: \(describe(a)), bits: \(bits)"
             )
         }
@@ -371,7 +473,9 @@ struct HighwayInt64ReferenceTests {
         for (a, bits) in everyPair(aInputs, bitsInputs) {
             mismatches.check(
                 H.shiftedRight(a, by: bits),
-                port(HighwayReference.shiftedRightI64(reference(a), Int32(bits))),
+                port(
+                    HighwayReference.shiftedRightI64(reference(a), Int32(truncatingIfNeeded: bits))
+                ),
                 "a: \(describe(a)), bits: \(bits)"
             )
         }
@@ -391,7 +495,9 @@ struct HighwayInt64ReferenceTests {
         for (a, bits) in everyPair(aInputs, bitsInputs) {
             mismatches.check(
                 H.shiftedRight(a, by: bits),
-                port(HighwayReference.shiftedRightI64(reference(a), Int32(bits))),
+                port(
+                    HighwayReference.shiftedRightI64(reference(a), Int32(truncatingIfNeeded: bits))
+                ),
                 "a: \(describe(a)), bits: \(bits)"
             )
         }
@@ -683,6 +789,24 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func loadInterleaved2BeforeGuardPage() {
+        let mismatches = Mismatches("loadInterleaved2 before a guard page")
+        let fromInputs = Inputs.buffers(H.Lane.self, count: 4, seed: 0xF2FD_E410_2F75_AB10)
+        for from in fromInputs {
+            var p0 = H.zero()
+            var p1 = H.zero()
+            var r0 = HighwayReference.zeroI64()
+            var r1 = HighwayReference.zeroI64()
+            _ = unsafe withGuardedLanes(from) { source in
+                unsafe H.loadInterleaved2(from: source, &p0, &p1)
+                unsafe HighwayReference.loadInterleaved2I64(source, &r0, &r1)
+            }
+            mismatches.check(p0, port(r0), "from: \(describe(from)), v0")
+            mismatches.check(p1, port(r1), "from: \(describe(from)), v1")
+        }
+        mismatches.record()
+    }
+
     @Test func loadInterleaved3() {
         let mismatches = Mismatches("loadInterleaved3")
         let fromInputs = Inputs.buffers(H.Lane.self, count: 6, seed: 0x0489_3B2C_2A27_B5C0)
@@ -696,6 +820,27 @@ struct HighwayInt64ReferenceTests {
             from.withUnsafeBufferPointer { source in
                 unsafe H.loadInterleaved3(from: source.baseAddress!, &p0, &p1, &p2)
                 unsafe HighwayReference.loadInterleaved3I64(source.baseAddress!, &r0, &r1, &r2)
+            }
+            mismatches.check(p0, port(r0), "from: \(describe(from)), v0")
+            mismatches.check(p1, port(r1), "from: \(describe(from)), v1")
+            mismatches.check(p2, port(r2), "from: \(describe(from)), v2")
+        }
+        mismatches.record()
+    }
+
+    @Test func loadInterleaved3BeforeGuardPage() {
+        let mismatches = Mismatches("loadInterleaved3 before a guard page")
+        let fromInputs = Inputs.buffers(H.Lane.self, count: 6, seed: 0x9DDD_0251_E694_6879)
+        for from in fromInputs {
+            var p0 = H.zero()
+            var p1 = H.zero()
+            var p2 = H.zero()
+            var r0 = HighwayReference.zeroI64()
+            var r1 = HighwayReference.zeroI64()
+            var r2 = HighwayReference.zeroI64()
+            _ = unsafe withGuardedLanes(from) { source in
+                unsafe H.loadInterleaved3(from: source, &p0, &p1, &p2)
+                unsafe HighwayReference.loadInterleaved3I64(source, &r0, &r1, &r2)
             }
             mismatches.check(p0, port(r0), "from: \(describe(from)), v0")
             mismatches.check(p1, port(r1), "from: \(describe(from)), v1")
@@ -728,6 +873,30 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func loadInterleaved4BeforeGuardPage() {
+        let mismatches = Mismatches("loadInterleaved4 before a guard page")
+        let fromInputs = Inputs.buffers(H.Lane.self, count: 8, seed: 0x6283_1539_9D6A_CCFE)
+        for from in fromInputs {
+            var p0 = H.zero()
+            var p1 = H.zero()
+            var p2 = H.zero()
+            var p3 = H.zero()
+            var r0 = HighwayReference.zeroI64()
+            var r1 = HighwayReference.zeroI64()
+            var r2 = HighwayReference.zeroI64()
+            var r3 = HighwayReference.zeroI64()
+            _ = unsafe withGuardedLanes(from) { source in
+                unsafe H.loadInterleaved4(from: source, &p0, &p1, &p2, &p3)
+                unsafe HighwayReference.loadInterleaved4I64(source, &r0, &r1, &r2, &r3)
+            }
+            mismatches.check(p0, port(r0), "from: \(describe(from)), v0")
+            mismatches.check(p1, port(r1), "from: \(describe(from)), v1")
+            mismatches.check(p2, port(r2), "from: \(describe(from)), v2")
+            mismatches.check(p3, port(r3), "from: \(describe(from)), v3")
+        }
+        mismatches.record()
+    }
+
     @Test func storeInterleaved2() {
         let mismatches = Mismatches("storeInterleaved2")
         let aInputs = Inputs.vectors(H.Vector.self, seed: 0x6248_D3B6_0A9D_98A4)
@@ -746,6 +915,27 @@ struct HighwayInt64ReferenceTests {
                     destination.baseAddress!
                 )
             }
+            mismatches.check(portLanes, referenceLanes, "a: \(describe(a)), b: \(describe(b))")
+        }
+        mismatches.record()
+    }
+
+    @Test func storeInterleaved2BeforeGuardPage() {
+        let mismatches = Mismatches("storeInterleaved2 before a guard page")
+        let aInputs = Inputs.vectors(H.Vector.self, seed: 0x7859_FC4D_80C3_827D)
+        let bInputs = Inputs.vectors(H.Vector.self, seed: 0x7859_FB4D_80C3_80CA)
+        let sentinel = Inputs.sentinel(H.Lane.self, count: 4)
+        for (a, b) in everyPair(aInputs, bInputs) {
+            let portLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe H.storeInterleaved2(a, b, to: destination)
+            }.lanes
+            let referenceLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe HighwayReference.storeInterleaved2I64(
+                    reference(a),
+                    reference(b),
+                    destination
+                )
+            }.lanes
             mismatches.check(portLanes, referenceLanes, "a: \(describe(a)), b: \(describe(b))")
         }
         mismatches.record()
@@ -771,6 +961,33 @@ struct HighwayInt64ReferenceTests {
                     destination.baseAddress!
                 )
             }
+            mismatches.check(
+                portLanes,
+                referenceLanes,
+                "a: \(describe(a)), b: \(describe(b)), c: \(describe(c))"
+            )
+        }
+        mismatches.record()
+    }
+
+    @Test func storeInterleaved3BeforeGuardPage() {
+        let mismatches = Mismatches("storeInterleaved3 before a guard page")
+        let aInputs = Inputs.vectors(H.Vector.self, seed: 0x907E_15BC_5C3A_3274)
+        let bInputs = Inputs.vectors(H.Vector.self, seed: 0x907E_16BC_5C3A_3427)
+        let cInputs = Inputs.vectors(H.Vector.self, seed: 0x907E_17BC_5C3A_35DA)
+        let sentinel = Inputs.sentinel(H.Lane.self, count: 6)
+        for (a, b, c) in mixedTriples(aInputs, bInputs, cInputs, seed: 0x7F14_41C6_9A67_AF28) {
+            let portLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe H.storeInterleaved3(a, b, c, to: destination)
+            }.lanes
+            let referenceLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe HighwayReference.storeInterleaved3I64(
+                    reference(a),
+                    reference(b),
+                    reference(c),
+                    destination
+                )
+            }.lanes
             mismatches.check(
                 portLanes,
                 referenceLanes,
@@ -817,6 +1034,41 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func storeInterleaved4BeforeGuardPage() {
+        let mismatches = Mismatches("storeInterleaved4 before a guard page")
+        let aInputs = Inputs.vectors(H.Vector.self, seed: 0x8571_A393_32CD_6223)
+        let bInputs = Inputs.vectors(H.Vector.self, seed: 0x8571_A293_32CD_6070)
+        let cInputs = Inputs.vectors(H.Vector.self, seed: 0x8571_A593_32CD_6589)
+        let dInputs = Inputs.vectors(H.Vector.self, seed: 0x8571_A493_32CD_63D6)
+        let sentinel = Inputs.sentinel(H.Lane.self, count: 8)
+        for (a, b, c, d) in mixedQuadruples(
+            aInputs,
+            bInputs,
+            cInputs,
+            dInputs,
+            seed: 0x03B0_487C_E141_AB25
+        ) {
+            let portLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe H.storeInterleaved4(a, b, c, d, to: destination)
+            }.lanes
+            let referenceLanes = unsafe withGuardedLanes(sentinel) { destination in
+                unsafe HighwayReference.storeInterleaved4I64(
+                    reference(a),
+                    reference(b),
+                    reference(c),
+                    reference(d),
+                    destination
+                )
+            }.lanes
+            mismatches.check(
+                portLanes,
+                referenceLanes,
+                "a: \(describe(a)), b: \(describe(b)), c: \(describe(c)), d: \(describe(d))"
+            )
+        }
+        mismatches.record()
+    }
+
     @Test func loadWideningFromInt8() {
         let mismatches = Mismatches("loadWidening from Int8")
         let fromInputs = Inputs.buffers(Int8.self, count: H.laneCount, seed: 0xE91B_ADF2_D260_2822)
@@ -827,6 +1079,21 @@ struct HighwayInt64ReferenceTests {
                     unsafe port(HighwayReference.loadWideningI8ToI64(source.baseAddress!))
                 )
             }
+            mismatches.check(portResult, referenceResult, "from: \(describe(from))")
+        }
+        mismatches.record()
+    }
+
+    @Test func loadWideningFromInt8BeforeGuardPage() {
+        let mismatches = Mismatches("loadWidening from Int8 before a guard page")
+        let fromInputs = Inputs.buffers(Int8.self, count: H.laneCount, seed: 0x3AAD_4DD9_B6DD_9BE3)
+        for from in fromInputs {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(from) { source in
+                (
+                    unsafe H.loadWidening(from: source),
+                    unsafe port(HighwayReference.loadWideningI8ToI64(source))
+                )
+            }.result
             mismatches.check(portResult, referenceResult, "from: \(describe(from))")
         }
         mismatches.record()
@@ -847,6 +1114,21 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func loadWideningFromInt16BeforeGuardPage() {
+        let mismatches = Mismatches("loadWidening from Int16 before a guard page")
+        let fromInputs = Inputs.buffers(Int16.self, count: H.laneCount, seed: 0xF4D7_4A45_C865_BAC0)
+        for from in fromInputs {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(from) { source in
+                (
+                    unsafe H.loadWidening(from: source),
+                    unsafe port(HighwayReference.loadWideningI16ToI64(source))
+                )
+            }.result
+            mismatches.check(portResult, referenceResult, "from: \(describe(from))")
+        }
+        mismatches.record()
+    }
+
     @Test func loadWideningFromInt32() {
         let mismatches = Mismatches("loadWidening from Int32")
         let fromInputs = Inputs.buffers(Int32.self, count: H.laneCount, seed: 0x8101_123F_B6D9_5E9D)
@@ -857,6 +1139,21 @@ struct HighwayInt64ReferenceTests {
                     unsafe port(HighwayReference.loadWideningI32ToI64(source.baseAddress!))
                 )
             }
+            mismatches.check(portResult, referenceResult, "from: \(describe(from))")
+        }
+        mismatches.record()
+    }
+
+    @Test func loadWideningFromInt32BeforeGuardPage() {
+        let mismatches = Mismatches("loadWidening from Int32 before a guard page")
+        let fromInputs = Inputs.buffers(Int32.self, count: H.laneCount, seed: 0xEFBA_4BE6_ADD2_178A)
+        for from in fromInputs {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(from) { source in
+                (
+                    unsafe H.loadWidening(from: source),
+                    unsafe port(HighwayReference.loadWideningI32ToI64(source))
+                )
+            }.result
             mismatches.check(portResult, referenceResult, "from: \(describe(from))")
         }
         mismatches.record()
@@ -875,6 +1172,27 @@ struct HighwayInt64ReferenceTests {
                     )
                 )
             }
+            mismatches.check(
+                portResult,
+                referenceResult,
+                "from: \(describe(from)), count: \(count)"
+            )
+        }
+        mismatches.record()
+    }
+
+    @Test func loadFirstWideningFromInt8BeforeGuardPage() {
+        let mismatches = Mismatches("loadFirstWidening from Int8 before a guard page")
+        let fromInputs = Inputs.buffers(Int8.self, count: H.laneCount, seed: 0xA8CE_4551_1C5A_D3B7)
+        let countInputs = Inputs.bufferCounts(lanes: H.laneCount)
+        for (from, count) in everyPair(fromInputs, countInputs) {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(Array(from.prefix(count))) {
+                source in
+                (
+                    unsafe H.loadFirstWidening(from: source, count: count),
+                    unsafe port(HighwayReference.loadFirstWideningI8ToI64(source, count))
+                )
+            }.result
             mismatches.check(
                 portResult,
                 referenceResult,
@@ -906,6 +1224,27 @@ struct HighwayInt64ReferenceTests {
         mismatches.record()
     }
 
+    @Test func loadFirstWideningFromInt16BeforeGuardPage() {
+        let mismatches = Mismatches("loadFirstWidening from Int16 before a guard page")
+        let fromInputs = Inputs.buffers(Int16.self, count: H.laneCount, seed: 0xB787_74B3_4C07_AF74)
+        let countInputs = Inputs.bufferCounts(lanes: H.laneCount)
+        for (from, count) in everyPair(fromInputs, countInputs) {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(Array(from.prefix(count))) {
+                source in
+                (
+                    unsafe H.loadFirstWidening(from: source, count: count),
+                    unsafe port(HighwayReference.loadFirstWideningI16ToI64(source, count))
+                )
+            }.result
+            mismatches.check(
+                portResult,
+                referenceResult,
+                "from: \(describe(from)), count: \(count)"
+            )
+        }
+        mismatches.record()
+    }
+
     @Test func loadFirstWideningFromInt32() {
         let mismatches = Mismatches("loadFirstWidening from Int32")
         let fromInputs = Inputs.buffers(Int32.self, count: H.laneCount, seed: 0x6620_EB1F_D44B_4BF9)
@@ -919,6 +1258,27 @@ struct HighwayInt64ReferenceTests {
                     )
                 )
             }
+            mismatches.check(
+                portResult,
+                referenceResult,
+                "from: \(describe(from)), count: \(count)"
+            )
+        }
+        mismatches.record()
+    }
+
+    @Test func loadFirstWideningFromInt32BeforeGuardPage() {
+        let mismatches = Mismatches("loadFirstWidening from Int32 before a guard page")
+        let fromInputs = Inputs.buffers(Int32.self, count: H.laneCount, seed: 0x89ED_9958_8CFB_0736)
+        let countInputs = Inputs.bufferCounts(lanes: H.laneCount)
+        for (from, count) in everyPair(fromInputs, countInputs) {
+            let (portResult, referenceResult) = unsafe withGuardedLanes(Array(from.prefix(count))) {
+                source in
+                (
+                    unsafe H.loadFirstWidening(from: source, count: count),
+                    unsafe port(HighwayReference.loadFirstWideningI32ToI64(source, count))
+                )
+            }.result
             mismatches.check(
                 portResult,
                 referenceResult,

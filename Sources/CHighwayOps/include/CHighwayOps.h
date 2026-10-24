@@ -44,6 +44,8 @@ typedef char chighway_ops_x86_i8 __attribute__((vector_size(16)));
 typedef short chighway_ops_x86_i16 __attribute__((vector_size(16)));
 typedef int chighway_ops_x86_i32 __attribute__((vector_size(16)));
 typedef long long chighway_ops_x86_i64 __attribute__((vector_size(16)));
+typedef float chighway_ops_x86_f32 __attribute__((vector_size(16)));
+typedef double chighway_ops_x86_f64 __attribute__((vector_size(16)));
 #endif
 
 /// Whether the target only emulates vectors, in which case a caller is better off
@@ -98,9 +100,102 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_load_aligned_u8(const ui
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_load_first_u8(const uint8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  typedef uint64_t long_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 v = {0};
+  if (count >= 16) {
+    __builtin_memcpy(&v, from, 16);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint8_t));
+  } else {
+    const size_t leading = count & 12;
+    chighway_ops_vector_u8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_u8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        trailing[2] = from[leading + 2];
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading == 0) {
+      v = trailing;
+    } else if (leading < 8) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_u8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      word_vector upper = (word_vector)trailing;
+      if (leading & 4) {
+        uint32_t middle;
+        __builtin_memcpy(&middle, from + 8, sizeof middle);
+        upper = __builtin_shufflevector(
+          (word_vector){middle, 0, 0, 0}, upper, 0, 4, 1, 5);
+      }
+      uint64_t first;
+      __builtin_memcpy(&first, from, sizeof first);
+      v = (chighway_ops_vector_u8)__builtin_shufflevector(
+        (long_vector){first, 0}, (long_vector)upper, 0, 2);
+    }
+  }
+  return v;
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  typedef uint64_t long_vector __attribute__((vector_size(16)));
+  typedef uint16_t half_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 v = {0};
+  if (count >= 16) {
+    __builtin_memcpy(&v, from, 16);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint8_t));
+  } else {
+    const size_t leading = count & 12;
+    chighway_ops_vector_u8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_u8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        const word_vector third = {(uint8_t)from[leading + 2], 0, 0, 0};
+        trailing = (chighway_ops_vector_u8)__builtin_shufflevector(
+          (half_vector)trailing, (half_vector)third, 0, 8, 1, 9, 2, 10, 3, 11);
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading == 0) {
+      v = trailing;
+    } else if (leading < 8) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_u8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      word_vector upper = (word_vector)trailing;
+      if (leading & 4) {
+        uint32_t middle;
+        __builtin_memcpy(&middle, from + 8, sizeof middle);
+        upper = __builtin_shufflevector(
+          (word_vector){middle, 0, 0, 0}, upper, 0, 4, 1, 5);
+      }
+      uint64_t first;
+      __builtin_memcpy(&first, from, sizeof first);
+      v = (chighway_ops_vector_u8)__builtin_shufflevector(
+        (long_vector){first, 0}, (long_vector)upper, 0, 2);
+    }
+  }
+  return v;
+#else
   chighway_ops_vector_u8 v = {0};
   __builtin_memcpy(&v, from, (count < 16 ? count : 16) * sizeof(uint8_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_u8(chighway_ops_vector_u8 a, uint8_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -109,7 +204,187 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u8(chighway_ops_vector_u8 a,
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u8(chighway_ops_vector_u8 a, uint8_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count <= 1) {
+    if (count == 1) {
+      {
+        typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+        const uint8_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    }
+  } else if (count >= 16) {
+    __builtin_memcpy(to + 0, &a, sizeof a);
+  } else if (count >= 8) {
+    {
+      typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+      const uint64_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+    const chighway_ops_vector_u8 upper8 = __builtin_shufflevector(a, a, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7);
+    if ((count - 8) <= 1) {
+      if ((count - 8) == 1) {
+        {
+          typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+          const uint8_t chunk = ((chunk_vector)upper8)[0];
+          __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+        }
+      }
+    } else if ((count - 8) >= 8) {
+      {
+        typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+        const uint64_t chunk = ((chunk_vector)upper8)[0];
+        __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+      }
+    } else if ((count - 8) >= 4) {
+      {
+        typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+        const uint32_t chunk = ((chunk_vector)upper8)[0];
+        __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+      }
+      const chighway_ops_vector_u8 upper4 = __builtin_shufflevector(upper8, upper8, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3);
+      if (((count - 8) - 4) > 1) {
+        if (((count - 8) - 4) >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 12, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 12, &chunk, sizeof chunk);
+          }
+          if (((count - 8) - 4) == 3) {
+            {
+              typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+              const uint8_t chunk = ((chunk_vector)upper4)[2];
+              __builtin_memcpy(to + 14, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if (((count - 8) - 4) == 1) {
+        {
+          typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+          const uint8_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 12, &chunk, sizeof chunk);
+        }
+      }
+    } else {
+      if ((count - 8) > 1) {
+        if ((count - 8) >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)upper8)[0];
+            __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)upper8)[0];
+            __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+          }
+          if ((count - 8) == 3) {
+            {
+              typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+              const uint8_t chunk = ((chunk_vector)upper8)[2];
+              __builtin_memcpy(to + 10, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if ((count - 8) == 1) {
+        {
+          typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+          const uint8_t chunk = ((chunk_vector)upper8)[0];
+          __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+        }
+      }
+    }
+  } else {
+    if (count <= 1) {
+      if (count == 1) {
+        {
+          typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+          const uint8_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+      }
+    } else if (count >= 8) {
+      {
+        typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+        const uint64_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    } else if (count >= 4) {
+      {
+        typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+        const uint32_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+      const chighway_ops_vector_u8 upper4 = __builtin_shufflevector(a, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3);
+      if ((count - 4) > 1) {
+        if ((count - 4) >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+          }
+          if ((count - 4) == 3) {
+            {
+              typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+              const uint8_t chunk = ((chunk_vector)upper4)[2];
+              __builtin_memcpy(to + 6, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if ((count - 4) == 1) {
+        {
+          typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+          const uint8_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+        }
+      }
+    } else {
+      if (count > 1) {
+        if (count >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)a)[0];
+            __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)a)[0];
+            __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+          }
+          if (count == 3) {
+            {
+              typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+              const uint8_t chunk = ((chunk_vector)a)[2];
+              __builtin_memcpy(to + 2, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if (count == 1) {
+        {
+          typedef uint8_t chunk_vector __attribute__((vector_size(16)));
+          const uint8_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+      }
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 16 ? count : 16) * sizeof(uint8_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_adding_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
   return a + b;
@@ -188,7 +463,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_greater_than_u8(chighway_o
   return (chighway_ops_mask_u8)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_selecting_u8(chighway_ops_mask_u8 mask, chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_u8)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return ((chighway_ops_vector_u8)mask & a) | (~(chighway_ops_vector_u8)mask & b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_selecting_or_zero_u8(chighway_ops_mask_u8 mask, chighway_ops_vector_u8 a) {
   return (chighway_ops_vector_u8)mask & a;
@@ -201,21 +480,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_first_lanes_u8(size_t coun
   return (chighway_ops_mask_u8)((chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15} < (chighway_ops_vector_u8){n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u8(chighway_ops_mask_u8 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask) == 0xffff;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u8(chighway_ops_mask_u8 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u8(chighway_ops_mask_u8 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u8(chighway_ops_mask_u8 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 4);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 16; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE uint8_t chighway_ops_first_lane_u8(chighway_ops_vector_u8 a) {
   return a[0];
@@ -225,14 +541,74 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_reversed_u8(chighway_ops
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_slide_up_lanes_u8(chighway_ops_vector_u8 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24);
+      case 8: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
+      case 9: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22);
+      case 10: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21);
+      case 11: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+      case 12: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19);
+      case 13: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+      case 14: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+      case 15: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint8_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u8)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24);
+      case 8: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
+      case 9: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22);
+      case 10: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21);
+      case 11: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+      case 12: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19);
+      case 13: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+      case 14: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+      case 15: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint8_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24);
+      case 8: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
+      case 9: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22);
+      case 10: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21);
+      case 11: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+      case 12: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19);
+      case 13: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+      case 14: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+      case 15: return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -251,7 +627,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_slide_up_lanes_u8(chighw
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_slide1_up_u8(chighway_ops_vector_u8 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_u8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_u8){0}, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_table_lookup_bytes_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
 #if CHIGHWAY_OPS_NEON
@@ -259,10 +639,16 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_table_lookup_bytes_u8(ch
 #elif CHIGHWAY_OPS_X86 >= 2
   return (chighway_ops_vector_u8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b);
 #elif CHIGHWAY_OPS_X86 >= 1
+  uint8_t table[16];
+  uint8_t indices[16];
+  uint8_t looked_up[16];
   chighway_ops_vector_u8 result;
+  __builtin_memcpy(table, &a, sizeof table);
+  __builtin_memcpy(indices, &b, sizeof indices);
   for (size_t i = 0; i < 16; ++i) {
-    result[i] = a[(uint8_t)b[i] & 15];
+    looked_up[i] = table[indices[i] & 15];
   }
+  __builtin_memcpy(&result, looked_up, sizeof result);
   return result;
 #else
   chighway_ops_vector_u8 result;
@@ -274,6 +660,22 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_table_lookup_bytes_u8(ch
 #endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u8(const uint8_t* from, chighway_ops_vector_u8* v0, chighway_ops_vector_u8* v1) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint8_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30);
+  *v1 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31);
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 first, second;
+  __builtin_memcpy(&first, from, sizeof first);
+  __builtin_memcpy(&second, from + 16, sizeof second);
+  const word_vector firstWords = (word_vector)first;
+  const word_vector secondWords = (word_vector)second;
+  *v0 = (chighway_ops_vector_u8)__builtin_ia32_packuswb128((chighway_ops_x86_i16)(firstWords & (chighway_ops_x86_i16){255, 255, 255, 255, 255, 255, 255, 255}), (chighway_ops_x86_i16)(secondWords & (chighway_ops_x86_i16){255, 255, 255, 255, 255, 255, 255, 255}));
+  *v1 = (chighway_ops_vector_u8)__builtin_ia32_packuswb128((chighway_ops_x86_i16)(firstWords >> 8), (chighway_ops_x86_i16)(secondWords >> 8));
+#else
   chighway_ops_vector_u8 r0, r1;
   for (size_t i = 0; i < 16; ++i) {
     r0[i] = from[2 * i];
@@ -281,8 +683,25 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u8(const uint8_t* from, 
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u8(const uint8_t* from, chighway_ops_vector_u8* v0, chighway_ops_vector_u8* v1, chighway_ops_vector_u8* v2) {
+#if CHIGHWAY_OPS_X86 >= 2
+  chighway_ops_x86_i8 vA, vB, vC;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 16, sizeof vB);
+  __builtin_memcpy(&vC, from + 32, sizeof vC);
+  *v0 = (chighway_ops_vector_u8)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){0, 3, 6, 9, 12, 15, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, 2, 5, 8, 11, 14, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 1, 4, 7, 10, 13}));
+  *v1 = (chighway_ops_vector_u8)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){1, 4, 7, 10, 13, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, 0, 3, 6, 9, 12, 15, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 2, 5, 8, 11, 14}));
+  *v2 = (chighway_ops_vector_u8)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){2, 5, 8, 11, 14, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, 1, 4, 7, 10, 13, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 0, 3, 6, 9, 12, 15}));
+#elif CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint8_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45);
+  *v1 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37, 40, 43, 46);
+  *v2 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 47);
+#else
   chighway_ops_vector_u8 r0, r1, r2;
   for (size_t i = 0; i < 16; ++i) {
     r0[i] = from[3 * i];
@@ -292,8 +711,44 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u8(const uint8_t* from, 
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u8(const uint8_t* from, chighway_ops_vector_u8* v0, chighway_ops_vector_u8* v1, chighway_ops_vector_u8* v2, chighway_ops_vector_u8* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint8_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60);
+  *v1 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61);
+  *v2 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50, 54, 58, 62);
+  *v3 = (chighway_ops_vector_u8)__builtin_shufflevector(all, all, 3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i8 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 16, sizeof vB);
+  __builtin_memcpy(&vC, from + 32, sizeof vC);
+  __builtin_memcpy(&vD, from + 48, sizeof vD);
+  const chighway_ops_x86_i8 v5140 = __builtin_shufflevector((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)vB, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 vd9c8 = __builtin_shufflevector((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)vD, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v7362 = __builtin_shufflevector((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)vB, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 vfbea = __builtin_shufflevector((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)vD, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v6420 = __builtin_shufflevector((chighway_ops_x86_i8)v5140, (chighway_ops_x86_i8)v7362, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 veca8 = __builtin_shufflevector((chighway_ops_x86_i8)vd9c8, (chighway_ops_x86_i8)vfbea, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v7531 = __builtin_shufflevector((chighway_ops_x86_i8)v5140, (chighway_ops_x86_i8)v7362, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 vfdb9 = __builtin_shufflevector((chighway_ops_x86_i8)vd9c8, (chighway_ops_x86_i8)vfbea, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v10L = __builtin_shufflevector((chighway_ops_x86_i8)v6420, (chighway_ops_x86_i8)v7531, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v10U = __builtin_shufflevector((chighway_ops_x86_i8)veca8, (chighway_ops_x86_i8)vfdb9, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v32L = __builtin_shufflevector((chighway_ops_x86_i8)v6420, (chighway_ops_x86_i8)v7531, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v32U = __builtin_shufflevector((chighway_ops_x86_i8)veca8, (chighway_ops_x86_i8)vfdb9, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i64 r0 = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v10U, 0, 2);
+  *v0 = (chighway_ops_vector_u8)r0;
+  const chighway_ops_x86_i64 r1 = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v10U, 1, 3);
+  *v1 = (chighway_ops_vector_u8)r1;
+  const chighway_ops_x86_i64 r2 = __builtin_shufflevector((chighway_ops_x86_i64)v32L, (chighway_ops_x86_i64)v32U, 0, 2);
+  *v2 = (chighway_ops_vector_u8)r2;
+  const chighway_ops_x86_i64 r3 = __builtin_shufflevector((chighway_ops_x86_i64)v32L, (chighway_ops_x86_i64)v32U, 1, 3);
+  *v3 = (chighway_ops_vector_u8)r3;
+#else
   chighway_ops_vector_u8 r0, r1, r2, r3;
   for (size_t i = 0; i < 16; ++i) {
     r0[i] = from[4 * i];
@@ -305,27 +760,72 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u8(const uint8_t* from, 
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b, uint8_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint8_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector(a, b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 16; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b, chighway_ops_vector_u8 c, uint8_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 2
+  typedef uint8_t pair_vector __attribute__((vector_size(32)));
+  typedef uint8_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
+  const pair_vector cc = __builtin_shufflevector(c, c, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 16, 32, 1, 17, 33, 2, 18, 34, 3, 19, 35, 4, 20, 36, 5, 21, 37, 6, 22, 38, 7, 23, 39, 8, 24, 40, 9, 25, 41, 10, 26, 42, 11, 27, 43, 12, 28, 44, 13, 29, 45, 14, 30, 46, 15, 31, 47);
+  __builtin_memcpy(to, &all, 48);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_u8 vA = (__builtin_shufflevector(a, a, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0, 5) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1}) | (__builtin_shufflevector(b, b, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0}) | (__builtin_shufflevector(c, c, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0});
+  const chighway_ops_vector_u8 vB = (__builtin_shufflevector(a, a, 0, 0, 6, 0, 0, 7, 0, 0, 8, 0, 0, 9, 0, 0, 10, 0) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0}) | (__builtin_shufflevector(b, b, 5, 0, 0, 6, 0, 0, 7, 0, 0, 8, 0, 0, 9, 0, 0, 10) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1}) | (__builtin_shufflevector(c, c, 0, 5, 0, 0, 6, 0, 0, 7, 0, 0, 8, 0, 0, 9, 0, 0) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0});
+  const chighway_ops_vector_u8 vC = (__builtin_shufflevector(a, a, 0, 11, 0, 0, 12, 0, 0, 13, 0, 0, 14, 0, 0, 15, 0, 0) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0}) | (__builtin_shufflevector(b, b, 0, 0, 11, 0, 0, 12, 0, 0, 13, 0, 0, 14, 0, 0, 15, 0) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0}) | (__builtin_shufflevector(c, c, 10, 0, 0, 11, 0, 0, 12, 0, 0, 13, 0, 0, 14, 0, 0, 15) & (chighway_ops_vector_u8)(chighway_ops_x86_i8){-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1});
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 16, &vB, sizeof vB);
+  __builtin_memcpy(to + 32, &vC, sizeof vC);
+#else
   for (size_t i = 0; i < 16; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b, chighway_ops_vector_u8 c, chighway_ops_vector_u8 d, uint8_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint8_t pair_vector __attribute__((vector_size(32)));
+  typedef uint8_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
+  const pair_vector cd = __builtin_shufflevector(c, d, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 16, 32, 48, 1, 17, 33, 49, 2, 18, 34, 50, 3, 19, 35, 51, 4, 20, 36, 52, 5, 21, 37, 53, 6, 22, 38, 54, 7, 23, 39, 55, 8, 24, 40, 56, 9, 25, 41, 57, 10, 26, 42, 58, 11, 27, 43, 59, 12, 28, 44, 60, 13, 29, 45, 61, 14, 30, 46, 62, 15, 31, 47, 63);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i8 v10L = __builtin_shufflevector((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v32L = __builtin_shufflevector((chighway_ops_x86_i8)c, (chighway_ops_x86_i8)d, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v10U = __builtin_shufflevector((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v32U = __builtin_shufflevector((chighway_ops_x86_i8)c, (chighway_ops_x86_i8)d, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i16 vA = __builtin_shufflevector((chighway_ops_x86_i16)v10L, (chighway_ops_x86_i16)v32L, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vB = __builtin_shufflevector((chighway_ops_x86_i16)v10L, (chighway_ops_x86_i16)v32L, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 vC = __builtin_shufflevector((chighway_ops_x86_i16)v10U, (chighway_ops_x86_i16)v32U, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vD = __builtin_shufflevector((chighway_ops_x86_i16)v10U, (chighway_ops_x86_i16)v32U, 4, 12, 5, 13, 6, 14, 7, 15);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 16, &vB, sizeof vB);
+  __builtin_memcpy(to + 32, &vC, sizeof vC);
+  __builtin_memcpy(to + 48, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 16; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_repeating_block_u8(uint8_t v0, uint8_t v1, uint8_t v2, uint8_t v3, uint8_t v4, uint8_t v5, uint8_t v6, uint8_t v7, uint8_t v8, uint8_t v9, uint8_t v10, uint8_t v11, uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15) {
   return (chighway_ops_vector_u8){v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15};
@@ -356,9 +856,37 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_aligned_u16(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_first_u16(const uint16_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_u16 v = {0};
+  if (count >= 8) {
+    __builtin_memcpy(&v, from, 8 * sizeof(uint16_t));
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint16_t));
+  } else {
+    const size_t leading = count & 4;
+    chighway_ops_vector_u16 trailing = {0};
+    if (count & 2) {
+      __builtin_memcpy(&trailing, from + leading, 2 * sizeof(uint16_t));
+      if (count & 1) {
+        trailing[2] = from[leading + 2];
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading != 0) {
+      __builtin_memcpy(&v, from, 4 * sizeof(uint16_t));
+      v = __builtin_shufflevector(v, trailing, 0, 1, 2, 3, 8, 9, 10, 11);
+    } else {
+      v = trailing;
+    }
+  }
+  return v;
+#else
   chighway_ops_vector_u16 v = {0};
   __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(uint16_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_u16(chighway_ops_vector_u16 a, uint16_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -367,7 +895,85 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u16(chighway_ops_vector_u16 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u16(chighway_ops_vector_u16 a, uint16_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count <= 1) {
+    if (count == 1) {
+      {
+        typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+        const uint16_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    }
+  } else if (count >= 8) {
+    __builtin_memcpy(to + 0, &a, sizeof a);
+  } else if (count >= 4) {
+    {
+      typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+      const uint64_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+    const chighway_ops_vector_u16 upper4 = __builtin_shufflevector(a, a, 4, 5, 6, 7, 0, 1, 2, 3);
+    if ((count - 4) > 1) {
+      if ((count - 4) >= 4) {
+        {
+          typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+          const uint64_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+        }
+      } else {
+        {
+          typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+          const uint32_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+        }
+        if ((count - 4) == 3) {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)upper4)[2];
+            __builtin_memcpy(to + 6, &chunk, sizeof chunk);
+          }
+        }
+      }
+    } else if ((count - 4) == 1) {
+      {
+        typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+        const uint16_t chunk = ((chunk_vector)upper4)[0];
+        __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+      }
+    }
+  } else {
+    if (count > 1) {
+      if (count >= 4) {
+        {
+          typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+          const uint64_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+      } else {
+        {
+          typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+          const uint32_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+        if (count == 3) {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)a)[2];
+            __builtin_memcpy(to + 2, &chunk, sizeof chunk);
+          }
+        }
+      }
+    } else if (count == 1) {
+      {
+        typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+        const uint16_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 8 ? count : 8) * sizeof(uint16_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_adding_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
   return a + b;
@@ -447,7 +1053,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_greater_than_u16(chighway
   return (chighway_ops_mask_u16)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_selecting_u16(chighway_ops_mask_u16 mask, chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_u16)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return ((chighway_ops_vector_u16)mask & a) | (~(chighway_ops_vector_u16)mask & b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_selecting_or_zero_u16(chighway_ops_mask_u16 mask, chighway_ops_vector_u16 a) {
   return (chighway_ops_vector_u16)mask & a;
@@ -460,21 +1070,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_first_lanes_u16(size_t co
   return (chighway_ops_mask_u16)((chighway_ops_vector_u16){0, 1, 2, 3, 4, 5, 6, 7} < (chighway_ops_vector_u16){n, n, n, n, n, n, n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u16(chighway_ops_mask_u16 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0})) == 0xff;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u16(chighway_ops_mask_u16 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0})) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u16(chighway_ops_mask_u16 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0})));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u16(chighway_ops_mask_u16 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 8);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0}));
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 8; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE uint16_t chighway_ops_sum_u16(chighway_ops_vector_u16 a) {
   return __builtin_reduce_add(a);
@@ -493,14 +1140,50 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_reversed_u16(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_slide_up_lanes_u16(chighway_ops_vector_u16 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 6, 7, 8, 9, 10, 11, 12, 13);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 5, 6, 7, 8, 9, 10, 11, 12);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 4, 5, 6, 7, 8, 9, 10, 11);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 3, 4, 5, 6, 7, 8, 9, 10);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 2, 3, 4, 5, 6, 7, 8, 9);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 1, 2, 3, 4, 5, 6, 7, 8);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint16_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u16)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 6, 7, 8, 9, 10, 11, 12, 13);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 5, 6, 7, 8, 9, 10, 11, 12);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 4, 5, 6, 7, 8, 9, 10, 11);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 3, 4, 5, 6, 7, 8, 9, 10);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 2, 3, 4, 5, 6, 7, 8, 9);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 1, 2, 3, 4, 5, 6, 7, 8);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint16_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u16)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 6, 7, 8, 9, 10, 11, 12, 13);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 5, 6, 7, 8, 9, 10, 11, 12);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 4, 5, 6, 7, 8, 9, 10, 11);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 3, 4, 5, 6, 7, 8, 9, 10);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 2, 3, 4, 5, 6, 7, 8, 9);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 1, 2, 3, 4, 5, 6, 7, 8);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -519,9 +1202,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_slide_up_lanes_u16(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_slide1_up_u16(chighway_ops_vector_u16 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_u16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_u16){0}, 8, 0, 1, 2, 3, 4, 5, 6);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u16(const uint16_t* from, chighway_ops_vector_u16* v0, chighway_ops_vector_u16* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 0, 2, 4, 6, 8, 10, 12, 14);
+  *v1 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 1, 3, 5, 7, 9, 11, 13, 15);
+#else
   chighway_ops_vector_u16 r0, r1;
   for (size_t i = 0; i < 8; ++i) {
     r0[i] = from[2 * i];
@@ -529,8 +1223,25 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u16(const uint16_t* from
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u16(const uint16_t* from, chighway_ops_vector_u16* v0, chighway_ops_vector_u16* v1, chighway_ops_vector_u16* v2) {
+#if CHIGHWAY_OPS_X86 >= 2
+  chighway_ops_x86_i8 vA, vB, vC;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 8, sizeof vB);
+  __builtin_memcpy(&vC, from + 16, sizeof vC);
+  *v0 = (chighway_ops_vector_u16)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){0, 1, 6, 7, 12, 13, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, 2, 3, 8, 9, 14, 15, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 4, 5, 10, 11}));
+  *v1 = (chighway_ops_vector_u16)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){2, 3, 8, 9, 14, 15, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, 4, 5, 10, 11, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 0, 1, 6, 7, 12, 13}));
+  *v2 = (chighway_ops_vector_u16)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){4, 5, 10, 11, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, 0, 1, 6, 7, 12, 13, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 2, 3, 8, 9, 14, 15}));
+#elif CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 0, 3, 6, 9, 12, 15, 18, 21);
+  *v1 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 1, 4, 7, 10, 13, 16, 19, 22);
+  *v2 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 2, 5, 8, 11, 14, 17, 20, 23);
+#else
   chighway_ops_vector_u16 r0, r1, r2;
   for (size_t i = 0; i < 8; ++i) {
     r0[i] = from[3 * i];
@@ -540,8 +1251,40 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u16(const uint16_t* from
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u16(const uint16_t* from, chighway_ops_vector_u16* v0, chighway_ops_vector_u16* v1, chighway_ops_vector_u16* v2, chighway_ops_vector_u16* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 0, 4, 8, 12, 16, 20, 24, 28);
+  *v1 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 1, 5, 9, 13, 17, 21, 25, 29);
+  *v2 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 2, 6, 10, 14, 18, 22, 26, 30);
+  *v3 = (chighway_ops_vector_u16)__builtin_shufflevector(all, all, 3, 7, 11, 15, 19, 23, 27, 31);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i16 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 8, sizeof vB);
+  __builtin_memcpy(&vC, from + 16, sizeof vC);
+  __builtin_memcpy(&vD, from + 24, sizeof vD);
+  const chighway_ops_x86_i16 va820 = __builtin_shufflevector((chighway_ops_x86_i16)vA, (chighway_ops_x86_i16)vB, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vec64 = __builtin_shufflevector((chighway_ops_x86_i16)vC, (chighway_ops_x86_i16)vD, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vb931 = __builtin_shufflevector((chighway_ops_x86_i16)vA, (chighway_ops_x86_i16)vB, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 vfd75 = __builtin_shufflevector((chighway_ops_x86_i16)vC, (chighway_ops_x86_i16)vD, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 v10b830 = __builtin_shufflevector((chighway_ops_x86_i16)va820, (chighway_ops_x86_i16)vb931, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v10fc74 = __builtin_shufflevector((chighway_ops_x86_i16)vec64, (chighway_ops_x86_i16)vfd75, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v32b830 = __builtin_shufflevector((chighway_ops_x86_i16)va820, (chighway_ops_x86_i16)vb931, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 v32fc74 = __builtin_shufflevector((chighway_ops_x86_i16)vec64, (chighway_ops_x86_i16)vfd75, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i64 r0 = __builtin_shufflevector((chighway_ops_x86_i64)v10b830, (chighway_ops_x86_i64)v10fc74, 0, 2);
+  *v0 = (chighway_ops_vector_u16)r0;
+  const chighway_ops_x86_i64 r1 = __builtin_shufflevector((chighway_ops_x86_i64)v10b830, (chighway_ops_x86_i64)v10fc74, 1, 3);
+  *v1 = (chighway_ops_vector_u16)r1;
+  const chighway_ops_x86_i64 r2 = __builtin_shufflevector((chighway_ops_x86_i64)v32b830, (chighway_ops_x86_i64)v32fc74, 0, 2);
+  *v2 = (chighway_ops_vector_u16)r2;
+  const chighway_ops_x86_i64 r3 = __builtin_shufflevector((chighway_ops_x86_i64)v32b830, (chighway_ops_x86_i64)v32fc74, 1, 3);
+  *v3 = (chighway_ops_vector_u16)r3;
+#else
   chighway_ops_vector_u16 r0, r1, r2, r3;
   for (size_t i = 0; i < 8; ++i) {
     r0[i] = from[4 * i];
@@ -553,27 +1296,65 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u16(const uint16_t* from
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b, uint16_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector(a, b, 0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 8; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b, chighway_ops_vector_u16 c, uint16_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t pair_vector __attribute__((vector_size(32)));
+  typedef uint16_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  const pair_vector cc = __builtin_shufflevector(c, c, 0, 1, 2, 3, 4, 5, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 8, 16, 1, 9, 17, 2, 10, 18, 3, 11, 19, 4, 12, 20, 5, 13, 21, 6, 14, 22, 7, 15, 23);
+  __builtin_memcpy(to, &all, 48);
+#else
   for (size_t i = 0; i < 8; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b, chighway_ops_vector_u16 c, chighway_ops_vector_u16 d, uint16_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t pair_vector __attribute__((vector_size(32)));
+  typedef uint16_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  const pair_vector cd = __builtin_shufflevector(c, d, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i16 v10L = __builtin_shufflevector((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)b, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v32L = __builtin_shufflevector((chighway_ops_x86_i16)c, (chighway_ops_x86_i16)d, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v10U = __builtin_shufflevector((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)b, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 v32U = __builtin_shufflevector((chighway_ops_x86_i16)c, (chighway_ops_x86_i16)d, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i32 vA = __builtin_shufflevector((chighway_ops_x86_i32)v10L, (chighway_ops_x86_i32)v32L, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 vB = __builtin_shufflevector((chighway_ops_x86_i32)v10L, (chighway_ops_x86_i32)v32L, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 vC = __builtin_shufflevector((chighway_ops_x86_i32)v10U, (chighway_ops_x86_i32)v32U, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 vD = __builtin_shufflevector((chighway_ops_x86_i32)v10U, (chighway_ops_x86_i32)v32U, 2, 6, 3, 7);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 8, &vB, sizeof vB);
+  __builtin_memcpy(to + 16, &vC, sizeof vC);
+  __builtin_memcpy(to + 24, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 8; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_widening_u8_to_u16(const uint8_t* from) {
   typedef uint8_t narrow_vector __attribute__((vector_size(8)));
@@ -582,10 +1363,77 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_widening_u8_to_u16
   return __builtin_convertvector(v, chighway_ops_vector_u16);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_load_first_widening_u8_to_u16(const uint8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 v = {0};
+  if (count >= 8) {
+    __builtin_memcpy(&v, from, 8);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint8_t));
+  } else {
+    const size_t leading = count & 4;
+    chighway_ops_vector_u8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_u8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        trailing[2] = from[leading + 2];
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading != 0) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_u8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      v = trailing;
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3, 4, 5, 6, 7), chighway_ops_vector_u16);
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  typedef uint16_t half_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 v = {0};
+  if (count >= 8) {
+    __builtin_memcpy(&v, from, 8);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint8_t));
+  } else {
+    const size_t leading = count & 4;
+    chighway_ops_vector_u8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_u8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        const word_vector third = {(uint8_t)from[leading + 2], 0, 0, 0};
+        trailing = (chighway_ops_vector_u8)__builtin_shufflevector(
+          (half_vector)trailing, (half_vector)third, 0, 8, 1, 9, 2, 10, 3, 11);
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading != 0) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_u8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      v = trailing;
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3, 4, 5, 6, 7), chighway_ops_vector_u16);
+#else
   typedef uint8_t narrow_vector __attribute__((vector_size(8)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(uint8_t));
   return __builtin_convertvector(v, chighway_ops_vector_u16);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_repeating_block_u16(uint16_t v0, uint16_t v1, uint16_t v2, uint16_t v3, uint16_t v4, uint16_t v5, uint16_t v6, uint16_t v7) {
   return (chighway_ops_vector_u16){v0, v1, v2, v3, v4, v5, v6, v7};
@@ -616,9 +1464,25 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_aligned_u32(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_first_u32(const uint32_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_u32 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4 * sizeof(uint32_t));
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint32_t));
+  } else {
+    __builtin_memcpy(&v, from, 2 * sizeof(uint32_t));
+    if (count != 2) {
+      v[2] = from[2];
+    }
+  }
+  return v;
+#else
   chighway_ops_vector_u32 v = {0};
   __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(uint32_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_u32(chighway_ops_vector_u32 a, uint32_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -627,7 +1491,34 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u32(chighway_ops_vector_u32 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u32(chighway_ops_vector_u32 a, uint32_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count > 1) {
+    if (count >= 4) {
+      __builtin_memcpy(to + 0, &a, sizeof a);
+    } else {
+      {
+        typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+        const uint64_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+      if (count == 3) {
+        {
+          typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+          const uint32_t chunk = ((chunk_vector)a)[2];
+          __builtin_memcpy(to + 2, &chunk, sizeof chunk);
+        }
+      }
+    }
+  } else if (count == 1) {
+    {
+      typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+      const uint32_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 4 ? count : 4) * sizeof(uint32_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_adding_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
   return a + b;
@@ -636,7 +1527,21 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_subtracting_u32(chighwa
   return a - b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_multiplying_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+#if CHIGHWAY_OPS_X86 >= 3
   return a * b;
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 a_x3x1 = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)a, 1, 1, 3, 3);
+  const chighway_ops_x86_i64 mullo_x2x0 = (chighway_ops_x86_i64)__builtin_ia32_pmuludq128((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b);
+  const chighway_ops_x86_i32 b_x3x1 = __builtin_shufflevector((chighway_ops_x86_i32)b, (chighway_ops_x86_i32)b, 1, 1, 3, 3);
+  const chighway_ops_x86_i64 mullo_x3x1 = (chighway_ops_x86_i64)__builtin_ia32_pmuludq128((chighway_ops_x86_i32)a_x3x1, (chighway_ops_x86_i32)b_x3x1);
+  const chighway_ops_x86_i32 mul_20 = __builtin_shufflevector(
+    (chighway_ops_x86_i32)mullo_x2x0, (chighway_ops_x86_i32)mullo_x2x0, 0, 2, 0, 2);
+  const chighway_ops_x86_i32 mul_31 = __builtin_shufflevector(
+    (chighway_ops_x86_i32)mullo_x3x1, (chighway_ops_x86_i32)mullo_x3x1, 0, 2, 0, 2);
+  return (chighway_ops_vector_u32)__builtin_shufflevector(mul_20, mul_31, 0, 4, 1, 5);
+#else
+  return a * b;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_minimum_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
   return __builtin_elementwise_min(a, b);
@@ -698,7 +1603,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_greater_than_u32(chighway
   return (chighway_ops_mask_u32)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_selecting_u32(chighway_ops_mask_u32 mask, chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_u32)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return ((chighway_ops_vector_u32)mask & a) | (~(chighway_ops_vector_u32)mask & b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_selecting_or_zero_u32(chighway_ops_mask_u32 mask, chighway_ops_vector_u32 a) {
   return (chighway_ops_vector_u32)mask & a;
@@ -711,21 +1620,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_first_lanes_u32(size_t co
   return (chighway_ops_mask_u32)((chighway_ops_vector_u32){0, 1, 2, 3} < (chighway_ops_vector_u32){n, n, n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u32(chighway_ops_mask_u32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask) == 0xf;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u32(chighway_ops_mask_u32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u32(chighway_ops_mask_u32 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u32(chighway_ops_mask_u32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 16);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 4; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE uint32_t chighway_ops_sum_u32(chighway_ops_vector_u32 a) {
   return __builtin_reduce_add(a);
@@ -744,14 +1690,38 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_reversed_u32(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_slide_up_lanes_u32(chighway_ops_vector_u32 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint32_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u32)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint32_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u32)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -770,9 +1740,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_slide_up_lanes_u32(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_slide1_up_u32(chighway_ops_vector_u32 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_u32){0}, a, 3, 4, 5, 6);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_u32){0}, 4, 0, 1, 2);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u32(const uint32_t* from, chighway_ops_vector_u32* v0, chighway_ops_vector_u32* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 0, 2, 4, 6);
+  *v1 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 1, 3, 5, 7);
+#else
   chighway_ops_vector_u32 r0, r1;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[2 * i];
@@ -780,8 +1761,32 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u32(const uint32_t* from
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u32(const uint32_t* from, chighway_ops_vector_u32* v0, chighway_ops_vector_u32* v1, chighway_ops_vector_u32* v2) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 0, 3, 6, 9);
+  *v1 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 1, 4, 7, 10);
+  *v2 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 2, 5, 8, 11);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i32 vA, vB, vC;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 4, sizeof vB);
+  __builtin_memcpy(&vC, from + 8, sizeof vC);
+  const chighway_ops_x86_i32 vxx0203xx = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vC, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r0 = __builtin_shufflevector((chighway_ops_x86_f32)vA, (chighway_ops_x86_f32)vxx0203xx, 0, 3, 6, 5);
+  *v0 = (chighway_ops_vector_u32)r0;
+  const chighway_ops_x86_i32 vxxxx1011 = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vA, 0, 5, 2, 7);
+  const chighway_ops_x86_i32 v1213xxxx = __builtin_shufflevector((chighway_ops_x86_i32)vC, (chighway_ops_x86_i32)vB, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r1 = __builtin_shufflevector((chighway_ops_x86_f32)vxxxx1011, (chighway_ops_x86_f32)v1213xxxx, 1, 0, 7, 6);
+  *v1 = (chighway_ops_vector_u32)r1;
+  const chighway_ops_x86_i32 vxx2021xx = __builtin_shufflevector((chighway_ops_x86_i32)vA, (chighway_ops_x86_i32)vB, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r2 = __builtin_shufflevector((chighway_ops_x86_f32)vxx2021xx, (chighway_ops_x86_f32)vC, 2, 1, 4, 7);
+  *v2 = (chighway_ops_vector_u32)r2;
+#else
   chighway_ops_vector_u32 r0, r1, r2;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[3 * i];
@@ -791,8 +1796,36 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u32(const uint32_t* from
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u32(const uint32_t* from, chighway_ops_vector_u32* v0, chighway_ops_vector_u32* v1, chighway_ops_vector_u32* v2, chighway_ops_vector_u32* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 0, 4, 8, 12);
+  *v1 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 1, 5, 9, 13);
+  *v2 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 2, 6, 10, 14);
+  *v3 = (chighway_ops_vector_u32)__builtin_shufflevector(all, all, 3, 7, 11, 15);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i32 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 4, sizeof vB);
+  __builtin_memcpy(&vC, from + 8, sizeof vC);
+  __builtin_memcpy(&vD, from + 12, sizeof vD);
+  const chighway_ops_x86_i32 v10e = __builtin_shufflevector((chighway_ops_x86_i32)vA, (chighway_ops_x86_i32)vC, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v10o = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vD, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v32e = __builtin_shufflevector((chighway_ops_x86_i32)vA, (chighway_ops_x86_i32)vC, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 v32o = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vD, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 r0 = __builtin_shufflevector((chighway_ops_x86_i32)v10e, (chighway_ops_x86_i32)v10o, 0, 4, 1, 5);
+  *v0 = (chighway_ops_vector_u32)r0;
+  const chighway_ops_x86_i32 r1 = __builtin_shufflevector((chighway_ops_x86_i32)v10e, (chighway_ops_x86_i32)v10o, 2, 6, 3, 7);
+  *v1 = (chighway_ops_vector_u32)r1;
+  const chighway_ops_x86_i32 r2 = __builtin_shufflevector((chighway_ops_x86_i32)v32e, (chighway_ops_x86_i32)v32o, 0, 4, 1, 5);
+  *v2 = (chighway_ops_vector_u32)r2;
+  const chighway_ops_x86_i32 r3 = __builtin_shufflevector((chighway_ops_x86_i32)v32e, (chighway_ops_x86_i32)v32o, 2, 6, 3, 7);
+  *v3 = (chighway_ops_vector_u32)r3;
+#else
   chighway_ops_vector_u32 r0, r1, r2, r3;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[4 * i];
@@ -804,27 +1837,78 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u32(const uint32_t* from
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b, uint32_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector(a, b, 0, 4, 1, 5, 2, 6, 3, 7);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b, chighway_ops_vector_u32 c, uint32_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t pair_vector __attribute__((vector_size(32)));
+  typedef uint32_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3, 4, 5, 6, 7);
+  const pair_vector cc = __builtin_shufflevector(c, c, 0, 1, 2, 3, -1, -1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11);
+  __builtin_memcpy(to, &all, 48);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 v10v00 = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v01v20 = __builtin_shufflevector((chighway_ops_x86_i32)c, (chighway_ops_x86_i32)a, 0, 5, 2, 7);
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)v10v00, (chighway_ops_x86_i64)v01v20, 0, 2);
+  const chighway_ops_x86_i32 v1x321 = __builtin_shufflevector((chighway_ops_x86_i32)b, (chighway_ops_x86_i32)(chighway_ops_x86_i32){0}, 1, 2, 3, 4);
+  const chighway_ops_x86_i32 v0x32 = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)(chighway_ops_x86_i32){0}, 2, 3, 4, 5);
+  const chighway_ops_x86_i32 v21v11 = __builtin_shufflevector((chighway_ops_x86_i32)v1x321, (chighway_ops_x86_i32)c, 0, 5, 2, 7);
+  const chighway_ops_x86_i32 v12v02 = __builtin_shufflevector((chighway_ops_x86_i32)v0x32, (chighway_ops_x86_i32)v1x321, 0, 5, 2, 7);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)v21v11, (chighway_ops_x86_i64)v12v02, 0, 2);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)v01v20, (chighway_ops_x86_i64)v21v11, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 4, &vB, sizeof vB);
+  __builtin_memcpy(to + 8, &vC, sizeof vC);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b, chighway_ops_vector_u32 c, chighway_ops_vector_u32 d, uint32_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t pair_vector __attribute__((vector_size(32)));
+  typedef uint32_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3, 4, 5, 6, 7);
+  const pair_vector cd = __builtin_shufflevector(c, d, 0, 1, 2, 3, 4, 5, 6, 7);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 v10L = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v32L = __builtin_shufflevector((chighway_ops_x86_i32)c, (chighway_ops_x86_i32)d, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v10U = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 v32U = __builtin_shufflevector((chighway_ops_x86_i32)c, (chighway_ops_x86_i32)d, 2, 6, 3, 7);
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v32L, 0, 2);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v32L, 1, 3);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)v10U, (chighway_ops_x86_i64)v32U, 0, 2);
+  const chighway_ops_x86_i64 vD = __builtin_shufflevector((chighway_ops_x86_i64)v10U, (chighway_ops_x86_i64)v32U, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 4, &vB, sizeof vB);
+  __builtin_memcpy(to + 8, &vC, sizeof vC);
+  __builtin_memcpy(to + 12, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_widening_u8_to_u32(const uint8_t* from) {
   typedef uint8_t narrow_vector __attribute__((vector_size(4)));
@@ -839,16 +1923,68 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_widening_u16_to_u3
   return __builtin_convertvector(v, chighway_ops_vector_u32);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_first_widening_u8_to_u32(const uint8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint8_t));
+  } else {
+    uint16_t pair;
+    __builtin_memcpy(&pair, from + 0, sizeof pair);
+    v = (chighway_ops_vector_u8)(word_vector){pair, 0, 0, 0};
+    if (count != 2) {
+      v[2] = from[2];
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3), chighway_ops_vector_u32);
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint8_t));
+  } else {
+    uint16_t pair;
+    __builtin_memcpy(&pair, from + 0, sizeof pair);
+    v = (chighway_ops_vector_u8)(word_vector){pair, 0, 0, 0};
+    if (count != 2) {
+      v |= (chighway_ops_vector_u8){0, 0, from[2]};
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3), chighway_ops_vector_u32);
+#else
   typedef uint8_t narrow_vector __attribute__((vector_size(4)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(uint8_t));
   return __builtin_convertvector(v, chighway_ops_vector_u32);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_load_first_widening_u16_to_u32(const uint16_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_u16 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4 * sizeof(uint16_t));
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(uint16_t));
+  } else {
+    __builtin_memcpy(&v, from, 2 * sizeof(uint16_t));
+    if (count != 2) {
+      v[2] = from[2];
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3), chighway_ops_vector_u32);
+#else
   typedef uint16_t narrow_vector __attribute__((vector_size(8)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(uint16_t));
   return __builtin_convertvector(v, chighway_ops_vector_u32);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_repeating_block_u32(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3) {
   return (chighway_ops_vector_u32){v0, v1, v2, v3};
@@ -879,9 +2015,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_aligned_u64(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_u64(const uint64_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_u64 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(uint64_t));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(uint64_t));
+  }
+  return v;
+#else
   chighway_ops_vector_u64 v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint64_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_u64(chighway_ops_vector_u64 a, uint64_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -890,7 +2037,19 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_u64(chighway_ops_vector_u64 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_u64(chighway_ops_vector_u64 a, uint64_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count > 1) {
+    __builtin_memcpy(to + 0, &a, sizeof a);
+  } else if (count == 1) {
+    {
+      typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+      const uint64_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 2 ? count : 2) * sizeof(uint64_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_adding_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
   return a + b;
@@ -961,7 +2120,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_greater_than_u64(chighway
   return (chighway_ops_mask_u64)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_selecting_u64(chighway_ops_mask_u64 mask, chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_u64)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return ((chighway_ops_vector_u64)mask & a) | (~(chighway_ops_vector_u64)mask & b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_selecting_or_zero_u64(chighway_ops_mask_u64 mask, chighway_ops_vector_u64 a) {
   return (chighway_ops_vector_u64)mask & a;
@@ -974,21 +2137,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_first_lanes_u64(size_t co
   return (chighway_ops_mask_u64)((chighway_ops_vector_u64){0, 1} < (chighway_ops_vector_u64){n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_u64(chighway_ops_mask_u64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask) == 0x3;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_u64(chighway_ops_mask_u64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_u64(chighway_ops_mask_u64 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_u64(chighway_ops_mask_u64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 32);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 2; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE uint64_t chighway_ops_sum_u64(chighway_ops_vector_u64 a) {
   return __builtin_reduce_add(a);
@@ -1007,14 +2207,32 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_reversed_u64(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_slide_up_lanes_u64(chighway_ops_vector_u64 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u64){0}, a, 1, 2);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint64_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u64)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u64){0}, a, 1, 2);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint64_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_u64)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_u64){0}, a, 1, 2);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -1033,9 +2251,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_slide_up_lanes_u64(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_slide1_up_u64(chighway_ops_vector_u64 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_u64){0}, a, 1, 2);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_u64){0}, 2, 0);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u64(const uint64_t* from, chighway_ops_vector_u64* v0, chighway_ops_vector_u64* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 0, 2);
+  *v1 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 1, 3);
+#else
   chighway_ops_vector_u64 r0, r1;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[2 * i];
@@ -1043,8 +2272,17 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u64(const uint64_t* from
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u64(const uint64_t* from, chighway_ops_vector_u64* v0, chighway_ops_vector_u64* v1, chighway_ops_vector_u64* v2) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 0, 3);
+  *v1 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 1, 4);
+  *v2 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 2, 5);
+#else
   chighway_ops_vector_u64 r0, r1, r2;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[3 * i];
@@ -1054,8 +2292,32 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_u64(const uint64_t* from
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u64(const uint64_t* from, chighway_ops_vector_u64* v0, chighway_ops_vector_u64* v1, chighway_ops_vector_u64* v2, chighway_ops_vector_u64* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint64_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 0, 4);
+  *v1 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 1, 5);
+  *v2 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 2, 6);
+  *v3 = (chighway_ops_vector_u64)__builtin_shufflevector(all, all, 3, 7);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i64 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 2, sizeof vB);
+  __builtin_memcpy(&vC, from + 4, sizeof vC);
+  __builtin_memcpy(&vD, from + 6, sizeof vD);
+  const chighway_ops_x86_i64 r0 = __builtin_shufflevector((chighway_ops_x86_i64)vA, (chighway_ops_x86_i64)vC, 0, 2);
+  *v0 = (chighway_ops_vector_u64)r0;
+  const chighway_ops_x86_i64 r1 = __builtin_shufflevector((chighway_ops_x86_i64)vA, (chighway_ops_x86_i64)vC, 1, 3);
+  *v1 = (chighway_ops_vector_u64)r1;
+  const chighway_ops_x86_i64 r2 = __builtin_shufflevector((chighway_ops_x86_i64)vB, (chighway_ops_x86_i64)vD, 0, 2);
+  *v2 = (chighway_ops_vector_u64)r2;
+  const chighway_ops_x86_i64 r3 = __builtin_shufflevector((chighway_ops_x86_i64)vB, (chighway_ops_x86_i64)vD, 1, 3);
+  *v3 = (chighway_ops_vector_u64)r3;
+#else
   chighway_ops_vector_u64 r0, r1, r2, r3;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[4 * i];
@@ -1067,27 +2329,61 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_u64(const uint64_t* from
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b, uint64_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector(a, b, 0, 2, 1, 3);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b, chighway_ops_vector_u64 c, uint64_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t pair_vector __attribute__((vector_size(32)));
+  typedef uint64_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3);
+  const pair_vector cc = __builtin_shufflevector(c, c, 0, 1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 2, 4, 1, 3, 5);
+  __builtin_memcpy(to, &all, 48);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b, chighway_ops_vector_u64 c, chighway_ops_vector_u64 d, uint64_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint64_t pair_vector __attribute__((vector_size(32)));
+  typedef uint64_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector(a, b, 0, 1, 2, 3);
+  const pair_vector cd = __builtin_shufflevector(c, d, 0, 1, 2, 3);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 2, 4, 6, 1, 3, 5, 7);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)b, 0, 2);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)c, (chighway_ops_x86_i64)d, 0, 2);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)b, 1, 3);
+  const chighway_ops_x86_i64 vD = __builtin_shufflevector((chighway_ops_x86_i64)c, (chighway_ops_x86_i64)d, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 2, &vB, sizeof vB);
+  __builtin_memcpy(to + 4, &vC, sizeof vC);
+  __builtin_memcpy(to + 6, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_widening_u8_to_u64(const uint8_t* from) {
   typedef uint8_t narrow_vector __attribute__((vector_size(2)));
@@ -1108,22 +2404,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_widening_u32_to_u6
   return __builtin_convertvector(v, chighway_ops_vector_u64);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_widening_u8_to_u64(const uint8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_u8 v = {0};
+  if (count >= 2) {
+    uint16_t pair;
+    __builtin_memcpy(&pair, from + 0, sizeof pair);
+    v = (chighway_ops_vector_u8)(word_vector){pair, 0, 0, 0};
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, 1);
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1), chighway_ops_vector_u64);
+#else
   typedef uint8_t narrow_vector __attribute__((vector_size(2)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint8_t));
   return __builtin_convertvector(v, chighway_ops_vector_u64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_widening_u16_to_u64(const uint16_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_u16 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(uint16_t));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(uint16_t));
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1), chighway_ops_vector_u64);
+#else
   typedef uint16_t narrow_vector __attribute__((vector_size(4)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint16_t));
   return __builtin_convertvector(v, chighway_ops_vector_u64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_load_first_widening_u32_to_u64(const uint32_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_u32 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(uint32_t));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(uint32_t));
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1), chighway_ops_vector_u64);
+#else
   typedef uint32_t narrow_vector __attribute__((vector_size(8)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(uint32_t));
   return __builtin_convertvector(v, chighway_ops_vector_u64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_repeating_block_u64(uint64_t v0, uint64_t v1) {
   return (chighway_ops_vector_u64){v0, v1};
@@ -1154,9 +2486,102 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_load_aligned_i8(const in
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_load_first_i8(const int8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  typedef uint64_t long_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 16) {
+    __builtin_memcpy(&v, from, 16);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int8_t));
+  } else {
+    const size_t leading = count & 12;
+    chighway_ops_vector_i8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        trailing[2] = from[leading + 2];
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading == 0) {
+      v = trailing;
+    } else if (leading < 8) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_i8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      word_vector upper = (word_vector)trailing;
+      if (leading & 4) {
+        uint32_t middle;
+        __builtin_memcpy(&middle, from + 8, sizeof middle);
+        upper = __builtin_shufflevector(
+          (word_vector){middle, 0, 0, 0}, upper, 0, 4, 1, 5);
+      }
+      uint64_t first;
+      __builtin_memcpy(&first, from, sizeof first);
+      v = (chighway_ops_vector_i8)__builtin_shufflevector(
+        (long_vector){first, 0}, (long_vector)upper, 0, 2);
+    }
+  }
+  return v;
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  typedef uint64_t long_vector __attribute__((vector_size(16)));
+  typedef uint16_t half_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 16) {
+    __builtin_memcpy(&v, from, 16);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int8_t));
+  } else {
+    const size_t leading = count & 12;
+    chighway_ops_vector_i8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        const word_vector third = {(uint8_t)from[leading + 2], 0, 0, 0};
+        trailing = (chighway_ops_vector_i8)__builtin_shufflevector(
+          (half_vector)trailing, (half_vector)third, 0, 8, 1, 9, 2, 10, 3, 11);
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading == 0) {
+      v = trailing;
+    } else if (leading < 8) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_i8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      word_vector upper = (word_vector)trailing;
+      if (leading & 4) {
+        uint32_t middle;
+        __builtin_memcpy(&middle, from + 8, sizeof middle);
+        upper = __builtin_shufflevector(
+          (word_vector){middle, 0, 0, 0}, upper, 0, 4, 1, 5);
+      }
+      uint64_t first;
+      __builtin_memcpy(&first, from, sizeof first);
+      v = (chighway_ops_vector_i8)__builtin_shufflevector(
+        (long_vector){first, 0}, (long_vector)upper, 0, 2);
+    }
+  }
+  return v;
+#else
   chighway_ops_vector_i8 v = {0};
   __builtin_memcpy(&v, from, (count < 16 ? count : 16) * sizeof(int8_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_i8(chighway_ops_vector_i8 a, int8_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -1165,7 +2590,187 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i8(chighway_ops_vector_i8 a,
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i8(chighway_ops_vector_i8 a, int8_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count <= 1) {
+    if (count == 1) {
+      {
+        typedef int8_t chunk_vector __attribute__((vector_size(16)));
+        const int8_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    }
+  } else if (count >= 16) {
+    __builtin_memcpy(to + 0, &a, sizeof a);
+  } else if (count >= 8) {
+    {
+      typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+      const uint64_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+    const chighway_ops_vector_i8 upper8 = __builtin_shufflevector(a, a, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7);
+    if ((count - 8) <= 1) {
+      if ((count - 8) == 1) {
+        {
+          typedef int8_t chunk_vector __attribute__((vector_size(16)));
+          const int8_t chunk = ((chunk_vector)upper8)[0];
+          __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+        }
+      }
+    } else if ((count - 8) >= 8) {
+      {
+        typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+        const uint64_t chunk = ((chunk_vector)upper8)[0];
+        __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+      }
+    } else if ((count - 8) >= 4) {
+      {
+        typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+        const uint32_t chunk = ((chunk_vector)upper8)[0];
+        __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+      }
+      const chighway_ops_vector_i8 upper4 = __builtin_shufflevector(upper8, upper8, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3);
+      if (((count - 8) - 4) > 1) {
+        if (((count - 8) - 4) >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 12, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 12, &chunk, sizeof chunk);
+          }
+          if (((count - 8) - 4) == 3) {
+            {
+              typedef int8_t chunk_vector __attribute__((vector_size(16)));
+              const int8_t chunk = ((chunk_vector)upper4)[2];
+              __builtin_memcpy(to + 14, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if (((count - 8) - 4) == 1) {
+        {
+          typedef int8_t chunk_vector __attribute__((vector_size(16)));
+          const int8_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 12, &chunk, sizeof chunk);
+        }
+      }
+    } else {
+      if ((count - 8) > 1) {
+        if ((count - 8) >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)upper8)[0];
+            __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)upper8)[0];
+            __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+          }
+          if ((count - 8) == 3) {
+            {
+              typedef int8_t chunk_vector __attribute__((vector_size(16)));
+              const int8_t chunk = ((chunk_vector)upper8)[2];
+              __builtin_memcpy(to + 10, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if ((count - 8) == 1) {
+        {
+          typedef int8_t chunk_vector __attribute__((vector_size(16)));
+          const int8_t chunk = ((chunk_vector)upper8)[0];
+          __builtin_memcpy(to + 8, &chunk, sizeof chunk);
+        }
+      }
+    }
+  } else {
+    if (count <= 1) {
+      if (count == 1) {
+        {
+          typedef int8_t chunk_vector __attribute__((vector_size(16)));
+          const int8_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+      }
+    } else if (count >= 8) {
+      {
+        typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+        const uint64_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    } else if (count >= 4) {
+      {
+        typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+        const uint32_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+      const chighway_ops_vector_i8 upper4 = __builtin_shufflevector(a, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3);
+      if ((count - 4) > 1) {
+        if ((count - 4) >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)upper4)[0];
+            __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+          }
+          if ((count - 4) == 3) {
+            {
+              typedef int8_t chunk_vector __attribute__((vector_size(16)));
+              const int8_t chunk = ((chunk_vector)upper4)[2];
+              __builtin_memcpy(to + 6, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if ((count - 4) == 1) {
+        {
+          typedef int8_t chunk_vector __attribute__((vector_size(16)));
+          const int8_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+        }
+      }
+    } else {
+      if (count > 1) {
+        if (count >= 4) {
+          {
+            typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+            const uint32_t chunk = ((chunk_vector)a)[0];
+            __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+          }
+        } else {
+          {
+            typedef uint16_t chunk_vector __attribute__((vector_size(16)));
+            const uint16_t chunk = ((chunk_vector)a)[0];
+            __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+          }
+          if (count == 3) {
+            {
+              typedef int8_t chunk_vector __attribute__((vector_size(16)));
+              const int8_t chunk = ((chunk_vector)a)[2];
+              __builtin_memcpy(to + 2, &chunk, sizeof chunk);
+            }
+          }
+        }
+      } else if (count == 1) {
+        {
+          typedef int8_t chunk_vector __attribute__((vector_size(16)));
+          const int8_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+      }
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 16 ? count : 16) * sizeof(int8_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_adding_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
   return (chighway_ops_vector_i8)((chighway_ops_vector_u8)a + (chighway_ops_vector_u8)b);
@@ -1250,7 +2855,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_greater_than_i8(chighway_o
   return (chighway_ops_mask_i8)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_selecting_i8(chighway_ops_mask_i8 mask, chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_i8)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return (chighway_ops_vector_i8)(((chighway_ops_vector_u8)mask & (chighway_ops_vector_u8)a) | (~(chighway_ops_vector_u8)mask & (chighway_ops_vector_u8)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_selecting_or_zero_i8(chighway_ops_mask_i8 mask, chighway_ops_vector_i8 a) {
   return (chighway_ops_vector_i8)((chighway_ops_vector_u8)mask & (chighway_ops_vector_u8)a);
@@ -1263,21 +2872,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_first_lanes_i8(size_t coun
   return (chighway_ops_mask_i8)((chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15} < (chighway_ops_vector_u8){n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i8(chighway_ops_mask_i8 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask) == 0xffff;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i8(chighway_ops_mask_i8 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i8(chighway_ops_mask_i8 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i8(chighway_ops_mask_i8 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 4);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 16; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE int8_t chighway_ops_first_lane_i8(chighway_ops_vector_i8 a) {
   return a[0];
@@ -1287,14 +2933,74 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_reversed_i8(chighway_ops
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_slide_up_lanes_i8(chighway_ops_vector_i8 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24);
+      case 8: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
+      case 9: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22);
+      case 10: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21);
+      case 11: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+      case 12: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19);
+      case 13: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+      case 14: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+      case 15: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int8_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i8)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24);
+      case 8: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
+      case 9: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22);
+      case 10: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21);
+      case 11: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+      case 12: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19);
+      case 13: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+      case 14: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+      case 15: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int8_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24);
+      case 8: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
+      case 9: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22);
+      case 10: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21);
+      case 11: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+      case 12: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19);
+      case 13: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+      case 14: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+      case 15: return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -1313,7 +3019,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_slide_up_lanes_i8(chighw
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_slide1_up_i8(chighway_ops_vector_i8 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_i8){0}, a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_i8){0}, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_table_lookup_bytes_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
 #if CHIGHWAY_OPS_NEON
@@ -1321,10 +3031,16 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_table_lookup_bytes_i8(ch
 #elif CHIGHWAY_OPS_X86 >= 2
   return (chighway_ops_vector_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b);
 #elif CHIGHWAY_OPS_X86 >= 1
+  uint8_t table[16];
+  uint8_t indices[16];
+  uint8_t looked_up[16];
   chighway_ops_vector_i8 result;
+  __builtin_memcpy(table, &a, sizeof table);
+  __builtin_memcpy(indices, &b, sizeof indices);
   for (size_t i = 0; i < 16; ++i) {
-    result[i] = a[(uint8_t)b[i] & 15];
+    looked_up[i] = table[indices[i] & 15];
   }
+  __builtin_memcpy(&result, looked_up, sizeof result);
   return result;
 #else
   chighway_ops_vector_i8 result;
@@ -1336,6 +3052,22 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_table_lookup_bytes_i8(ch
 #endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i8(const int8_t* from, chighway_ops_vector_i8* v0, chighway_ops_vector_i8* v1) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint8_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30);
+  *v1 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31);
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 first, second;
+  __builtin_memcpy(&first, from, sizeof first);
+  __builtin_memcpy(&second, from + 16, sizeof second);
+  const word_vector firstWords = (word_vector)first;
+  const word_vector secondWords = (word_vector)second;
+  *v0 = (chighway_ops_vector_i8)__builtin_ia32_packuswb128((chighway_ops_x86_i16)(firstWords & (chighway_ops_x86_i16){255, 255, 255, 255, 255, 255, 255, 255}), (chighway_ops_x86_i16)(secondWords & (chighway_ops_x86_i16){255, 255, 255, 255, 255, 255, 255, 255}));
+  *v1 = (chighway_ops_vector_i8)__builtin_ia32_packuswb128((chighway_ops_x86_i16)(firstWords >> 8), (chighway_ops_x86_i16)(secondWords >> 8));
+#else
   chighway_ops_vector_i8 r0, r1;
   for (size_t i = 0; i < 16; ++i) {
     r0[i] = from[2 * i];
@@ -1343,8 +3075,25 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i8(const int8_t* from, c
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i8(const int8_t* from, chighway_ops_vector_i8* v0, chighway_ops_vector_i8* v1, chighway_ops_vector_i8* v2) {
+#if CHIGHWAY_OPS_X86 >= 2
+  chighway_ops_x86_i8 vA, vB, vC;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 16, sizeof vB);
+  __builtin_memcpy(&vC, from + 32, sizeof vC);
+  *v0 = (chighway_ops_vector_i8)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){0, 3, 6, 9, 12, 15, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, 2, 5, 8, 11, 14, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 1, 4, 7, 10, 13}));
+  *v1 = (chighway_ops_vector_i8)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){1, 4, 7, 10, 13, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, 0, 3, 6, 9, 12, 15, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 2, 5, 8, 11, 14}));
+  *v2 = (chighway_ops_vector_i8)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){2, 5, 8, 11, 14, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, 1, 4, 7, 10, 13, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 0, 3, 6, 9, 12, 15}));
+#elif CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint8_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45);
+  *v1 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37, 40, 43, 46);
+  *v2 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 47);
+#else
   chighway_ops_vector_i8 r0, r1, r2;
   for (size_t i = 0; i < 16; ++i) {
     r0[i] = from[3 * i];
@@ -1354,8 +3103,44 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i8(const int8_t* from, c
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i8(const int8_t* from, chighway_ops_vector_i8* v0, chighway_ops_vector_i8* v1, chighway_ops_vector_i8* v2, chighway_ops_vector_i8* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint8_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60);
+  *v1 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61);
+  *v2 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50, 54, 58, 62);
+  *v3 = (chighway_ops_vector_i8)__builtin_shufflevector(all, all, 3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i8 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 16, sizeof vB);
+  __builtin_memcpy(&vC, from + 32, sizeof vC);
+  __builtin_memcpy(&vD, from + 48, sizeof vD);
+  const chighway_ops_x86_i8 v5140 = __builtin_shufflevector((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)vB, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 vd9c8 = __builtin_shufflevector((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)vD, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v7362 = __builtin_shufflevector((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)vB, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 vfbea = __builtin_shufflevector((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)vD, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v6420 = __builtin_shufflevector((chighway_ops_x86_i8)v5140, (chighway_ops_x86_i8)v7362, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 veca8 = __builtin_shufflevector((chighway_ops_x86_i8)vd9c8, (chighway_ops_x86_i8)vfbea, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v7531 = __builtin_shufflevector((chighway_ops_x86_i8)v5140, (chighway_ops_x86_i8)v7362, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 vfdb9 = __builtin_shufflevector((chighway_ops_x86_i8)vd9c8, (chighway_ops_x86_i8)vfbea, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v10L = __builtin_shufflevector((chighway_ops_x86_i8)v6420, (chighway_ops_x86_i8)v7531, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v10U = __builtin_shufflevector((chighway_ops_x86_i8)veca8, (chighway_ops_x86_i8)vfdb9, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v32L = __builtin_shufflevector((chighway_ops_x86_i8)v6420, (chighway_ops_x86_i8)v7531, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v32U = __builtin_shufflevector((chighway_ops_x86_i8)veca8, (chighway_ops_x86_i8)vfdb9, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i64 r0 = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v10U, 0, 2);
+  *v0 = (chighway_ops_vector_i8)r0;
+  const chighway_ops_x86_i64 r1 = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v10U, 1, 3);
+  *v1 = (chighway_ops_vector_i8)r1;
+  const chighway_ops_x86_i64 r2 = __builtin_shufflevector((chighway_ops_x86_i64)v32L, (chighway_ops_x86_i64)v32U, 0, 2);
+  *v2 = (chighway_ops_vector_i8)r2;
+  const chighway_ops_x86_i64 r3 = __builtin_shufflevector((chighway_ops_x86_i64)v32L, (chighway_ops_x86_i64)v32U, 1, 3);
+  *v3 = (chighway_ops_vector_i8)r3;
+#else
   chighway_ops_vector_i8 r0, r1, r2, r3;
   for (size_t i = 0; i < 16; ++i) {
     r0[i] = from[4 * i];
@@ -1367,27 +3152,72 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i8(const int8_t* from, c
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b, int8_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint8_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector((chighway_ops_vector_u8)a, (chighway_ops_vector_u8)b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 16; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b, chighway_ops_vector_i8 c, int8_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 2
+  typedef uint8_t pair_vector __attribute__((vector_size(32)));
+  typedef uint8_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u8)a, (chighway_ops_vector_u8)b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
+  const pair_vector cc = __builtin_shufflevector((chighway_ops_vector_u8)c, (chighway_ops_vector_u8)c, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 16, 32, 1, 17, 33, 2, 18, 34, 3, 19, 35, 4, 20, 36, 5, 21, 37, 6, 22, 38, 7, 23, 39, 8, 24, 40, 9, 25, 41, 10, 26, 42, 11, 27, 43, 12, 28, 44, 13, 29, 45, 14, 30, 46, 15, 31, 47);
+  __builtin_memcpy(to, &all, 48);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_i8 vA = (__builtin_shufflevector(a, a, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0, 5) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1}) | (__builtin_shufflevector(b, b, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0}) | (__builtin_shufflevector(c, c, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0});
+  const chighway_ops_vector_i8 vB = (__builtin_shufflevector(a, a, 0, 0, 6, 0, 0, 7, 0, 0, 8, 0, 0, 9, 0, 0, 10, 0) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0}) | (__builtin_shufflevector(b, b, 5, 0, 0, 6, 0, 0, 7, 0, 0, 8, 0, 0, 9, 0, 0, 10) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1}) | (__builtin_shufflevector(c, c, 0, 5, 0, 0, 6, 0, 0, 7, 0, 0, 8, 0, 0, 9, 0, 0) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0});
+  const chighway_ops_vector_i8 vC = (__builtin_shufflevector(a, a, 0, 11, 0, 0, 12, 0, 0, 13, 0, 0, 14, 0, 0, 15, 0, 0) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0}) | (__builtin_shufflevector(b, b, 0, 0, 11, 0, 0, 12, 0, 0, 13, 0, 0, 14, 0, 0, 15, 0) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0}) | (__builtin_shufflevector(c, c, 10, 0, 0, 11, 0, 0, 12, 0, 0, 13, 0, 0, 14, 0, 0, 15) & (chighway_ops_vector_i8)(chighway_ops_x86_i8){-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1});
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 16, &vB, sizeof vB);
+  __builtin_memcpy(to + 32, &vC, sizeof vC);
+#else
   for (size_t i = 0; i < 16; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b, chighway_ops_vector_i8 c, chighway_ops_vector_i8 d, int8_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint8_t pair_vector __attribute__((vector_size(32)));
+  typedef uint8_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u8)a, (chighway_ops_vector_u8)b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
+  const pair_vector cd = __builtin_shufflevector((chighway_ops_vector_u8)c, (chighway_ops_vector_u8)d, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 16, 32, 48, 1, 17, 33, 49, 2, 18, 34, 50, 3, 19, 35, 51, 4, 20, 36, 52, 5, 21, 37, 53, 6, 22, 38, 54, 7, 23, 39, 55, 8, 24, 40, 56, 9, 25, 41, 57, 10, 26, 42, 58, 11, 27, 43, 59, 12, 28, 44, 60, 13, 29, 45, 61, 14, 30, 46, 62, 15, 31, 47, 63);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i8 v10L = __builtin_shufflevector((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v32L = __builtin_shufflevector((chighway_ops_x86_i8)c, (chighway_ops_x86_i8)d, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i8 v10U = __builtin_shufflevector((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i8 v32U = __builtin_shufflevector((chighway_ops_x86_i8)c, (chighway_ops_x86_i8)d, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  const chighway_ops_x86_i16 vA = __builtin_shufflevector((chighway_ops_x86_i16)v10L, (chighway_ops_x86_i16)v32L, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vB = __builtin_shufflevector((chighway_ops_x86_i16)v10L, (chighway_ops_x86_i16)v32L, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 vC = __builtin_shufflevector((chighway_ops_x86_i16)v10U, (chighway_ops_x86_i16)v32U, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vD = __builtin_shufflevector((chighway_ops_x86_i16)v10U, (chighway_ops_x86_i16)v32U, 4, 12, 5, 13, 6, 14, 7, 15);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 16, &vB, sizeof vB);
+  __builtin_memcpy(to + 32, &vC, sizeof vC);
+  __builtin_memcpy(to + 48, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 16; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_repeating_block_i8(int8_t v0, int8_t v1, int8_t v2, int8_t v3, int8_t v4, int8_t v5, int8_t v6, int8_t v7, int8_t v8, int8_t v9, int8_t v10, int8_t v11, int8_t v12, int8_t v13, int8_t v14, int8_t v15) {
   return (chighway_ops_vector_i8){v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15};
@@ -1418,9 +3248,37 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_aligned_i16(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_first_i16(const int16_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i16 v = {0};
+  if (count >= 8) {
+    __builtin_memcpy(&v, from, 8 * sizeof(int16_t));
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int16_t));
+  } else {
+    const size_t leading = count & 4;
+    chighway_ops_vector_i16 trailing = {0};
+    if (count & 2) {
+      __builtin_memcpy(&trailing, from + leading, 2 * sizeof(int16_t));
+      if (count & 1) {
+        trailing[2] = from[leading + 2];
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading != 0) {
+      __builtin_memcpy(&v, from, 4 * sizeof(int16_t));
+      v = __builtin_shufflevector(v, trailing, 0, 1, 2, 3, 8, 9, 10, 11);
+    } else {
+      v = trailing;
+    }
+  }
+  return v;
+#else
   chighway_ops_vector_i16 v = {0};
   __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(int16_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_i16(chighway_ops_vector_i16 a, int16_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -1429,7 +3287,85 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i16(chighway_ops_vector_i16 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i16(chighway_ops_vector_i16 a, int16_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count <= 1) {
+    if (count == 1) {
+      {
+        typedef int16_t chunk_vector __attribute__((vector_size(16)));
+        const int16_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    }
+  } else if (count >= 8) {
+    __builtin_memcpy(to + 0, &a, sizeof a);
+  } else if (count >= 4) {
+    {
+      typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+      const uint64_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+    const chighway_ops_vector_i16 upper4 = __builtin_shufflevector(a, a, 4, 5, 6, 7, 0, 1, 2, 3);
+    if ((count - 4) > 1) {
+      if ((count - 4) >= 4) {
+        {
+          typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+          const uint64_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+        }
+      } else {
+        {
+          typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+          const uint32_t chunk = ((chunk_vector)upper4)[0];
+          __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+        }
+        if ((count - 4) == 3) {
+          {
+            typedef int16_t chunk_vector __attribute__((vector_size(16)));
+            const int16_t chunk = ((chunk_vector)upper4)[2];
+            __builtin_memcpy(to + 6, &chunk, sizeof chunk);
+          }
+        }
+      }
+    } else if ((count - 4) == 1) {
+      {
+        typedef int16_t chunk_vector __attribute__((vector_size(16)));
+        const int16_t chunk = ((chunk_vector)upper4)[0];
+        __builtin_memcpy(to + 4, &chunk, sizeof chunk);
+      }
+    }
+  } else {
+    if (count > 1) {
+      if (count >= 4) {
+        {
+          typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+          const uint64_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+      } else {
+        {
+          typedef uint32_t chunk_vector __attribute__((vector_size(16)));
+          const uint32_t chunk = ((chunk_vector)a)[0];
+          __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+        }
+        if (count == 3) {
+          {
+            typedef int16_t chunk_vector __attribute__((vector_size(16)));
+            const int16_t chunk = ((chunk_vector)a)[2];
+            __builtin_memcpy(to + 2, &chunk, sizeof chunk);
+          }
+        }
+      }
+    } else if (count == 1) {
+      {
+        typedef int16_t chunk_vector __attribute__((vector_size(16)));
+        const int16_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 8 ? count : 8) * sizeof(int16_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_adding_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
   return (chighway_ops_vector_i16)((chighway_ops_vector_u16)a + (chighway_ops_vector_u16)b);
@@ -1512,7 +3448,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_greater_than_i16(chighway
   return (chighway_ops_mask_i16)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_selecting_i16(chighway_ops_mask_i16 mask, chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_i16)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return (chighway_ops_vector_i16)(((chighway_ops_vector_u16)mask & (chighway_ops_vector_u16)a) | (~(chighway_ops_vector_u16)mask & (chighway_ops_vector_u16)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_selecting_or_zero_i16(chighway_ops_mask_i16 mask, chighway_ops_vector_i16 a) {
   return (chighway_ops_vector_i16)((chighway_ops_vector_u16)mask & (chighway_ops_vector_u16)a);
@@ -1525,21 +3465,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_first_lanes_i16(size_t co
   return (chighway_ops_mask_i16)((chighway_ops_vector_u16){0, 1, 2, 3, 4, 5, 6, 7} < (chighway_ops_vector_u16){n, n, n, n, n, n, n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i16(chighway_ops_mask_i16 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0})) == 0xff;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i16(chighway_ops_mask_i16 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0})) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i16(chighway_ops_mask_i16 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0})));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i16(chighway_ops_mask_i16 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 8);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((chighway_ops_x86_i8)(chighway_ops_x86_i8)__builtin_ia32_packsswb128((chighway_ops_x86_i16)mask, (chighway_ops_x86_i16)(chighway_ops_x86_i16){0}));
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 8; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE int16_t chighway_ops_sum_i16(chighway_ops_vector_i16 a) {
   return __builtin_reduce_add(a);
@@ -1558,14 +3535,50 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_reversed_i16(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_slide_up_lanes_i16(chighway_ops_vector_i16 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 6, 7, 8, 9, 10, 11, 12, 13);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 5, 6, 7, 8, 9, 10, 11, 12);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 4, 5, 6, 7, 8, 9, 10, 11);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 3, 4, 5, 6, 7, 8, 9, 10);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 2, 3, 4, 5, 6, 7, 8, 9);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 1, 2, 3, 4, 5, 6, 7, 8);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int16_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i16)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 6, 7, 8, 9, 10, 11, 12, 13);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 5, 6, 7, 8, 9, 10, 11, 12);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 4, 5, 6, 7, 8, 9, 10, 11);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 3, 4, 5, 6, 7, 8, 9, 10);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 2, 3, 4, 5, 6, 7, 8, 9);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 1, 2, 3, 4, 5, 6, 7, 8);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int16_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i16)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 6, 7, 8, 9, 10, 11, 12, 13);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 5, 6, 7, 8, 9, 10, 11, 12);
+      case 4: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 4, 5, 6, 7, 8, 9, 10, 11);
+      case 5: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 3, 4, 5, 6, 7, 8, 9, 10);
+      case 6: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 2, 3, 4, 5, 6, 7, 8, 9);
+      case 7: return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 1, 2, 3, 4, 5, 6, 7, 8);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -1584,9 +3597,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_slide_up_lanes_i16(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_slide1_up_i16(chighway_ops_vector_i16 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_i16){0}, a, 7, 8, 9, 10, 11, 12, 13, 14);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_i16){0}, 8, 0, 1, 2, 3, 4, 5, 6);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i16(const int16_t* from, chighway_ops_vector_i16* v0, chighway_ops_vector_i16* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 0, 2, 4, 6, 8, 10, 12, 14);
+  *v1 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 1, 3, 5, 7, 9, 11, 13, 15);
+#else
   chighway_ops_vector_i16 r0, r1;
   for (size_t i = 0; i < 8; ++i) {
     r0[i] = from[2 * i];
@@ -1594,8 +3618,25 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i16(const int16_t* from,
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i16(const int16_t* from, chighway_ops_vector_i16* v0, chighway_ops_vector_i16* v1, chighway_ops_vector_i16* v2) {
+#if CHIGHWAY_OPS_X86 >= 2
+  chighway_ops_x86_i8 vA, vB, vC;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 8, sizeof vB);
+  __builtin_memcpy(&vC, from + 16, sizeof vC);
+  *v0 = (chighway_ops_vector_i16)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){0, 1, 6, 7, 12, 13, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, 2, 3, 8, 9, 14, 15, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 4, 5, 10, 11}));
+  *v1 = (chighway_ops_vector_i16)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){2, 3, 8, 9, 14, 15, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, 4, 5, 10, 11, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 0, 1, 6, 7, 12, 13}));
+  *v2 = (chighway_ops_vector_i16)((chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vA, (chighway_ops_x86_i8)(chighway_ops_x86_i8){4, 5, 10, 11, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vB, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, 0, 1, 6, 7, 12, 13, -128, -128, -128, -128, -128, -128}) ^ (chighway_ops_x86_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)vC, (chighway_ops_x86_i8)(chighway_ops_x86_i8){-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, 2, 3, 8, 9, 14, 15}));
+#elif CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 0, 3, 6, 9, 12, 15, 18, 21);
+  *v1 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 1, 4, 7, 10, 13, 16, 19, 22);
+  *v2 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 2, 5, 8, 11, 14, 17, 20, 23);
+#else
   chighway_ops_vector_i16 r0, r1, r2;
   for (size_t i = 0; i < 8; ++i) {
     r0[i] = from[3 * i];
@@ -1605,8 +3646,40 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i16(const int16_t* from,
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i16(const int16_t* from, chighway_ops_vector_i16* v0, chighway_ops_vector_i16* v1, chighway_ops_vector_i16* v2, chighway_ops_vector_i16* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 0, 4, 8, 12, 16, 20, 24, 28);
+  *v1 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 1, 5, 9, 13, 17, 21, 25, 29);
+  *v2 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 2, 6, 10, 14, 18, 22, 26, 30);
+  *v3 = (chighway_ops_vector_i16)__builtin_shufflevector(all, all, 3, 7, 11, 15, 19, 23, 27, 31);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i16 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 8, sizeof vB);
+  __builtin_memcpy(&vC, from + 16, sizeof vC);
+  __builtin_memcpy(&vD, from + 24, sizeof vD);
+  const chighway_ops_x86_i16 va820 = __builtin_shufflevector((chighway_ops_x86_i16)vA, (chighway_ops_x86_i16)vB, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vec64 = __builtin_shufflevector((chighway_ops_x86_i16)vC, (chighway_ops_x86_i16)vD, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 vb931 = __builtin_shufflevector((chighway_ops_x86_i16)vA, (chighway_ops_x86_i16)vB, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 vfd75 = __builtin_shufflevector((chighway_ops_x86_i16)vC, (chighway_ops_x86_i16)vD, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 v10b830 = __builtin_shufflevector((chighway_ops_x86_i16)va820, (chighway_ops_x86_i16)vb931, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v10fc74 = __builtin_shufflevector((chighway_ops_x86_i16)vec64, (chighway_ops_x86_i16)vfd75, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v32b830 = __builtin_shufflevector((chighway_ops_x86_i16)va820, (chighway_ops_x86_i16)vb931, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 v32fc74 = __builtin_shufflevector((chighway_ops_x86_i16)vec64, (chighway_ops_x86_i16)vfd75, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i64 r0 = __builtin_shufflevector((chighway_ops_x86_i64)v10b830, (chighway_ops_x86_i64)v10fc74, 0, 2);
+  *v0 = (chighway_ops_vector_i16)r0;
+  const chighway_ops_x86_i64 r1 = __builtin_shufflevector((chighway_ops_x86_i64)v10b830, (chighway_ops_x86_i64)v10fc74, 1, 3);
+  *v1 = (chighway_ops_vector_i16)r1;
+  const chighway_ops_x86_i64 r2 = __builtin_shufflevector((chighway_ops_x86_i64)v32b830, (chighway_ops_x86_i64)v32fc74, 0, 2);
+  *v2 = (chighway_ops_vector_i16)r2;
+  const chighway_ops_x86_i64 r3 = __builtin_shufflevector((chighway_ops_x86_i64)v32b830, (chighway_ops_x86_i64)v32fc74, 1, 3);
+  *v3 = (chighway_ops_vector_i16)r3;
+#else
   chighway_ops_vector_i16 r0, r1, r2, r3;
   for (size_t i = 0; i < 8; ++i) {
     r0[i] = from[4 * i];
@@ -1618,27 +3691,65 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i16(const int16_t* from,
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b, int16_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector((chighway_ops_vector_u16)a, (chighway_ops_vector_u16)b, 0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 8; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b, chighway_ops_vector_i16 c, int16_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint16_t pair_vector __attribute__((vector_size(32)));
+  typedef uint16_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u16)a, (chighway_ops_vector_u16)b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  const pair_vector cc = __builtin_shufflevector((chighway_ops_vector_u16)c, (chighway_ops_vector_u16)c, 0, 1, 2, 3, 4, 5, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 8, 16, 1, 9, 17, 2, 10, 18, 3, 11, 19, 4, 12, 20, 5, 13, 21, 6, 14, 22, 7, 15, 23);
+  __builtin_memcpy(to, &all, 48);
+#else
   for (size_t i = 0; i < 8; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b, chighway_ops_vector_i16 c, chighway_ops_vector_i16 d, int16_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t pair_vector __attribute__((vector_size(32)));
+  typedef uint16_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u16)a, (chighway_ops_vector_u16)b, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  const pair_vector cd = __builtin_shufflevector((chighway_ops_vector_u16)c, (chighway_ops_vector_u16)d, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i16 v10L = __builtin_shufflevector((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)b, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v32L = __builtin_shufflevector((chighway_ops_x86_i16)c, (chighway_ops_x86_i16)d, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i16 v10U = __builtin_shufflevector((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)b, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i16 v32U = __builtin_shufflevector((chighway_ops_x86_i16)c, (chighway_ops_x86_i16)d, 4, 12, 5, 13, 6, 14, 7, 15);
+  const chighway_ops_x86_i32 vA = __builtin_shufflevector((chighway_ops_x86_i32)v10L, (chighway_ops_x86_i32)v32L, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 vB = __builtin_shufflevector((chighway_ops_x86_i32)v10L, (chighway_ops_x86_i32)v32L, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 vC = __builtin_shufflevector((chighway_ops_x86_i32)v10U, (chighway_ops_x86_i32)v32U, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 vD = __builtin_shufflevector((chighway_ops_x86_i32)v10U, (chighway_ops_x86_i32)v32U, 2, 6, 3, 7);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 8, &vB, sizeof vB);
+  __builtin_memcpy(to + 16, &vC, sizeof vC);
+  __builtin_memcpy(to + 24, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 8; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_widening_i8_to_i16(const int8_t* from) {
   typedef int8_t narrow_vector __attribute__((vector_size(8)));
@@ -1647,10 +3758,77 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_widening_i8_to_i16
   return __builtin_convertvector(v, chighway_ops_vector_i16);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_load_first_widening_i8_to_i16(const int8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 8) {
+    __builtin_memcpy(&v, from, 8);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int8_t));
+  } else {
+    const size_t leading = count & 4;
+    chighway_ops_vector_i8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        trailing[2] = from[leading + 2];
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading != 0) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_i8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      v = trailing;
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3, 4, 5, 6, 7), chighway_ops_vector_i16);
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  typedef uint16_t half_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 8) {
+    __builtin_memcpy(&v, from, 8);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int8_t));
+  } else {
+    const size_t leading = count & 4;
+    chighway_ops_vector_i8 trailing = {0};
+    if (count & 2) {
+      uint16_t pair;
+      __builtin_memcpy(&pair, from + leading, sizeof pair);
+      trailing = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+      if (count & 1) {
+        const word_vector third = {(uint8_t)from[leading + 2], 0, 0, 0};
+        trailing = (chighway_ops_vector_i8)__builtin_shufflevector(
+          (half_vector)trailing, (half_vector)third, 0, 8, 1, 9, 2, 10, 3, 11);
+      }
+    } else if (count & 1) {
+      trailing[0] = from[leading];
+    }
+    if (leading != 0) {
+      uint32_t head;
+      __builtin_memcpy(&head, from, sizeof head);
+      v = (chighway_ops_vector_i8)__builtin_shufflevector(
+        (word_vector){head, 0, 0, 0}, (word_vector)trailing, 0, 4, 1, 5);
+    } else {
+      v = trailing;
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3, 4, 5, 6, 7), chighway_ops_vector_i16);
+#else
   typedef int8_t narrow_vector __attribute__((vector_size(8)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 8 ? count : 8) * sizeof(int8_t));
   return __builtin_convertvector(v, chighway_ops_vector_i16);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_repeating_block_i16(int16_t v0, int16_t v1, int16_t v2, int16_t v3, int16_t v4, int16_t v5, int16_t v6, int16_t v7) {
   return (chighway_ops_vector_i16){v0, v1, v2, v3, v4, v5, v6, v7};
@@ -1681,9 +3859,25 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_aligned_i32(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_first_i32(const int32_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i32 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4 * sizeof(int32_t));
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int32_t));
+  } else {
+    __builtin_memcpy(&v, from, 2 * sizeof(int32_t));
+    if (count != 2) {
+      v[2] = from[2];
+    }
+  }
+  return v;
+#else
   chighway_ops_vector_i32 v = {0};
   __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(int32_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_i32(chighway_ops_vector_i32 a, int32_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -1692,7 +3886,34 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i32(chighway_ops_vector_i32 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i32(chighway_ops_vector_i32 a, int32_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count > 1) {
+    if (count >= 4) {
+      __builtin_memcpy(to + 0, &a, sizeof a);
+    } else {
+      {
+        typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+        const uint64_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+      if (count == 3) {
+        {
+          typedef int32_t chunk_vector __attribute__((vector_size(16)));
+          const int32_t chunk = ((chunk_vector)a)[2];
+          __builtin_memcpy(to + 2, &chunk, sizeof chunk);
+        }
+      }
+    }
+  } else if (count == 1) {
+    {
+      typedef int32_t chunk_vector __attribute__((vector_size(16)));
+      const int32_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 4 ? count : 4) * sizeof(int32_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_adding_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
   return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a + (chighway_ops_vector_u32)b);
@@ -1701,7 +3922,21 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_subtracting_i32(chighwa
   return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a - (chighway_ops_vector_u32)b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_multiplying_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+#if CHIGHWAY_OPS_X86 >= 3
   return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a * (chighway_ops_vector_u32)b);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 a_x3x1 = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)a, 1, 1, 3, 3);
+  const chighway_ops_x86_i64 mullo_x2x0 = (chighway_ops_x86_i64)__builtin_ia32_pmuludq128((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b);
+  const chighway_ops_x86_i32 b_x3x1 = __builtin_shufflevector((chighway_ops_x86_i32)b, (chighway_ops_x86_i32)b, 1, 1, 3, 3);
+  const chighway_ops_x86_i64 mullo_x3x1 = (chighway_ops_x86_i64)__builtin_ia32_pmuludq128((chighway_ops_x86_i32)a_x3x1, (chighway_ops_x86_i32)b_x3x1);
+  const chighway_ops_x86_i32 mul_20 = __builtin_shufflevector(
+    (chighway_ops_x86_i32)mullo_x2x0, (chighway_ops_x86_i32)mullo_x2x0, 0, 2, 0, 2);
+  const chighway_ops_x86_i32 mul_31 = __builtin_shufflevector(
+    (chighway_ops_x86_i32)mullo_x3x1, (chighway_ops_x86_i32)mullo_x3x1, 0, 2, 0, 2);
+  return (chighway_ops_vector_i32)__builtin_shufflevector(mul_20, mul_31, 0, 4, 1, 5);
+#else
+  return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a * (chighway_ops_vector_u32)b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_minimum_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
   return __builtin_elementwise_min(a, b);
@@ -1769,7 +4004,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_greater_than_i32(chighway
   return (chighway_ops_mask_i32)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_selecting_i32(chighway_ops_mask_i32 mask, chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_i32)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return (chighway_ops_vector_i32)(((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_selecting_or_zero_i32(chighway_ops_mask_i32 mask, chighway_ops_vector_i32 a) {
   return (chighway_ops_vector_i32)((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a);
@@ -1782,21 +4021,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_first_lanes_i32(size_t co
   return (chighway_ops_mask_i32)((chighway_ops_vector_u32){0, 1, 2, 3} < (chighway_ops_vector_u32){n, n, n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i32(chighway_ops_mask_i32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask) == 0xf;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i32(chighway_ops_mask_i32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i32(chighway_ops_mask_i32 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i32(chighway_ops_mask_i32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 16);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 4; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE int32_t chighway_ops_sum_i32(chighway_ops_vector_i32 a) {
   return __builtin_reduce_add(a);
@@ -1815,14 +4091,38 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_reversed_i32(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_slide_up_lanes_i32(chighway_ops_vector_i32 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int32_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i32)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int32_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i32)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -1841,9 +4141,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_slide_up_lanes_i32(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_slide1_up_i32(chighway_ops_vector_i32 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_i32){0}, a, 3, 4, 5, 6);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_i32){0}, 4, 0, 1, 2);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i32(const int32_t* from, chighway_ops_vector_i32* v0, chighway_ops_vector_i32* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 0, 2, 4, 6);
+  *v1 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 1, 3, 5, 7);
+#else
   chighway_ops_vector_i32 r0, r1;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[2 * i];
@@ -1851,8 +4162,32 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i32(const int32_t* from,
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i32(const int32_t* from, chighway_ops_vector_i32* v0, chighway_ops_vector_i32* v1, chighway_ops_vector_i32* v2) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 0, 3, 6, 9);
+  *v1 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 1, 4, 7, 10);
+  *v2 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 2, 5, 8, 11);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i32 vA, vB, vC;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 4, sizeof vB);
+  __builtin_memcpy(&vC, from + 8, sizeof vC);
+  const chighway_ops_x86_i32 vxx0203xx = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vC, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r0 = __builtin_shufflevector((chighway_ops_x86_f32)vA, (chighway_ops_x86_f32)vxx0203xx, 0, 3, 6, 5);
+  *v0 = (chighway_ops_vector_i32)r0;
+  const chighway_ops_x86_i32 vxxxx1011 = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vA, 0, 5, 2, 7);
+  const chighway_ops_x86_i32 v1213xxxx = __builtin_shufflevector((chighway_ops_x86_i32)vC, (chighway_ops_x86_i32)vB, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r1 = __builtin_shufflevector((chighway_ops_x86_f32)vxxxx1011, (chighway_ops_x86_f32)v1213xxxx, 1, 0, 7, 6);
+  *v1 = (chighway_ops_vector_i32)r1;
+  const chighway_ops_x86_i32 vxx2021xx = __builtin_shufflevector((chighway_ops_x86_i32)vA, (chighway_ops_x86_i32)vB, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r2 = __builtin_shufflevector((chighway_ops_x86_f32)vxx2021xx, (chighway_ops_x86_f32)vC, 2, 1, 4, 7);
+  *v2 = (chighway_ops_vector_i32)r2;
+#else
   chighway_ops_vector_i32 r0, r1, r2;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[3 * i];
@@ -1862,8 +4197,36 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i32(const int32_t* from,
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i32(const int32_t* from, chighway_ops_vector_i32* v0, chighway_ops_vector_i32* v1, chighway_ops_vector_i32* v2, chighway_ops_vector_i32* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 0, 4, 8, 12);
+  *v1 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 1, 5, 9, 13);
+  *v2 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 2, 6, 10, 14);
+  *v3 = (chighway_ops_vector_i32)__builtin_shufflevector(all, all, 3, 7, 11, 15);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i32 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 4, sizeof vB);
+  __builtin_memcpy(&vC, from + 8, sizeof vC);
+  __builtin_memcpy(&vD, from + 12, sizeof vD);
+  const chighway_ops_x86_i32 v10e = __builtin_shufflevector((chighway_ops_x86_i32)vA, (chighway_ops_x86_i32)vC, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v10o = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vD, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v32e = __builtin_shufflevector((chighway_ops_x86_i32)vA, (chighway_ops_x86_i32)vC, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 v32o = __builtin_shufflevector((chighway_ops_x86_i32)vB, (chighway_ops_x86_i32)vD, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 r0 = __builtin_shufflevector((chighway_ops_x86_i32)v10e, (chighway_ops_x86_i32)v10o, 0, 4, 1, 5);
+  *v0 = (chighway_ops_vector_i32)r0;
+  const chighway_ops_x86_i32 r1 = __builtin_shufflevector((chighway_ops_x86_i32)v10e, (chighway_ops_x86_i32)v10o, 2, 6, 3, 7);
+  *v1 = (chighway_ops_vector_i32)r1;
+  const chighway_ops_x86_i32 r2 = __builtin_shufflevector((chighway_ops_x86_i32)v32e, (chighway_ops_x86_i32)v32o, 0, 4, 1, 5);
+  *v2 = (chighway_ops_vector_i32)r2;
+  const chighway_ops_x86_i32 r3 = __builtin_shufflevector((chighway_ops_x86_i32)v32e, (chighway_ops_x86_i32)v32o, 2, 6, 3, 7);
+  *v3 = (chighway_ops_vector_i32)r3;
+#else
   chighway_ops_vector_i32 r0, r1, r2, r3;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[4 * i];
@@ -1875,27 +4238,78 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i32(const int32_t* from,
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b, int32_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector((chighway_ops_vector_u32)a, (chighway_ops_vector_u32)b, 0, 4, 1, 5, 2, 6, 3, 7);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b, chighway_ops_vector_i32 c, int32_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t pair_vector __attribute__((vector_size(32)));
+  typedef uint32_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u32)a, (chighway_ops_vector_u32)b, 0, 1, 2, 3, 4, 5, 6, 7);
+  const pair_vector cc = __builtin_shufflevector((chighway_ops_vector_u32)c, (chighway_ops_vector_u32)c, 0, 1, 2, 3, -1, -1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11);
+  __builtin_memcpy(to, &all, 48);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 v10v00 = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v01v20 = __builtin_shufflevector((chighway_ops_x86_i32)c, (chighway_ops_x86_i32)a, 0, 5, 2, 7);
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)v10v00, (chighway_ops_x86_i64)v01v20, 0, 2);
+  const chighway_ops_x86_i32 v1x321 = __builtin_shufflevector((chighway_ops_x86_i32)b, (chighway_ops_x86_i32)(chighway_ops_x86_i32){0}, 1, 2, 3, 4);
+  const chighway_ops_x86_i32 v0x32 = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)(chighway_ops_x86_i32){0}, 2, 3, 4, 5);
+  const chighway_ops_x86_i32 v21v11 = __builtin_shufflevector((chighway_ops_x86_i32)v1x321, (chighway_ops_x86_i32)c, 0, 5, 2, 7);
+  const chighway_ops_x86_i32 v12v02 = __builtin_shufflevector((chighway_ops_x86_i32)v0x32, (chighway_ops_x86_i32)v1x321, 0, 5, 2, 7);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)v21v11, (chighway_ops_x86_i64)v12v02, 0, 2);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)v01v20, (chighway_ops_x86_i64)v21v11, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 4, &vB, sizeof vB);
+  __builtin_memcpy(to + 8, &vC, sizeof vC);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b, chighway_ops_vector_i32 c, chighway_ops_vector_i32 d, int32_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t pair_vector __attribute__((vector_size(32)));
+  typedef uint32_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u32)a, (chighway_ops_vector_u32)b, 0, 1, 2, 3, 4, 5, 6, 7);
+  const pair_vector cd = __builtin_shufflevector((chighway_ops_vector_u32)c, (chighway_ops_vector_u32)d, 0, 1, 2, 3, 4, 5, 6, 7);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 v10L = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v32L = __builtin_shufflevector((chighway_ops_x86_i32)c, (chighway_ops_x86_i32)d, 0, 4, 1, 5);
+  const chighway_ops_x86_i32 v10U = __builtin_shufflevector((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)b, 2, 6, 3, 7);
+  const chighway_ops_x86_i32 v32U = __builtin_shufflevector((chighway_ops_x86_i32)c, (chighway_ops_x86_i32)d, 2, 6, 3, 7);
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v32L, 0, 2);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v32L, 1, 3);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)v10U, (chighway_ops_x86_i64)v32U, 0, 2);
+  const chighway_ops_x86_i64 vD = __builtin_shufflevector((chighway_ops_x86_i64)v10U, (chighway_ops_x86_i64)v32U, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 4, &vB, sizeof vB);
+  __builtin_memcpy(to + 8, &vC, sizeof vC);
+  __builtin_memcpy(to + 12, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_widening_i8_to_i32(const int8_t* from) {
   typedef int8_t narrow_vector __attribute__((vector_size(4)));
@@ -1910,16 +4324,68 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_widening_i16_to_i3
   return __builtin_convertvector(v, chighway_ops_vector_i32);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_first_widening_i8_to_i32(const int8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int8_t));
+  } else {
+    uint16_t pair;
+    __builtin_memcpy(&pair, from + 0, sizeof pair);
+    v = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+    if (count != 2) {
+      v[2] = from[2];
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3), chighway_ops_vector_i32);
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4);
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int8_t));
+  } else {
+    uint16_t pair;
+    __builtin_memcpy(&pair, from + 0, sizeof pair);
+    v = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+    if (count != 2) {
+      v |= (chighway_ops_vector_i8){0, 0, from[2]};
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3), chighway_ops_vector_i32);
+#else
   typedef int8_t narrow_vector __attribute__((vector_size(4)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(int8_t));
   return __builtin_convertvector(v, chighway_ops_vector_i32);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_load_first_widening_i16_to_i32(const int16_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i16 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4 * sizeof(int16_t));
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(int16_t));
+  } else {
+    __builtin_memcpy(&v, from, 2 * sizeof(int16_t));
+    if (count != 2) {
+      v[2] = from[2];
+    }
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1, 2, 3), chighway_ops_vector_i32);
+#else
   typedef int16_t narrow_vector __attribute__((vector_size(8)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(int16_t));
   return __builtin_convertvector(v, chighway_ops_vector_i32);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_repeating_block_i32(int32_t v0, int32_t v1, int32_t v2, int32_t v3) {
   return (chighway_ops_vector_i32){v0, v1, v2, v3};
@@ -1950,9 +4416,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_aligned_i64(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_i64(const int64_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i64 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(int64_t));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(int64_t));
+  }
+  return v;
+#else
   chighway_ops_vector_i64 v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int64_t));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_i64(chighway_ops_vector_i64 a, int64_t* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -1961,7 +4438,19 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_i64(chighway_ops_vector_i64 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_i64(chighway_ops_vector_i64 a, int64_t* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count > 1) {
+    __builtin_memcpy(to + 0, &a, sizeof a);
+  } else if (count == 1) {
+    {
+      typedef int64_t chunk_vector __attribute__((vector_size(16)));
+      const int64_t chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 2 ? count : 2) * sizeof(int64_t));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_adding_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
   return (chighway_ops_vector_i64)((chighway_ops_vector_u64)a + (chighway_ops_vector_u64)b);
@@ -1973,10 +4462,36 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_multiplying_i64(chighwa
   return (chighway_ops_vector_i64)((chighway_ops_vector_u64)a * (chighway_ops_vector_u64)b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_minimum_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)(b > a);
+  return (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b));
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 equal = (chighway_ops_x86_i32)b == (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i32 greater = (chighway_ops_x86_i32)b > (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i64 difference = (chighway_ops_x86_i64)a - (chighway_ops_x86_i64)b;
+  const chighway_ops_x86_i64 upper = (chighway_ops_x86_i64)greater | ((chighway_ops_x86_i64)equal & difference);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)__builtin_shufflevector(
+    (chighway_ops_x86_i32)upper, (chighway_ops_x86_i32)upper, 1, 1, 3, 3);
+  return (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b));
+#else
   return __builtin_elementwise_min(a, b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_maximum_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)(b > a);
+  return (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a));
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 equal = (chighway_ops_x86_i32)b == (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i32 greater = (chighway_ops_x86_i32)b > (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i64 difference = (chighway_ops_x86_i64)a - (chighway_ops_x86_i64)b;
+  const chighway_ops_x86_i64 upper = (chighway_ops_x86_i64)greater | ((chighway_ops_x86_i64)equal & difference);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)__builtin_shufflevector(
+    (chighway_ops_x86_i32)upper, (chighway_ops_x86_i32)upper, 1, 1, 3, 3);
+  return (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a));
+#else
   return __builtin_elementwise_max(a, b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_negated_i64(chighway_ops_vector_i64 a) {
   return (chighway_ops_vector_i64)((chighway_ops_vector_u64){0} - (chighway_ops_vector_u64)a);
@@ -2034,13 +4549,41 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_not_equal_to_i64(chighway
   return (chighway_ops_mask_i64)(a != b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_less_than_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+#if CHIGHWAY_OPS_X86 >= 3
   return (chighway_ops_mask_i64)(a < b);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 equal = (chighway_ops_x86_i32)b == (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i32 greater = (chighway_ops_x86_i32)b > (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i64 difference = (chighway_ops_x86_i64)a - (chighway_ops_x86_i64)b;
+  const chighway_ops_x86_i64 upper = (chighway_ops_x86_i64)greater | ((chighway_ops_x86_i64)equal & difference);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)__builtin_shufflevector(
+    (chighway_ops_x86_i32)upper, (chighway_ops_x86_i32)upper, 1, 1, 3, 3);
+  return mask;
+#else
+  return (chighway_ops_mask_i64)(a < b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_greater_than_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+#if CHIGHWAY_OPS_X86 >= 3
   return (chighway_ops_mask_i64)(a > b);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i32 equal = (chighway_ops_x86_i32)a == (chighway_ops_x86_i32)b;
+  const chighway_ops_x86_i32 greater = (chighway_ops_x86_i32)a > (chighway_ops_x86_i32)b;
+  const chighway_ops_x86_i64 difference = (chighway_ops_x86_i64)b - (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 upper = (chighway_ops_x86_i64)greater | ((chighway_ops_x86_i64)equal & difference);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)__builtin_shufflevector(
+    (chighway_ops_x86_i32)upper, (chighway_ops_x86_i32)upper, 1, 1, 3, 3);
+  return mask;
+#else
+  return (chighway_ops_mask_i64)(a > b);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_selecting_i64(chighway_ops_mask_i64 mask, chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_i64)__builtin_ia32_pblendvb128((chighway_ops_x86_i8)b, (chighway_ops_x86_i8)a, (chighway_ops_x86_i8)mask);
+#else
   return (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_selecting_or_zero_i64(chighway_ops_mask_i64 mask, chighway_ops_vector_i64 a) {
   return (chighway_ops_vector_i64)((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a);
@@ -2053,30 +4596,101 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_first_lanes_i64(size_t co
   return (chighway_ops_mask_i64)((chighway_ops_vector_u64){0, 1} < (chighway_ops_vector_u64){n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_i64(chighway_ops_mask_i64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask) == 0x3;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_i64(chighway_ops_mask_i64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_i64(chighway_ops_mask_i64 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_i64(chighway_ops_mask_i64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 32);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 2; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE int64_t chighway_ops_sum_i64(chighway_ops_vector_i64 a) {
   return __builtin_reduce_add(a);
 }
 CHIGHWAY_OPS_INLINE int64_t chighway_ops_smallest_i64(chighway_ops_vector_i64 a) {
+#if CHIGHWAY_OPS_X86 >= 3
+  const chighway_ops_vector_i64 reversed = __builtin_shufflevector(a, a, 1, 0);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)(reversed > a);
+  const chighway_ops_vector_i64 combined = (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)reversed));
+  return combined[0];
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_i64 reversed = __builtin_shufflevector(a, a, 1, 0);
+  const chighway_ops_x86_i32 equal = (chighway_ops_x86_i32)reversed == (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i32 greater = (chighway_ops_x86_i32)reversed > (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i64 difference = (chighway_ops_x86_i64)a - (chighway_ops_x86_i64)reversed;
+  const chighway_ops_x86_i64 upper = (chighway_ops_x86_i64)greater | ((chighway_ops_x86_i64)equal & difference);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)__builtin_shufflevector(
+    (chighway_ops_x86_i32)upper, (chighway_ops_x86_i32)upper, 1, 1, 3, 3);
+  const chighway_ops_vector_i64 combined = (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)reversed));
+  return combined[0];
+#else
   return __builtin_reduce_min(a);
+#endif
 }
 CHIGHWAY_OPS_INLINE int64_t chighway_ops_largest_i64(chighway_ops_vector_i64 a) {
+#if CHIGHWAY_OPS_X86 >= 3
+  const chighway_ops_vector_i64 reversed = __builtin_shufflevector(a, a, 1, 0);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)(reversed > a);
+  const chighway_ops_vector_i64 combined = (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)reversed) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a));
+  return combined[0];
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_i64 reversed = __builtin_shufflevector(a, a, 1, 0);
+  const chighway_ops_x86_i32 equal = (chighway_ops_x86_i32)reversed == (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i32 greater = (chighway_ops_x86_i32)reversed > (chighway_ops_x86_i32)a;
+  const chighway_ops_x86_i64 difference = (chighway_ops_x86_i64)a - (chighway_ops_x86_i64)reversed;
+  const chighway_ops_x86_i64 upper = (chighway_ops_x86_i64)greater | ((chighway_ops_x86_i64)equal & difference);
+  const chighway_ops_mask_i64 mask = (chighway_ops_mask_i64)__builtin_shufflevector(
+    (chighway_ops_x86_i32)upper, (chighway_ops_x86_i32)upper, 1, 1, 3, 3);
+  const chighway_ops_vector_i64 combined = (chighway_ops_vector_i64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)reversed) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a));
+  return combined[0];
+#else
   return __builtin_reduce_max(a);
+#endif
 }
 CHIGHWAY_OPS_INLINE int64_t chighway_ops_first_lane_i64(chighway_ops_vector_i64 a) {
   return a[0];
@@ -2086,14 +4700,32 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_reversed_i64(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_slide_up_lanes_i64(chighway_ops_vector_i64 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i64){0}, a, 1, 2);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int64_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i64)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i64){0}, a, 1, 2);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(int64_t));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_i64)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_i64){0}, a, 1, 2);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -2112,9 +4744,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_slide_up_lanes_i64(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_slide1_up_i64(chighway_ops_vector_i64 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_i64){0}, a, 1, 2);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_i64){0}, 2, 0);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i64(const int64_t* from, chighway_ops_vector_i64* v0, chighway_ops_vector_i64* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 0, 2);
+  *v1 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 1, 3);
+#else
   chighway_ops_vector_i64 r0, r1;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[2 * i];
@@ -2122,8 +4765,17 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i64(const int64_t* from,
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i64(const int64_t* from, chighway_ops_vector_i64* v0, chighway_ops_vector_i64* v1, chighway_ops_vector_i64* v2) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 0, 3);
+  *v1 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 1, 4);
+  *v2 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 2, 5);
+#else
   chighway_ops_vector_i64 r0, r1, r2;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[3 * i];
@@ -2133,8 +4785,32 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_i64(const int64_t* from,
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i64(const int64_t* from, chighway_ops_vector_i64* v0, chighway_ops_vector_i64* v1, chighway_ops_vector_i64* v2, chighway_ops_vector_i64* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint64_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 0, 4);
+  *v1 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 1, 5);
+  *v2 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 2, 6);
+  *v3 = (chighway_ops_vector_i64)__builtin_shufflevector(all, all, 3, 7);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i64 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 2, sizeof vB);
+  __builtin_memcpy(&vC, from + 4, sizeof vC);
+  __builtin_memcpy(&vD, from + 6, sizeof vD);
+  const chighway_ops_x86_i64 r0 = __builtin_shufflevector((chighway_ops_x86_i64)vA, (chighway_ops_x86_i64)vC, 0, 2);
+  *v0 = (chighway_ops_vector_i64)r0;
+  const chighway_ops_x86_i64 r1 = __builtin_shufflevector((chighway_ops_x86_i64)vA, (chighway_ops_x86_i64)vC, 1, 3);
+  *v1 = (chighway_ops_vector_i64)r1;
+  const chighway_ops_x86_i64 r2 = __builtin_shufflevector((chighway_ops_x86_i64)vB, (chighway_ops_x86_i64)vD, 0, 2);
+  *v2 = (chighway_ops_vector_i64)r2;
+  const chighway_ops_x86_i64 r3 = __builtin_shufflevector((chighway_ops_x86_i64)vB, (chighway_ops_x86_i64)vD, 1, 3);
+  *v3 = (chighway_ops_vector_i64)r3;
+#else
   chighway_ops_vector_i64 r0, r1, r2, r3;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[4 * i];
@@ -2146,39 +4822,106 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_i64(const int64_t* from,
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b, int64_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector((chighway_ops_vector_u64)a, (chighway_ops_vector_u64)b, 0, 2, 1, 3);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b, chighway_ops_vector_i64 c, int64_t* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t pair_vector __attribute__((vector_size(32)));
+  typedef uint64_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u64)a, (chighway_ops_vector_u64)b, 0, 1, 2, 3);
+  const pair_vector cc = __builtin_shufflevector((chighway_ops_vector_u64)c, (chighway_ops_vector_u64)c, 0, 1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 2, 4, 1, 3, 5);
+  __builtin_memcpy(to, &all, 48);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b, chighway_ops_vector_i64 c, chighway_ops_vector_i64 d, int64_t* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint64_t pair_vector __attribute__((vector_size(32)));
+  typedef uint64_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u64)a, (chighway_ops_vector_u64)b, 0, 1, 2, 3);
+  const pair_vector cd = __builtin_shufflevector((chighway_ops_vector_u64)c, (chighway_ops_vector_u64)d, 0, 1, 2, 3);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 2, 4, 6, 1, 3, 5, 7);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)b, 0, 2);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)c, (chighway_ops_x86_i64)d, 0, 2);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)b, 1, 3);
+  const chighway_ops_x86_i64 vD = __builtin_shufflevector((chighway_ops_x86_i64)c, (chighway_ops_x86_i64)d, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 2, &vB, sizeof vB);
+  __builtin_memcpy(to + 4, &vC, sizeof vC);
+  __builtin_memcpy(to + 6, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_widening_i8_to_i64(const int8_t* from) {
+#if CHIGHWAY_OPS_X86 >= 3
   typedef int8_t narrow_vector __attribute__((vector_size(2)));
   narrow_vector v;
   __builtin_memcpy(&v, from, sizeof v);
   return __builtin_convertvector(v, chighway_ops_vector_i64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i8 loaded;
+  __builtin_memcpy(&loaded, from, 2);
+  const chighway_ops_x86_i8 pairs = __builtin_shufflevector(
+    (chighway_ops_x86_i8)loaded, (chighway_ops_x86_i8)loaded, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i16 quads = __builtin_shufflevector((chighway_ops_x86_i16)pairs, (chighway_ops_x86_i16)pairs, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i32 lanes = (chighway_ops_x86_i32)quads >> 24;
+  const chighway_ops_x86_i16 signs = __builtin_shufflevector(
+    (chighway_ops_x86_i16)lanes, (chighway_ops_x86_i16)lanes, 1, 1, 3, 3, 4, 5, 6, 7);
+  return (chighway_ops_vector_i64)__builtin_shufflevector(lanes, (chighway_ops_x86_i32)signs, 0, 4, 1, 5);
+#else
+  typedef int8_t narrow_vector __attribute__((vector_size(2)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_widening_i16_to_i64(const int16_t* from) {
+#if CHIGHWAY_OPS_X86 >= 3
   typedef int16_t narrow_vector __attribute__((vector_size(4)));
   narrow_vector v;
   __builtin_memcpy(&v, from, sizeof v);
   return __builtin_convertvector(v, chighway_ops_vector_i64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i16 loaded;
+  __builtin_memcpy(&loaded, from, 4);
+  const chighway_ops_x86_i16 pairs = __builtin_shufflevector(
+    (chighway_ops_x86_i16)loaded, (chighway_ops_x86_i16)loaded, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i32 lanes = (chighway_ops_x86_i32)pairs >> 16;
+  const chighway_ops_x86_i16 signs = __builtin_shufflevector(
+    (chighway_ops_x86_i16)lanes, (chighway_ops_x86_i16)lanes, 1, 1, 3, 3, 4, 5, 6, 7);
+  return (chighway_ops_vector_i64)__builtin_shufflevector(lanes, (chighway_ops_x86_i32)signs, 0, 4, 1, 5);
+#else
+  typedef int16_t narrow_vector __attribute__((vector_size(4)));
+  narrow_vector v;
+  __builtin_memcpy(&v, from, sizeof v);
+  return __builtin_convertvector(v, chighway_ops_vector_i64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_widening_i32_to_i64(const int32_t* from) {
   typedef int32_t narrow_vector __attribute__((vector_size(8)));
@@ -2187,22 +4930,90 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_widening_i32_to_i6
   return __builtin_convertvector(v, chighway_ops_vector_i64);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_widening_i8_to_i64(const int8_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 2) {
+    uint16_t pair;
+    __builtin_memcpy(&pair, from + 0, sizeof pair);
+    v = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, 1);
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1), chighway_ops_vector_i64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t word_vector __attribute__((vector_size(16)));
+  chighway_ops_vector_i8 v = {0};
+  if (count >= 2) {
+    uint16_t pair;
+    __builtin_memcpy(&pair, from + 0, sizeof pair);
+    v = (chighway_ops_vector_i8)(word_vector){pair, 0, 0, 0};
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, 1);
+  }
+  const chighway_ops_x86_i8 pairs = __builtin_shufflevector(
+    (chighway_ops_x86_i8)v, (chighway_ops_x86_i8)v, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const chighway_ops_x86_i16 quads = __builtin_shufflevector((chighway_ops_x86_i16)pairs, (chighway_ops_x86_i16)pairs, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i32 lanes = (chighway_ops_x86_i32)quads >> 24;
+  const chighway_ops_x86_i16 signs = __builtin_shufflevector(
+    (chighway_ops_x86_i16)lanes, (chighway_ops_x86_i16)lanes, 1, 1, 3, 3, 4, 5, 6, 7);
+  return (chighway_ops_vector_i64)__builtin_shufflevector(lanes, (chighway_ops_x86_i32)signs, 0, 4, 1, 5);
+#else
   typedef int8_t narrow_vector __attribute__((vector_size(2)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int8_t));
   return __builtin_convertvector(v, chighway_ops_vector_i64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_widening_i16_to_i64(const int16_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 3
+  chighway_ops_vector_i16 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(int16_t));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(int16_t));
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1), chighway_ops_vector_i64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i16 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(int16_t));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(int16_t));
+  }
+  const chighway_ops_x86_i16 pairs = __builtin_shufflevector(
+    (chighway_ops_x86_i16)v, (chighway_ops_x86_i16)v, 0, 8, 1, 9, 2, 10, 3, 11);
+  const chighway_ops_x86_i32 lanes = (chighway_ops_x86_i32)pairs >> 16;
+  const chighway_ops_x86_i16 signs = __builtin_shufflevector(
+    (chighway_ops_x86_i16)lanes, (chighway_ops_x86_i16)lanes, 1, 1, 3, 3, 4, 5, 6, 7);
+  return (chighway_ops_vector_i64)__builtin_shufflevector(lanes, (chighway_ops_x86_i32)signs, 0, 4, 1, 5);
+#else
   typedef int16_t narrow_vector __attribute__((vector_size(4)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int16_t));
   return __builtin_convertvector(v, chighway_ops_vector_i64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_load_first_widening_i32_to_i64(const int32_t* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i32 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(int32_t));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(int32_t));
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1), chighway_ops_vector_i64);
+#else
   typedef int32_t narrow_vector __attribute__((vector_size(8)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(int32_t));
   return __builtin_convertvector(v, chighway_ops_vector_i64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_repeating_block_i64(int64_t v0, int64_t v1) {
   return (chighway_ops_vector_i64){v0, v1};
@@ -2233,9 +5044,25 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_load_aligned_f32(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_load_first_f32(const float* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_f32 v = {0};
+  if (count >= 4) {
+    __builtin_memcpy(&v, from, 4 * sizeof(float));
+  } else if (count == 0) {
+  } else if (count == 1) {
+    __builtin_memcpy(&v, from, sizeof(float));
+  } else {
+    __builtin_memcpy(&v, from, 2 * sizeof(float));
+    if (count != 2) {
+      v[2] = from[2];
+    }
+  }
+  return v;
+#else
   chighway_ops_vector_f32 v = {0};
   __builtin_memcpy(&v, from, (count < 4 ? count : 4) * sizeof(float));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_f32(chighway_ops_vector_f32 a, float* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -2244,7 +5071,34 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_f32(chighway_ops_vector_f32 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_f32(chighway_ops_vector_f32 a, float* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count > 1) {
+    if (count >= 4) {
+      __builtin_memcpy(to + 0, &a, sizeof a);
+    } else {
+      {
+        typedef uint64_t chunk_vector __attribute__((vector_size(16)));
+        const uint64_t chunk = ((chunk_vector)a)[0];
+        __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+      }
+      if (count == 3) {
+        {
+          typedef float chunk_vector __attribute__((vector_size(16)));
+          const float chunk = ((chunk_vector)a)[2];
+          __builtin_memcpy(to + 2, &chunk, sizeof chunk);
+        }
+      }
+    }
+  } else if (count == 1) {
+    {
+      typedef float chunk_vector __attribute__((vector_size(16)));
+      const float chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 4 ? count : 4) * sizeof(float));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_adding_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
   return a + b;
@@ -2256,9 +5110,7 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_multiplying_f32(chighwa
   return a * b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_dividing_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
-#if CHIGHWAY_OPS_NEON
-  return a / b;
-#elif CHIGHWAY_OPS_X86 >= 1
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
   return a / b;
 #else
   return (chighway_ops_vector_f32)((chighway_ops_vector_u32)(b != (chighway_ops_vector_f32){0}) & (chighway_ops_vector_u32)(a / b));
@@ -2314,7 +5166,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_greater_than_f32(chighway
   return (chighway_ops_mask_f32)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_selecting_f32(chighway_ops_mask_f32 mask, chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_f32)__builtin_ia32_blendvps((chighway_ops_x86_f32)b, (chighway_ops_x86_f32)a, (chighway_ops_x86_f32)mask);
+#else
   return (chighway_ops_vector_f32)(((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_selecting_or_zero_f32(chighway_ops_mask_f32 mask, chighway_ops_vector_f32 a) {
   return (chighway_ops_vector_f32)((chighway_ops_vector_u32)mask & (chighway_ops_vector_u32)a);
@@ -2327,21 +5183,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_first_lanes_f32(size_t co
   return (chighway_ops_mask_f32)((chighway_ops_vector_u32){0, 1, 2, 3} < (chighway_ops_vector_u32){n, n, n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_f32(chighway_ops_mask_f32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask) == 0xf;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_f32(chighway_ops_mask_f32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_f32(chighway_ops_mask_f32 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_f32(chighway_ops_mask_f32 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 16);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_movmskps((chighway_ops_x86_f32)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 4; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE float chighway_ops_sum_f32(chighway_ops_vector_f32 a) {
 #if CHIGHWAY_OPS_NEON
@@ -2402,14 +5295,38 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_reversed_f32(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_slide_up_lanes_f32(chighway_ops_vector_f32 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(float));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_f32)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(float));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_f32)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 3, 4, 5, 6);
+      case 2: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 2, 3, 4, 5);
+      case 3: return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 1, 2, 3, 4);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -2428,9 +5345,23 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_slide_up_lanes_f32(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_slide1_up_f32(chighway_ops_vector_f32 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_f32){0}, a, 3, 4, 5, 6);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const chighway_ops_vector_f32 cleared = __builtin_shufflevector(a, (chighway_ops_vector_f32){0}, 0, 1, 2, 7);
+  return __builtin_shufflevector(cleared, cleared, 3, 0, 1, 2);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_f32){0}, 4, 0, 1, 2);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_f32(const float* from, chighway_ops_vector_f32* v0, chighway_ops_vector_f32* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 0, 2, 4, 6);
+  *v1 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 1, 3, 5, 7);
+#else
   chighway_ops_vector_f32 r0, r1;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[2 * i];
@@ -2438,8 +5369,32 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_f32(const float* from, c
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_f32(const float* from, chighway_ops_vector_f32* v0, chighway_ops_vector_f32* v1, chighway_ops_vector_f32* v2) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 0, 3, 6, 9);
+  *v1 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 1, 4, 7, 10);
+  *v2 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 2, 5, 8, 11);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i32 vA, vB, vC;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 4, sizeof vB);
+  __builtin_memcpy(&vC, from + 8, sizeof vC);
+  const chighway_ops_x86_f32 vxx0203xx = __builtin_shufflevector((chighway_ops_x86_f32)vB, (chighway_ops_x86_f32)vC, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r0 = __builtin_shufflevector((chighway_ops_x86_f32)vA, (chighway_ops_x86_f32)vxx0203xx, 0, 3, 6, 5);
+  *v0 = (chighway_ops_vector_f32)r0;
+  const chighway_ops_x86_f32 vxxxx1011 = __builtin_shufflevector((chighway_ops_x86_f32)vB, (chighway_ops_x86_f32)vA, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 v1213xxxx = __builtin_shufflevector((chighway_ops_x86_f32)vC, (chighway_ops_x86_f32)vB, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r1 = __builtin_shufflevector((chighway_ops_x86_f32)vxxxx1011, (chighway_ops_x86_f32)v1213xxxx, 1, 0, 7, 6);
+  *v1 = (chighway_ops_vector_f32)r1;
+  const chighway_ops_x86_f32 vxx2021xx = __builtin_shufflevector((chighway_ops_x86_f32)vA, (chighway_ops_x86_f32)vB, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 r2 = __builtin_shufflevector((chighway_ops_x86_f32)vxx2021xx, (chighway_ops_x86_f32)vC, 2, 1, 4, 7);
+  *v2 = (chighway_ops_vector_f32)r2;
+#else
   chighway_ops_vector_f32 r0, r1, r2;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[3 * i];
@@ -2449,8 +5404,36 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_f32(const float* from, c
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_f32(const float* from, chighway_ops_vector_f32* v0, chighway_ops_vector_f32* v1, chighway_ops_vector_f32* v2, chighway_ops_vector_f32* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 0, 4, 8, 12);
+  *v1 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 1, 5, 9, 13);
+  *v2 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 2, 6, 10, 14);
+  *v3 = (chighway_ops_vector_f32)__builtin_shufflevector(all, all, 3, 7, 11, 15);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i32 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 4, sizeof vB);
+  __builtin_memcpy(&vC, from + 8, sizeof vC);
+  __builtin_memcpy(&vD, from + 12, sizeof vD);
+  const chighway_ops_x86_f32 v10e = __builtin_shufflevector((chighway_ops_x86_f32)vA, (chighway_ops_x86_f32)vC, 0, 4, 1, 5);
+  const chighway_ops_x86_f32 v10o = __builtin_shufflevector((chighway_ops_x86_f32)vB, (chighway_ops_x86_f32)vD, 0, 4, 1, 5);
+  const chighway_ops_x86_f32 v32e = __builtin_shufflevector((chighway_ops_x86_f32)vA, (chighway_ops_x86_f32)vC, 2, 6, 3, 7);
+  const chighway_ops_x86_f32 v32o = __builtin_shufflevector((chighway_ops_x86_f32)vB, (chighway_ops_x86_f32)vD, 2, 6, 3, 7);
+  const chighway_ops_x86_f32 r0 = __builtin_shufflevector((chighway_ops_x86_f32)v10e, (chighway_ops_x86_f32)v10o, 0, 4, 1, 5);
+  *v0 = (chighway_ops_vector_f32)r0;
+  const chighway_ops_x86_f32 r1 = __builtin_shufflevector((chighway_ops_x86_f32)v10e, (chighway_ops_x86_f32)v10o, 2, 6, 3, 7);
+  *v1 = (chighway_ops_vector_f32)r1;
+  const chighway_ops_x86_f32 r2 = __builtin_shufflevector((chighway_ops_x86_f32)v32e, (chighway_ops_x86_f32)v32o, 0, 4, 1, 5);
+  *v2 = (chighway_ops_vector_f32)r2;
+  const chighway_ops_x86_f32 r3 = __builtin_shufflevector((chighway_ops_x86_f32)v32e, (chighway_ops_x86_f32)v32o, 2, 6, 3, 7);
+  *v3 = (chighway_ops_vector_f32)r3;
+#else
   chighway_ops_vector_f32 r0, r1, r2, r3;
   for (size_t i = 0; i < 4; ++i) {
     r0[i] = from[4 * i];
@@ -2462,27 +5445,78 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_f32(const float* from, c
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, float* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint32_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector((chighway_ops_vector_u32)a, (chighway_ops_vector_u32)b, 0, 4, 1, 5, 2, 6, 3, 7);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, chighway_ops_vector_f32 c, float* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t pair_vector __attribute__((vector_size(32)));
+  typedef uint32_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u32)a, (chighway_ops_vector_u32)b, 0, 1, 2, 3, 4, 5, 6, 7);
+  const pair_vector cc = __builtin_shufflevector((chighway_ops_vector_u32)c, (chighway_ops_vector_u32)c, 0, 1, 2, 3, -1, -1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11);
+  __builtin_memcpy(to, &all, 48);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_f32 v10v00 = __builtin_shufflevector((chighway_ops_x86_f32)a, (chighway_ops_x86_f32)b, 0, 4, 1, 5);
+  const chighway_ops_x86_f32 v01v20 = __builtin_shufflevector((chighway_ops_x86_f32)c, (chighway_ops_x86_f32)a, 0, 5, 2, 7);
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)v10v00, (chighway_ops_x86_i64)v01v20, 0, 2);
+  const chighway_ops_x86_f32 v1x321 = __builtin_shufflevector((chighway_ops_x86_f32)b, (chighway_ops_x86_f32)(chighway_ops_x86_i32){0}, 1, 2, 3, 4);
+  const chighway_ops_x86_f32 v0x32 = __builtin_shufflevector((chighway_ops_x86_f32)a, (chighway_ops_x86_f32)(chighway_ops_x86_i32){0}, 2, 3, 4, 5);
+  const chighway_ops_x86_f32 v21v11 = __builtin_shufflevector((chighway_ops_x86_f32)v1x321, (chighway_ops_x86_f32)c, 0, 5, 2, 7);
+  const chighway_ops_x86_f32 v12v02 = __builtin_shufflevector((chighway_ops_x86_f32)v0x32, (chighway_ops_x86_f32)v1x321, 0, 5, 2, 7);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)v21v11, (chighway_ops_x86_i64)v12v02, 0, 2);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)v01v20, (chighway_ops_x86_i64)v21v11, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 4, &vB, sizeof vB);
+  __builtin_memcpy(to + 8, &vC, sizeof vC);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, chighway_ops_vector_f32 c, chighway_ops_vector_f32 d, float* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint32_t pair_vector __attribute__((vector_size(32)));
+  typedef uint32_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u32)a, (chighway_ops_vector_u32)b, 0, 1, 2, 3, 4, 5, 6, 7);
+  const pair_vector cd = __builtin_shufflevector((chighway_ops_vector_u32)c, (chighway_ops_vector_u32)d, 0, 1, 2, 3, 4, 5, 6, 7);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_f32 v10L = __builtin_shufflevector((chighway_ops_x86_f32)a, (chighway_ops_x86_f32)b, 0, 4, 1, 5);
+  const chighway_ops_x86_f32 v32L = __builtin_shufflevector((chighway_ops_x86_f32)c, (chighway_ops_x86_f32)d, 0, 4, 1, 5);
+  const chighway_ops_x86_f32 v10U = __builtin_shufflevector((chighway_ops_x86_f32)a, (chighway_ops_x86_f32)b, 2, 6, 3, 7);
+  const chighway_ops_x86_f32 v32U = __builtin_shufflevector((chighway_ops_x86_f32)c, (chighway_ops_x86_f32)d, 2, 6, 3, 7);
+  const chighway_ops_x86_i64 vA = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v32L, 0, 2);
+  const chighway_ops_x86_i64 vB = __builtin_shufflevector((chighway_ops_x86_i64)v10L, (chighway_ops_x86_i64)v32L, 1, 3);
+  const chighway_ops_x86_i64 vC = __builtin_shufflevector((chighway_ops_x86_i64)v10U, (chighway_ops_x86_i64)v32U, 0, 2);
+  const chighway_ops_x86_i64 vD = __builtin_shufflevector((chighway_ops_x86_i64)v10U, (chighway_ops_x86_i64)v32U, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 4, &vB, sizeof vB);
+  __builtin_memcpy(to + 8, &vC, sizeof vC);
+  __builtin_memcpy(to + 12, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 4; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_repeating_block_f32(float v0, float v1, float v2, float v3) {
   return (chighway_ops_vector_f32){v0, v1, v2, v3};
@@ -2513,9 +5547,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_aligned_f64(const 
   return v;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_first_f64(const double* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_f64 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(double));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(double));
+  }
+  return v;
+#else
   chighway_ops_vector_f64 v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(double));
   return v;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_f64(chighway_ops_vector_f64 a, double* to) {
   __builtin_memcpy(to, &a, sizeof a);
@@ -2524,7 +5569,19 @@ CHIGHWAY_OPS_INLINE void chighway_ops_store_aligned_f64(chighway_ops_vector_f64 
   __builtin_memcpy(__builtin_assume_aligned(to, 16), &a, sizeof a);
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_first_f64(chighway_ops_vector_f64 a, double* to, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  if (count > 1) {
+    __builtin_memcpy(to + 0, &a, sizeof a);
+  } else if (count == 1) {
+    {
+      typedef double chunk_vector __attribute__((vector_size(16)));
+      const double chunk = ((chunk_vector)a)[0];
+      __builtin_memcpy(to + 0, &chunk, sizeof chunk);
+    }
+  }
+#else
   __builtin_memcpy(to, &a, (count < 2 ? count : 2) * sizeof(double));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_adding_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
   return a + b;
@@ -2536,9 +5593,7 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_multiplying_f64(chighwa
   return a * b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_dividing_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
-#if CHIGHWAY_OPS_NEON
-  return a / b;
-#elif CHIGHWAY_OPS_X86 >= 1
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
   return a / b;
 #else
   return (chighway_ops_vector_f64)((chighway_ops_vector_u64)(b != (chighway_ops_vector_f64){0}) & (chighway_ops_vector_u64)(a / b));
@@ -2594,7 +5649,11 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_greater_than_f64(chighway
   return (chighway_ops_mask_f64)(a > b);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_selecting_f64(chighway_ops_mask_f64 mask, chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+#if CHIGHWAY_OPS_X86 >= 3
+  return (chighway_ops_vector_f64)__builtin_ia32_blendvpd((chighway_ops_x86_f64)b, (chighway_ops_x86_f64)a, (chighway_ops_x86_f64)mask);
+#else
   return (chighway_ops_vector_f64)(((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_selecting_or_zero_f64(chighway_ops_mask_f64 mask, chighway_ops_vector_f64 a) {
   return (chighway_ops_vector_f64)((chighway_ops_vector_u64)mask & (chighway_ops_vector_u64)a);
@@ -2607,21 +5666,58 @@ CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_first_lanes_f64(size_t co
   return (chighway_ops_mask_f64)((chighway_ops_vector_u64){0, 1} < (chighway_ops_vector_u64){n, n});
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_true_f64(chighway_ops_mask_f64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == ~0ull;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask) == 0x3;
+#else
   return __builtin_reduce_and(mask) != 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE bool chighway_ops_all_false_f64(chighway_ops_mask_f64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask) == 0;
+#else
   return __builtin_reduce_or(mask) == 0;
+#endif
 }
 CHIGHWAY_OPS_INLINE size_t chighway_ops_true_count_f64(chighway_ops_mask_f64 mask) {
+#if CHIGHWAY_OPS_NEON
+  return (size_t)__builtin_reduce_add(-mask);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask));
+#else
   return (size_t)-__builtin_reduce_add(mask);
+#endif
 }
 CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_f64(chighway_ops_mask_f64 mask) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint16_t wide_vector __attribute__((vector_size(16)));
+  typedef uint8_t narrow_vector __attribute__((vector_size(8)));
+  const narrow_vector narrowed = __builtin_convertvector((wide_vector)mask >> 4, narrow_vector);
+  const uint64_t nibbles = __builtin_bit_cast(uint64_t, narrowed);
+  return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 32);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const unsigned bits = (unsigned)(int)__builtin_ia32_movmskpd((chighway_ops_x86_f64)mask);
+  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+#else
   for (size_t i = 0; i < 2; ++i) {
     if (mask[i]) {
       return (intptr_t)i;
     }
   }
   return -1;
+#endif
 }
 CHIGHWAY_OPS_INLINE double chighway_ops_sum_f64(chighway_ops_vector_f64 a) {
 #if CHIGHWAY_OPS_NEON
@@ -2676,14 +5772,32 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_reversed_f64(chighway_o
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_slide_up_lanes_f64(chighway_ops_vector_f64 a, size_t lanes) {
 #if CHIGHWAY_OPS_NEON
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_f64){0}, a, 1, 2);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(double));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_f64)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
 #elif CHIGHWAY_OPS_X86 >= 2
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_f64){0}, a, 1, 2);
+    }
+  }
   const uint8_t first = (uint8_t)(0 - lanes * sizeof(double));
   const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   return (chighway_ops_vector_f64)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
 #elif CHIGHWAY_OPS_X86 >= 1
+  if (__builtin_constant_p(lanes)) {
+    switch (lanes) {
+      case 0: return a;
+      case 1: return __builtin_shufflevector((chighway_ops_vector_f64){0}, a, 1, 2);
+    }
+  }
   const chighway_ops_x86_i64 zero = {0, 0};
   const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
   const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
@@ -2702,9 +5816,20 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_slide_up_lanes_f64(chig
 #endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_slide1_up_f64(chighway_ops_vector_f64 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_shufflevector((chighway_ops_vector_f64){0}, a, 1, 2);
+#else
   return __builtin_shufflevector(a, (chighway_ops_vector_f64){0}, 2, 0);
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_f64(const double* from, chighway_ops_vector_f64* v0, chighway_ops_vector_f64* v1) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(32)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 32);
+  *v0 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 0, 2);
+  *v1 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 1, 3);
+#else
   chighway_ops_vector_f64 r0, r1;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[2 * i];
@@ -2712,8 +5837,17 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_f64(const double* from, 
   }
   *v0 = r0;
   *v1 = r1;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_f64(const double* from, chighway_ops_vector_f64* v0, chighway_ops_vector_f64* v1, chighway_ops_vector_f64* v2) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(48)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 48);
+  *v0 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 0, 3);
+  *v1 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 1, 4);
+  *v2 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 2, 5);
+#else
   chighway_ops_vector_f64 r0, r1, r2;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[3 * i];
@@ -2723,8 +5857,32 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved3_f64(const double* from, 
   *v0 = r0;
   *v1 = r1;
   *v2 = r2;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_f64(const double* from, chighway_ops_vector_f64* v0, chighway_ops_vector_f64* v1, chighway_ops_vector_f64* v2, chighway_ops_vector_f64* v3) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint64_t wide_vector __attribute__((vector_size(64)));
+  wide_vector all;
+  __builtin_memcpy(&all, from, 64);
+  *v0 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 0, 4);
+  *v1 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 1, 5);
+  *v2 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 2, 6);
+  *v3 = (chighway_ops_vector_f64)__builtin_shufflevector(all, all, 3, 7);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_x86_i64 vA, vB, vC, vD;
+  __builtin_memcpy(&vA, from + 0, sizeof vA);
+  __builtin_memcpy(&vB, from + 2, sizeof vB);
+  __builtin_memcpy(&vC, from + 4, sizeof vC);
+  __builtin_memcpy(&vD, from + 6, sizeof vD);
+  const chighway_ops_x86_f64 r0 = __builtin_shufflevector((chighway_ops_x86_f64)vA, (chighway_ops_x86_f64)vC, 0, 2);
+  *v0 = (chighway_ops_vector_f64)r0;
+  const chighway_ops_x86_f64 r1 = __builtin_shufflevector((chighway_ops_x86_f64)vA, (chighway_ops_x86_f64)vC, 1, 3);
+  *v1 = (chighway_ops_vector_f64)r1;
+  const chighway_ops_x86_f64 r2 = __builtin_shufflevector((chighway_ops_x86_f64)vB, (chighway_ops_x86_f64)vD, 0, 2);
+  *v2 = (chighway_ops_vector_f64)r2;
+  const chighway_ops_x86_f64 r3 = __builtin_shufflevector((chighway_ops_x86_f64)vB, (chighway_ops_x86_f64)vD, 1, 3);
+  *v3 = (chighway_ops_vector_f64)r3;
+#else
   chighway_ops_vector_f64 r0, r1, r2, r3;
   for (size_t i = 0; i < 2; ++i) {
     r0[i] = from[4 * i];
@@ -2736,27 +5894,61 @@ CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved4_f64(const double* from, 
   *v1 = r1;
   *v2 = r2;
   *v3 = r3;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved2_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, double* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t wide_vector __attribute__((vector_size(32)));
+  const wide_vector all = __builtin_shufflevector((chighway_ops_vector_u64)a, (chighway_ops_vector_u64)b, 0, 2, 1, 3);
+  __builtin_memcpy(to, &all, 32);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[2 * i] = a[i];
     to[2 * i + 1] = b[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved3_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, chighway_ops_vector_f64 c, double* to) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  typedef uint64_t pair_vector __attribute__((vector_size(32)));
+  typedef uint64_t wide_vector __attribute__((vector_size(48)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u64)a, (chighway_ops_vector_u64)b, 0, 1, 2, 3);
+  const pair_vector cc = __builtin_shufflevector((chighway_ops_vector_u64)c, (chighway_ops_vector_u64)c, 0, 1, -1, -1);
+  const wide_vector all = __builtin_shufflevector(ab, cc, 0, 2, 4, 1, 3, 5);
+  __builtin_memcpy(to, &all, 48);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[3 * i] = a[i];
     to[3 * i + 1] = b[i];
     to[3 * i + 2] = c[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_store_interleaved4_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, chighway_ops_vector_f64 c, chighway_ops_vector_f64 d, double* to) {
+#if CHIGHWAY_OPS_NEON
+  typedef uint64_t pair_vector __attribute__((vector_size(32)));
+  typedef uint64_t wide_vector __attribute__((vector_size(64)));
+  const pair_vector ab = __builtin_shufflevector((chighway_ops_vector_u64)a, (chighway_ops_vector_u64)b, 0, 1, 2, 3);
+  const pair_vector cd = __builtin_shufflevector((chighway_ops_vector_u64)c, (chighway_ops_vector_u64)d, 0, 1, 2, 3);
+  const wide_vector all = __builtin_shufflevector(ab, cd, 0, 2, 4, 6, 1, 3, 5, 7);
+  __builtin_memcpy(to, &all, 64);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_f64 vA = __builtin_shufflevector((chighway_ops_x86_f64)a, (chighway_ops_x86_f64)b, 0, 2);
+  const chighway_ops_x86_f64 vB = __builtin_shufflevector((chighway_ops_x86_f64)c, (chighway_ops_x86_f64)d, 0, 2);
+  const chighway_ops_x86_f64 vC = __builtin_shufflevector((chighway_ops_x86_f64)a, (chighway_ops_x86_f64)b, 1, 3);
+  const chighway_ops_x86_f64 vD = __builtin_shufflevector((chighway_ops_x86_f64)c, (chighway_ops_x86_f64)d, 1, 3);
+  __builtin_memcpy(to + 0, &vA, sizeof vA);
+  __builtin_memcpy(to + 2, &vB, sizeof vB);
+  __builtin_memcpy(to + 4, &vC, sizeof vC);
+  __builtin_memcpy(to + 6, &vD, sizeof vD);
+#else
   for (size_t i = 0; i < 2; ++i) {
     to[4 * i] = a[i];
     to[4 * i + 1] = b[i];
     to[4 * i + 2] = c[i];
     to[4 * i + 3] = d[i];
   }
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_widening_f32_to_f64(const float* from) {
   typedef float narrow_vector __attribute__((vector_size(8)));
@@ -2765,10 +5957,21 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_widening_f32_to_f6
   return __builtin_convertvector(v, chighway_ops_vector_f64);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_first_widening_f32_to_f64(const float* from, size_t count) {
+#if CHIGHWAY_OPS_NEON || CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_f32 v = {0};
+  if (count >= 2) {
+    __builtin_memcpy(&v, from, 2 * sizeof(float));
+  } else if (count == 0) {
+  } else {
+    __builtin_memcpy(&v, from, sizeof(float));
+  }
+  return __builtin_convertvector(__builtin_shufflevector(v, v, 0, 1), chighway_ops_vector_f64);
+#else
   typedef float narrow_vector __attribute__((vector_size(8)));
   narrow_vector v = {0};
   __builtin_memcpy(&v, from, (count < 2 ? count : 2) * sizeof(float));
   return __builtin_convertvector(v, chighway_ops_vector_f64);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_repeating_block_f64(double v0, double v1) {
   return (chighway_ops_vector_f64){v0, v1};

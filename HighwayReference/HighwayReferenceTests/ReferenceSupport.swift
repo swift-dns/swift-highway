@@ -1,5 +1,11 @@
 import Testing
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 struct SplitMix64: RandomNumberGenerator {
     private var state: UInt64
 
@@ -239,6 +245,29 @@ func withAlignedLanes<Lane: ReferenceLane, Result>(
     let raw = UnsafeMutableRawPointer.allocate(byteCount: byteCount, alignment: 16)
     defer { unsafe raw.deallocate() }
     let pointer = unsafe raw.initializeMemory(as: Lane.self, from: lanes, count: lanes.count)
+    let result = unsafe body(pointer)
+    return (result, unsafe Array(UnsafeBufferPointer(start: pointer, count: lanes.count)))
+}
+
+func withGuardedLanes<Lane: ReferenceLane, Result>(
+    _ lanes: [Lane],
+    _ body: (UnsafeMutablePointer<Lane>) -> Result
+) -> (result: Result, lanes: [Lane]) {
+    let pageSize = Int(getpagesize())
+    let byteCount = lanes.count * MemoryLayout<Lane>.stride
+    precondition(byteCount <= pageSize, "\(byteCount) bytes do not fit before a guard page")
+    let protection = PROT_READ | PROT_WRITE
+    let flags = MAP_PRIVATE | MAP_ANONYMOUS
+    guard let pages = unsafe mmap(nil, 2 * pageSize, protection, flags, -1, 0),
+        unsafe pages != UnsafeMutableRawPointer(bitPattern: -1)
+    else {
+        fatalError("Failed to map the pages around a guard page")
+    }
+    defer { unsafe munmap(pages, 2 * pageSize) }
+    let guardPage = unsafe pages + pageSize
+    precondition(unsafe mprotect(guardPage, pageSize, PROT_NONE) == 0, "Failed to protect a page")
+    let pointer = unsafe (guardPage - byteCount).bindMemory(to: Lane.self, capacity: lanes.count)
+    unsafe pointer.initialize(from: lanes, count: lanes.count)
     let result = unsafe body(pointer)
     return (result, unsafe Array(UnsafeBufferPointer(start: pointer, count: lanes.count)))
 }

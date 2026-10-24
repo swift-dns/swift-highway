@@ -1,0 +1,56 @@
+name: reference-tests
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request: { types: [opened, reopened, synchronize] }
+  push: { branches: [main] }
+  schedule:
+    - cron: "0 6 * * 6"
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -Eeuo pipefail {0}
+
+jobs:
+  reference-tests:
+    name: reference-tests (${{ matrix.target.name }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: NEON
+            runner: ubuntu-24.04-arm
+            flags: ""
+          - name: SSE2
+            runner: ubuntu-latest
+            flags: ""
+          - name: SSSE3
+            runner: ubuntu-latest
+            flags: "-Xcc -mssse3"
+          - name: SSE4
+            runner: ubuntu-latest
+            flags: "-Xcc -march=x86-64-v2 -Xcc -maes -Xcc -mpclmul"
+          - name: EMU128
+            runner: ubuntu-latest
+            flags: "-Xcc -DCHIGHWAY_OPS_PORTABLE -Xcc -DHWY_COMPILE_ONLY_EMU128"
+
+    runs-on: ${{ matrix.target.runner }}
+
+    container: swift:6.4-resolute
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out ${{ github.event.repository.name }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Test the ops against highway
+        env:
+          FLAGS: ${{ matrix.target.flags }}
+        run: |
+          read -r -a flags <<< "${FLAGS}"
+          swift test --package-path HighwayReference "${flags[@]}"

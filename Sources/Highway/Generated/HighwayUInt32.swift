@@ -311,12 +311,12 @@ public enum HighwayUInt32: HighwayElement, HighwayIntegerElement, SendableMetaty
 
     @export(implementation) @inline(always)
     public static func shiftedLeft(_ a: Vector, by bits: Int) -> Vector {
-        chighway_ops_shifted_left_u32(a, Int32(bits))
+        chighway_ops_shifted_left_u32(a, Int32(truncatingIfNeeded: bits))
     }
 
     @export(implementation) @inline(always)
     public static func shiftedRight(_ a: Vector, by bits: Int) -> Vector {
-        chighway_ops_shifted_right_u32(a, Int32(bits))
+        chighway_ops_shifted_right_u32(a, Int32(truncatingIfNeeded: bits))
     }
 
     @export(implementation) @inline(always)

@@ -64,6 +64,12 @@ package.targets += [
         path: "HighwayReferenceTests",
         swiftSettings: settings + [.interoperabilityMode(.Cxx)]
     ),
+    .target(
+        name: "HighwayReferenceCodegen",
+        dependencies: ["CHighwayReference", "Highway"],
+        path: "HighwayReferenceCodegen",
+        swiftSettings: settings + [.interoperabilityMode(.Cxx)]
+    ),
 ]
 
 package.cxxLanguageStandard = .cxx17

@@ -316,12 +316,12 @@ public enum HighwayUInt8: HighwayElement, HighwayIntegerElement, SendableMetatyp
 
     @export(implementation) @inline(always)
     public static func shiftedLeft(_ a: Vector, by bits: Int) -> Vector {
-        chighway_ops_shifted_left_u8(a, Int32(bits))
+        chighway_ops_shifted_left_u8(a, Int32(truncatingIfNeeded: bits))
     }
 
     @export(implementation) @inline(always)
     public static func shiftedRight(_ a: Vector, by bits: Int) -> Vector {
-        chighway_ops_shifted_right_u8(a, Int32(bits))
+        chighway_ops_shifted_right_u8(a, Int32(truncatingIfNeeded: bits))
     }
 
     @export(implementation) @inline(always)

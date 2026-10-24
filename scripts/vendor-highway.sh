@@ -158,6 +158,17 @@ copy_license() {
   return 0
 }
 
+# The op reference, so that an update can list the ops upstream adds and removes.
+copy_quick_reference() {
+  local clone_dir="${1:?copy_quick_reference requires the clone directory}"
+
+  local quick_reference="${clone_dir}/g3doc/quick_reference.md"
+  if ! cp -- "${quick_reference}" "${vendor_root}/quick_reference.md"; then
+    fatal "Failed to copy '${quick_reference}' into '${vendor_root}'"
+  fi
+  return 0
+}
+
 # Patches are written against the upstream tree rather than this one, so that the very same file
 # can go upstream unchanged.
 apply_patches() {
@@ -315,6 +326,7 @@ main() {
   copy_headers "${clone_dir}"
   copy_sources "${clone_dir}" source_paths
   copy_license "${clone_dir}"
+  copy_quick_reference "${clone_dir}"
   apply_patches "${tag}"
   generate_module_map
 
