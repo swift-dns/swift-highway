@@ -33,6 +33,19 @@ extern "C" {
 #define CHIGHWAY_OPS_X86 0
 #endif
 
+#if CHIGHWAY_OPS_NEON
+typedef int8_t chighway_ops_neon_i8 __attribute__((neon_vector_type(16)));
+typedef float chighway_ops_neon_f32 __attribute__((neon_vector_type(4)));
+typedef double chighway_ops_neon_f64 __attribute__((neon_vector_type(2)));
+#endif
+
+#if CHIGHWAY_OPS_X86
+typedef char chighway_ops_x86_i8 __attribute__((vector_size(16)));
+typedef short chighway_ops_x86_i16 __attribute__((vector_size(16)));
+typedef int chighway_ops_x86_i32 __attribute__((vector_size(16)));
+typedef long long chighway_ops_x86_i64 __attribute__((vector_size(16)));
+#endif
+
 /// Whether the target only emulates vectors, in which case a caller is better off
 /// with its own scalar code.
 CHIGHWAY_OPS_INLINE bool chighway_ops_is_emulated(void) {
@@ -135,16 +148,32 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_bitwise_and_not_u8(chigh
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_shifted_left_u8(chighway_ops_vector_u8 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u8 count = (chighway_ops_vector_u8){(uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits};
+  return (chighway_ops_vector_u8)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 48);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const uint8_t mask = (uint8_t)(0xFFu << (bits & 31));
+  return (chighway_ops_vector_u8)__builtin_ia32_psllw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0}) & (chighway_ops_vector_u8){mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask};
+#else
   if (bits < 0 || bits >= 8) {
     return (chighway_ops_vector_u8){0};
   }
   return a << bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_shifted_right_u8(chighway_ops_vector_u8 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u8 count = (chighway_ops_vector_u8){(uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits};
+  return (chighway_ops_vector_u8)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 48);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const uint8_t mask = (uint8_t)(0xFF >> (bits & 31));
+  return (chighway_ops_vector_u8)__builtin_ia32_psrlw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0}) & (chighway_ops_vector_u8){mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask};
+#else
   if (bits < 0 || bits >= 8) {
     return (chighway_ops_vector_u8){0};
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_u8 chighway_ops_equal_to_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
   return (chighway_ops_mask_u8)(a == b);
@@ -195,22 +224,54 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_reversed_u8(chighway_ops
   return __builtin_shufflevector(a, a, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_slide_up_lanes_u8(chighway_ops_vector_u8 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint8_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u8)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint8_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 8);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 8) & 63);
+  return (chighway_ops_vector_u8)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_u8 result = {0};
   for (size_t i = lanes; i < 16; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_slide1_up_u8(chighway_ops_vector_u8 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_u8){0}, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u8 chighway_ops_table_lookup_bytes_u8(chighway_ops_vector_u8 a, chighway_ops_vector_u8 b) {
+#if CHIGHWAY_OPS_NEON
+  return (chighway_ops_vector_u8)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)b, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  return (chighway_ops_vector_u8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_u8 result;
+  for (size_t i = 0; i < 16; ++i) {
+    result[i] = a[(uint8_t)b[i] & 15];
+  }
+  return result;
+#else
   chighway_ops_vector_u8 result;
   for (size_t i = 0; i < 16; ++i) {
     const uint8_t index = (uint8_t)b[i];
     result[i] = index < 16 ? a[index] : 0;
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_u8(const uint8_t* from, chighway_ops_vector_u8* v0, chighway_ops_vector_u8* v1) {
   chighway_ops_vector_u8 r0, r1;
@@ -348,16 +409,30 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_bitwise_and_not_u16(chi
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_shifted_left_u16(chighway_ops_vector_u16 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u16 count = (chighway_ops_vector_u16){(uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits};
+  return (chighway_ops_vector_u16)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 49);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_u16)__builtin_ia32_psllw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 16) {
     return (chighway_ops_vector_u16){0};
   }
   return a << bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_shifted_right_u16(chighway_ops_vector_u16 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u16 count = (chighway_ops_vector_u16){(uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits};
+  return (chighway_ops_vector_u16)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 49);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_u16)__builtin_ia32_psrlw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 16) {
     return (chighway_ops_vector_u16){0};
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_u16 chighway_ops_equal_to_u16(chighway_ops_vector_u16 a, chighway_ops_vector_u16 b) {
   return (chighway_ops_mask_u16)(a == b);
@@ -417,11 +492,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_reversed_u16(chighway_o
   return __builtin_shufflevector(a, a, 7, 6, 5, 4, 3, 2, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_slide_up_lanes_u16(chighway_ops_vector_u16 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint16_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u16)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint16_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u16)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 4);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 16) & 63);
+  return (chighway_ops_vector_u16)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_u16 result = {0};
   for (size_t i = lanes; i < 8; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u16 chighway_ops_slide1_up_u16(chighway_ops_vector_u16 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_u16){0}, 8, 0, 1, 2, 3, 4, 5, 6);
@@ -565,16 +660,30 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_bitwise_and_not_u32(chi
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_shifted_left_u32(chighway_ops_vector_u32 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u32 count = (chighway_ops_vector_u32){(uint32_t)bits, (uint32_t)bits, (uint32_t)bits, (uint32_t)bits};
+  return (chighway_ops_vector_u32)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 50);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_u32)__builtin_ia32_pslld128((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 32) {
     return (chighway_ops_vector_u32){0};
   }
   return a << bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_shifted_right_u32(chighway_ops_vector_u32 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u32 count = (chighway_ops_vector_u32){(uint32_t)bits, (uint32_t)bits, (uint32_t)bits, (uint32_t)bits};
+  return (chighway_ops_vector_u32)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 50);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_u32)__builtin_ia32_psrld128((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 32) {
     return (chighway_ops_vector_u32){0};
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_u32 chighway_ops_equal_to_u32(chighway_ops_vector_u32 a, chighway_ops_vector_u32 b) {
   return (chighway_ops_mask_u32)(a == b);
@@ -634,11 +743,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_reversed_u32(chighway_o
   return __builtin_shufflevector(a, a, 3, 2, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_slide_up_lanes_u32(chighway_ops_vector_u32 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint32_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u32)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint32_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u32)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 2);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 32) & 63);
+  return (chighway_ops_vector_u32)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_u32 result = {0};
   for (size_t i = lanes; i < 4; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u32 chighway_ops_slide1_up_u32(chighway_ops_vector_u32 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_u32){0}, 4, 0, 1, 2);
@@ -794,16 +923,30 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_bitwise_and_not_u64(chi
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_shifted_left_u64(chighway_ops_vector_u64 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u64 count = (chighway_ops_vector_u64){(uint64_t)bits, (uint64_t)bits};
+  return (chighway_ops_vector_u64)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 51);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_u64)__builtin_ia32_psllq128((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 64) {
     return (chighway_ops_vector_u64){0};
   }
   return a << bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_shifted_right_u64(chighway_ops_vector_u64 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u64 count = (chighway_ops_vector_u64){(uint64_t)bits, (uint64_t)bits};
+  return (chighway_ops_vector_u64)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 51);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_u64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 64) {
     return (chighway_ops_vector_u64){0};
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_u64 chighway_ops_equal_to_u64(chighway_ops_vector_u64 a, chighway_ops_vector_u64 b) {
   return (chighway_ops_mask_u64)(a == b);
@@ -863,11 +1006,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_reversed_u64(chighway_o
   return __builtin_shufflevector(a, a, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_slide_up_lanes_u64(chighway_ops_vector_u64 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint64_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u64)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(uint64_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_u64)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 1);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 64) & 63);
+  return (chighway_ops_vector_u64)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_u64 result = {0};
   for (size_t i = lanes; i < 2; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_u64 chighway_ops_slide1_up_u64(chighway_ops_vector_u64 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_u64){0}, 2, 0);
@@ -1044,16 +1207,35 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_bitwise_and_not_i8(chigh
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_shifted_left_i8(chighway_ops_vector_i8 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u8 count = (chighway_ops_vector_u8){(uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits};
+  return (chighway_ops_vector_i8)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 32);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const uint8_t mask = (uint8_t)(0xFFu << (bits & 31));
+  return (chighway_ops_vector_i8)((chighway_ops_vector_u8)__builtin_ia32_psllw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0}) & (chighway_ops_vector_u8){mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask});
+#else
   if (bits < 0 || bits >= 8) {
     return (chighway_ops_vector_i8){0};
   }
   return (chighway_ops_vector_i8)((chighway_ops_vector_u8)a << bits);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_shifted_right_i8(chighway_ops_vector_i8 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u8 count = (chighway_ops_vector_u8){(uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits, (uint8_t)bits};
+  return (chighway_ops_vector_i8)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 32);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const uint8_t mask = (uint8_t)(0xFF >> (bits & 31));
+  const uint8_t sign = (uint8_t)(0x80 >> (bits & 31));
+  const chighway_ops_vector_u8 shifted = (chighway_ops_vector_u8)__builtin_ia32_psrlw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0}) & (chighway_ops_vector_u8){mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask, mask};
+  const chighway_ops_vector_u8 signs = (chighway_ops_vector_u8){sign, sign, sign, sign, sign, sign, sign, sign, sign, sign, sign, sign, sign, sign, sign, sign};
+  return (chighway_ops_vector_i8)((shifted ^ signs) - signs);
+#else
   if (bits < 0 || bits >= 8) {
     bits = 7;
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_i8 chighway_ops_equal_to_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
   return (chighway_ops_mask_i8)(a == b);
@@ -1104,22 +1286,54 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_reversed_i8(chighway_ops
   return __builtin_shufflevector(a, a, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_slide_up_lanes_i8(chighway_ops_vector_i8 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int8_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i8)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int8_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 8);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 8) & 63);
+  return (chighway_ops_vector_i8)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_i8 result = {0};
   for (size_t i = lanes; i < 16; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_slide1_up_i8(chighway_ops_vector_i8 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_i8){0}, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i8 chighway_ops_table_lookup_bytes_i8(chighway_ops_vector_i8 a, chighway_ops_vector_i8 b) {
+#if CHIGHWAY_OPS_NEON
+  return (chighway_ops_vector_i8)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)b, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  return (chighway_ops_vector_i8)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)b);
+#elif CHIGHWAY_OPS_X86 >= 1
+  chighway_ops_vector_i8 result;
+  for (size_t i = 0; i < 16; ++i) {
+    result[i] = a[(uint8_t)b[i] & 15];
+  }
+  return result;
+#else
   chighway_ops_vector_i8 result;
   for (size_t i = 0; i < 16; ++i) {
     const uint8_t index = (uint8_t)b[i];
     result[i] = index < 16 ? a[index] : 0;
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE void chighway_ops_load_interleaved2_i8(const int8_t* from, chighway_ops_vector_i8* v0, chighway_ops_vector_i8* v1) {
   chighway_ops_vector_i8 r0, r1;
@@ -1260,16 +1474,30 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_bitwise_and_not_i16(chi
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_shifted_left_i16(chighway_ops_vector_i16 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u16 count = (chighway_ops_vector_u16){(uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits};
+  return (chighway_ops_vector_i16)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 33);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_i16)__builtin_ia32_psllw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 16) {
     return (chighway_ops_vector_i16){0};
   }
   return (chighway_ops_vector_i16)((chighway_ops_vector_u16)a << bits);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_shifted_right_i16(chighway_ops_vector_i16 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u16 count = (chighway_ops_vector_u16){(uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits, (uint16_t)bits};
+  return (chighway_ops_vector_i16)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 33);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_i16)__builtin_ia32_psraw128((chighway_ops_x86_i16)a, (chighway_ops_x86_i16)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 16) {
     bits = 15;
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_i16 chighway_ops_equal_to_i16(chighway_ops_vector_i16 a, chighway_ops_vector_i16 b) {
   return (chighway_ops_mask_i16)(a == b);
@@ -1329,11 +1557,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_reversed_i16(chighway_o
   return __builtin_shufflevector(a, a, 7, 6, 5, 4, 3, 2, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_slide_up_lanes_i16(chighway_ops_vector_i16 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int16_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i16)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int16_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i16)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 4);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 16) & 63);
+  return (chighway_ops_vector_i16)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_i16 result = {0};
   for (size_t i = lanes; i < 8; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i16 chighway_ops_slide1_up_i16(chighway_ops_vector_i16 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_i16){0}, 8, 0, 1, 2, 3, 4, 5, 6);
@@ -1483,16 +1731,30 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_bitwise_and_not_i32(chi
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_shifted_left_i32(chighway_ops_vector_i32 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u32 count = (chighway_ops_vector_u32){(uint32_t)bits, (uint32_t)bits, (uint32_t)bits, (uint32_t)bits};
+  return (chighway_ops_vector_i32)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 34);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_i32)__builtin_ia32_pslld128((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 32) {
     return (chighway_ops_vector_i32){0};
   }
   return (chighway_ops_vector_i32)((chighway_ops_vector_u32)a << bits);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_shifted_right_i32(chighway_ops_vector_i32 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u32 count = (chighway_ops_vector_u32){(uint32_t)bits, (uint32_t)bits, (uint32_t)bits, (uint32_t)bits};
+  return (chighway_ops_vector_i32)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 34);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_i32)__builtin_ia32_psrad128((chighway_ops_x86_i32)a, (chighway_ops_x86_i32)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 32) {
     bits = 31;
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_i32 chighway_ops_equal_to_i32(chighway_ops_vector_i32 a, chighway_ops_vector_i32 b) {
   return (chighway_ops_mask_i32)(a == b);
@@ -1552,11 +1814,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_reversed_i32(chighway_o
   return __builtin_shufflevector(a, a, 3, 2, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_slide_up_lanes_i32(chighway_ops_vector_i32 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int32_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i32)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int32_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i32)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 2);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 32) & 63);
+  return (chighway_ops_vector_i32)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_i32 result = {0};
   for (size_t i = lanes; i < 4; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i32 chighway_ops_slide1_up_i32(chighway_ops_vector_i32 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_i32){0}, 4, 0, 1, 2);
@@ -1718,16 +2000,32 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_bitwise_and_not_i64(chi
   return ~a & b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_shifted_left_i64(chighway_ops_vector_i64 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u64 count = (chighway_ops_vector_u64){(uint64_t)bits, (uint64_t)bits};
+  return (chighway_ops_vector_i64)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)count, 35);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return (chighway_ops_vector_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)(chighway_ops_x86_i32){bits, 0, 0, 0});
+#else
   if (bits < 0 || bits >= 64) {
     return (chighway_ops_vector_i64){0};
   }
   return (chighway_ops_vector_i64)((chighway_ops_vector_u64)a << bits);
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_shifted_right_i64(chighway_ops_vector_i64 a, int bits) {
+#if CHIGHWAY_OPS_NEON
+  const chighway_ops_vector_u64 count = (chighway_ops_vector_u64){(uint64_t)bits, (uint64_t)bits};
+  return (chighway_ops_vector_i64)__builtin_neon_vshlq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)(-count), 35);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_i64 right = (chighway_ops_vector_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)a, (chighway_ops_x86_i64)(chighway_ops_x86_i32){bits, 0, 0, 0});
+  const chighway_ops_vector_i64 sign = (chighway_ops_vector_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)(a < 0), (chighway_ops_x86_i64)(chighway_ops_x86_i32){(int)(64u - (unsigned)bits), 0, 0, 0});
+  return right | sign;
+#else
   if (bits < 0 || bits >= 64) {
     bits = 63;
   }
   return a >> bits;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_i64 chighway_ops_equal_to_i64(chighway_ops_vector_i64 a, chighway_ops_vector_i64 b) {
   return (chighway_ops_mask_i64)(a == b);
@@ -1787,11 +2085,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_reversed_i64(chighway_o
   return __builtin_shufflevector(a, a, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_slide_up_lanes_i64(chighway_ops_vector_i64 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int64_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i64)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(int64_t));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_i64)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 1);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 64) & 63);
+  return (chighway_ops_vector_i64)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_i64 result = {0};
   for (size_t i = lanes; i < 2; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_i64 chighway_ops_slide1_up_i64(chighway_ops_vector_i64 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_i64){0}, 2, 0);
@@ -1938,15 +2256,33 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_multiplying_f32(chighwa
   return a * b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_dividing_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+#if CHIGHWAY_OPS_NEON
   return a / b;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return a / b;
+#else
+  return (chighway_ops_vector_f32)((chighway_ops_vector_u32)(b != (chighway_ops_vector_f32){0}) & (chighway_ops_vector_u32)(a / b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_minimum_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+#if CHIGHWAY_OPS_NEON
+  return (chighway_ops_vector_f32)__builtin_neon_vminnmq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)b, 41);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return __builtin_ia32_minps(a, b);
+#else
   chighway_ops_mask_f32 take = (chighway_ops_mask_f32)(a < b) | ((chighway_ops_mask_f32)(b != b) & (chighway_ops_mask_f32)(a == a));
   return (chighway_ops_vector_f32)(((chighway_ops_vector_u32)take & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)take & (chighway_ops_vector_u32)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_maximum_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
+#if CHIGHWAY_OPS_NEON
+  return (chighway_ops_vector_f32)__builtin_neon_vmaxnmq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)b, 41);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return __builtin_ia32_maxps(a, b);
+#else
   chighway_ops_mask_f32 take = (chighway_ops_mask_f32)(a > b) | ((chighway_ops_mask_f32)(b != b) & (chighway_ops_mask_f32)(a == a));
   return (chighway_ops_vector_f32)(((chighway_ops_vector_u32)take & (chighway_ops_vector_u32)a) | (~(chighway_ops_vector_u32)take & (chighway_ops_vector_u32)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_negated_f32(chighway_ops_vector_f32 a) {
   return -a;
@@ -1958,8 +2294,12 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_square_root_f32(chighwa
   return __builtin_elementwise_sqrt(a);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_multiply_adding_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b, chighway_ops_vector_f32 c) {
-  #pragma clang fp contract(off)
+#if CHIGHWAY_OPS_NEON
+  return __builtin_elementwise_fma(a, b, c);
+#else
+#pragma clang fp contract(off)
   return a * b + c;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_f32 chighway_ops_equal_to_f32(chighway_ops_vector_f32 a, chighway_ops_vector_f32 b) {
   return (chighway_ops_mask_f32)(a == b);
@@ -2004,25 +2344,55 @@ CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_f32(chighway_ops_mask
   return -1;
 }
 CHIGHWAY_OPS_INLINE float chighway_ops_sum_f32(chighway_ops_vector_f32 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_neon_vaddvq_f32((chighway_ops_neon_f32)a);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_f32 reversed = __builtin_shufflevector(a, a, 3, 2, 1, 0);
+  const chighway_ops_vector_f32 pairs = a + reversed;
+  const chighway_ops_vector_f32 swapped = __builtin_shufflevector(pairs, pairs, 1, 0, 3, 2);
+  const chighway_ops_vector_f32 combined = pairs + swapped;
+  return combined[0];
+#else
   float sum = 0;
   for (size_t i = 0; i < 4; ++i) {
     sum += a[i];
   }
   return sum;
+#endif
 }
 CHIGHWAY_OPS_INLINE float chighway_ops_smallest_f32(chighway_ops_vector_f32 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_neon_vminvq_f32((chighway_ops_neon_f32)a);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_f32 reversed = __builtin_shufflevector(a, a, 3, 2, 1, 0);
+  const chighway_ops_vector_f32 pairs = __builtin_ia32_minps(a, reversed);
+  const chighway_ops_vector_f32 swapped = __builtin_shufflevector(pairs, pairs, 1, 0, 3, 2);
+  const chighway_ops_vector_f32 combined = __builtin_ia32_minps(pairs, swapped);
+  return combined[0];
+#else
   float result = __builtin_inff();
   for (size_t i = 0; i < 4; ++i) {
     result = result < a[i] ? result : a[i];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE float chighway_ops_largest_f32(chighway_ops_vector_f32 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_neon_vmaxvq_f32((chighway_ops_neon_f32)a);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_f32 reversed = __builtin_shufflevector(a, a, 3, 2, 1, 0);
+  const chighway_ops_vector_f32 pairs = __builtin_ia32_maxps(a, reversed);
+  const chighway_ops_vector_f32 swapped = __builtin_shufflevector(pairs, pairs, 1, 0, 3, 2);
+  const chighway_ops_vector_f32 combined = __builtin_ia32_maxps(pairs, swapped);
+  return combined[0];
+#else
   float result = -__builtin_inff();
   for (size_t i = 0; i < 4; ++i) {
     result = result > a[i] ? result : a[i];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE float chighway_ops_first_lane_f32(chighway_ops_vector_f32 a) {
   return a[0];
@@ -2031,11 +2401,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_reversed_f32(chighway_o
   return __builtin_shufflevector(a, a, 3, 2, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_slide_up_lanes_f32(chighway_ops_vector_f32 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(float));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_f32)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(float));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_f32)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 2);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 32) & 63);
+  return (chighway_ops_vector_f32)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_f32 result = {0};
   for (size_t i = lanes; i < 4; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f32 chighway_ops_slide1_up_f32(chighway_ops_vector_f32 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_f32){0}, 4, 0, 1, 2);
@@ -2146,15 +2536,33 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_multiplying_f64(chighwa
   return a * b;
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_dividing_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+#if CHIGHWAY_OPS_NEON
   return a / b;
+#elif CHIGHWAY_OPS_X86 >= 1
+  return a / b;
+#else
+  return (chighway_ops_vector_f64)((chighway_ops_vector_u64)(b != (chighway_ops_vector_f64){0}) & (chighway_ops_vector_u64)(a / b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_minimum_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+#if CHIGHWAY_OPS_NEON
+  return (chighway_ops_vector_f64)__builtin_neon_vminnmq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)b, 42);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return __builtin_ia32_minpd(a, b);
+#else
   chighway_ops_mask_f64 take = (chighway_ops_mask_f64)(a < b) | ((chighway_ops_mask_f64)(b != b) & (chighway_ops_mask_f64)(a == a));
   return (chighway_ops_vector_f64)(((chighway_ops_vector_u64)take & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)take & (chighway_ops_vector_u64)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_maximum_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
+#if CHIGHWAY_OPS_NEON
+  return (chighway_ops_vector_f64)__builtin_neon_vmaxnmq_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)b, 42);
+#elif CHIGHWAY_OPS_X86 >= 1
+  return __builtin_ia32_maxpd(a, b);
+#else
   chighway_ops_mask_f64 take = (chighway_ops_mask_f64)(a > b) | ((chighway_ops_mask_f64)(b != b) & (chighway_ops_mask_f64)(a == a));
   return (chighway_ops_vector_f64)(((chighway_ops_vector_u64)take & (chighway_ops_vector_u64)a) | (~(chighway_ops_vector_u64)take & (chighway_ops_vector_u64)b));
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_negated_f64(chighway_ops_vector_f64 a) {
   return -a;
@@ -2166,8 +2574,12 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_square_root_f64(chighwa
   return __builtin_elementwise_sqrt(a);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_multiply_adding_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b, chighway_ops_vector_f64 c) {
-  #pragma clang fp contract(off)
+#if CHIGHWAY_OPS_NEON
+  return __builtin_elementwise_fma(a, b, c);
+#else
+#pragma clang fp contract(off)
   return a * b + c;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_mask_f64 chighway_ops_equal_to_f64(chighway_ops_vector_f64 a, chighway_ops_vector_f64 b) {
   return (chighway_ops_mask_f64)(a == b);
@@ -2212,25 +2624,49 @@ CHIGHWAY_OPS_INLINE intptr_t chighway_ops_first_true_index_f64(chighway_ops_mask
   return -1;
 }
 CHIGHWAY_OPS_INLINE double chighway_ops_sum_f64(chighway_ops_vector_f64 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_neon_vaddvq_f64((chighway_ops_neon_f64)a);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_f64 reversed = __builtin_shufflevector(a, a, 1, 0);
+  const chighway_ops_vector_f64 combined = a + reversed;
+  return combined[0];
+#else
   double sum = 0;
   for (size_t i = 0; i < 2; ++i) {
     sum += a[i];
   }
   return sum;
+#endif
 }
 CHIGHWAY_OPS_INLINE double chighway_ops_smallest_f64(chighway_ops_vector_f64 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_neon_vminvq_f64((chighway_ops_neon_f64)a);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_f64 reversed = __builtin_shufflevector(a, a, 1, 0);
+  const chighway_ops_vector_f64 combined = __builtin_ia32_minpd(a, reversed);
+  return combined[0];
+#else
   double result = __builtin_inf();
   for (size_t i = 0; i < 2; ++i) {
     result = result < a[i] ? result : a[i];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE double chighway_ops_largest_f64(chighway_ops_vector_f64 a) {
+#if CHIGHWAY_OPS_NEON
+  return __builtin_neon_vmaxvq_f64((chighway_ops_neon_f64)a);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_vector_f64 reversed = __builtin_shufflevector(a, a, 1, 0);
+  const chighway_ops_vector_f64 combined = __builtin_ia32_maxpd(a, reversed);
+  return combined[0];
+#else
   double result = -__builtin_inf();
   for (size_t i = 0; i < 2; ++i) {
     result = result > a[i] ? result : a[i];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE double chighway_ops_first_lane_f64(chighway_ops_vector_f64 a) {
   return a[0];
@@ -2239,11 +2675,31 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_reversed_f64(chighway_o
   return __builtin_shufflevector(a, a, 1, 0);
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_slide_up_lanes_f64(chighway_ops_vector_f64 a, size_t lanes) {
+#if CHIGHWAY_OPS_NEON
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(double));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_f64)__builtin_neon_vqtbl1q_v((chighway_ops_neon_i8)a, (chighway_ops_neon_i8)indices, 48);
+#elif CHIGHWAY_OPS_X86 >= 2
+  const uint8_t first = (uint8_t)(0 - lanes * sizeof(double));
+  const chighway_ops_vector_u8 indices = (chighway_ops_vector_u8){first, first, first, first, first, first, first, first, first, first, first, first, first, first, first, first} + (chighway_ops_vector_u8){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  return (chighway_ops_vector_f64)__builtin_ia32_pshufb128((chighway_ops_x86_i8)a, (chighway_ops_x86_i8)indices);
+#elif CHIGHWAY_OPS_X86 >= 1
+  const chighway_ops_x86_i64 zero = {0, 0};
+  const chighway_ops_x86_i64 whole = (chighway_ops_x86_i64)a;
+  const chighway_ops_x86_i64 moved = __builtin_shufflevector(zero, whole, 0, 2);
+  const long long selected = -(long long)(lanes >= 1);
+  const chighway_ops_x86_i64 mask = {selected, selected};
+  const chighway_ops_x86_i64 high = (moved & mask) | (whole & ~mask);
+  const chighway_ops_x86_i64 low = __builtin_shufflevector(zero, high, 0, 2);
+  const int shift = (int)((lanes * 64) & 63);
+  return (chighway_ops_vector_f64)((chighway_ops_x86_i64)__builtin_ia32_psllq128((chighway_ops_x86_i64)high, (chighway_ops_x86_i64)(chighway_ops_x86_i32){shift, 0, 0, 0}) | (chighway_ops_x86_i64)__builtin_ia32_psrlq128((chighway_ops_x86_i64)low, (chighway_ops_x86_i64)(chighway_ops_x86_i32){64 - shift, 0, 0, 0}));
+#else
   chighway_ops_vector_f64 result = {0};
   for (size_t i = lanes; i < 2; ++i) {
     result[i] = a[i - lanes];
   }
   return result;
+#endif
 }
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_slide1_up_f64(chighway_ops_vector_f64 a) {
   return __builtin_shufflevector(a, (chighway_ops_vector_f64){0}, 2, 0);

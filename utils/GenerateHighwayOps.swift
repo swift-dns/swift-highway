@@ -152,6 +152,13 @@ enum SpanExtent {
     case first
 }
 
+struct TargetBodies {
+    var neon: ((Element) -> String?)?
+    var sse4: ((Element) -> String?)?
+    var ssse3: ((Element) -> String?)?
+    var sse2: ((Element) -> String?)?
+}
+
 struct Op {
     let swiftName: String
     let highwayName: String
@@ -160,6 +167,7 @@ struct Op {
     let applies: Applies
     var documentation: String = ""
     let span: SpanExtent?
+    let targets: TargetBodies
     let portable: (Element) -> String
 
     init(
@@ -170,6 +178,7 @@ struct Op {
         _ applies: Applies,
         _ documentation: String = "",
         span: SpanExtent? = nil,
+        targets: TargetBodies = TargetBodies(),
         portable: @escaping (Element) -> String
     ) {
         self.swiftName = swiftName
@@ -179,6 +188,7 @@ struct Op {
         self.applies = applies
         self.documentation = documentation
         self.span = span
+        self.targets = targets
         self.portable = portable
     }
 }
@@ -279,6 +289,222 @@ func storeInterleaved(channels: Int, for element: Element) -> String {
         """
 }
 
+struct RawVector {
+    let name: String
+    let lane: String
+    let attribute: String
+}
+
+func neonVector(_ suffix: String) -> String {
+    "chighway_ops_neon_\(suffix)"
+}
+
+func x86Vector(_ suffix: String) -> String {
+    "chighway_ops_x86_\(suffix)"
+}
+
+let neonVectors: [RawVector] = [
+    RawVector(name: neonVector("i8"), lane: "int8_t", attribute: "neon_vector_type(16)"),
+    RawVector(name: neonVector("f32"), lane: "float", attribute: "neon_vector_type(4)"),
+    RawVector(name: neonVector("f64"), lane: "double", attribute: "neon_vector_type(2)"),
+]
+
+let x86Vectors: [RawVector] = [
+    RawVector(name: x86Vector("i8"), lane: "char", attribute: "vector_size(16)"),
+    RawVector(name: x86Vector("i16"), lane: "short", attribute: "vector_size(16)"),
+    RawVector(name: x86Vector("i32"), lane: "int", attribute: "vector_size(16)"),
+    RawVector(name: x86Vector("i64"), lane: "long long", attribute: "vector_size(16)"),
+]
+
+func neonTypeCode(of element: Element) -> Int {
+    let quad = 32
+    switch element.category {
+    case .unsignedInteger: return quad + 16 + (element.bits / 8).trailingZeroBitCount
+    case .signedInteger: return quad + (element.bits / 8).trailingZeroBitCount
+    case .float: return quad + (element.bits == 32 ? 9 : 10)
+    }
+}
+
+func neonBuiltin(
+    _ name: String,
+    _ arguments: [String],
+    code: Int,
+    for element: Element
+) -> String {
+    let operands = arguments.map { "(\(neonVector("i8")))\($0)" } + [String(code)]
+    return "(\(element.cVector))__builtin_neon_\(name)(\(operands.joined(separator: ", ")))"
+}
+
+func neonShift(negated: Bool, for element: Element) -> String {
+    let lanes = element.laneCount
+    let count = splat("(\(element.cUnsignedLane))bits", as: element.cUnsignedVector, lanes: lanes)
+    let amounts = ["a", negated ? "(-count)" : "count"]
+    let shifted = neonBuiltin("vshlq_v", amounts, code: neonTypeCode(of: element), for: element)
+    return """
+        const \(element.cUnsignedVector) count = \(count);
+        return \(shifted);
+        """
+}
+
+func neonReduction(_ name: String, for element: Element) -> String? {
+    guard element.category == .float else { return nil }
+    return "return __builtin_neon_\(name)_\(element.cSuffix)((\(neonVector(element.cSuffix)))a);"
+}
+
+func neonTableLookup(_ bytes: String, _ indices: String, for element: Element) -> String {
+    neonBuiltin("vqtbl1q_v", [bytes, indices], code: 48, for: element)
+}
+
+func x86Builtin(
+    _ name: String,
+    _ arguments: [String],
+    as suffix: String,
+    returning type: String
+) -> String {
+    let operands = arguments.map { "(\(x86Vector(suffix)))\($0)" }
+    return "(\(type))__builtin_ia32_\(name)(\(operands.joined(separator: ", ")))"
+}
+
+func x86ShiftCount(_ amount: String) -> String {
+    compoundLiteral(x86Vector("i32"), [amount, "0", "0", "0"])
+}
+
+func x86Shift(_ instruction: String, laneBits: Int, returning type: String) -> String {
+    guard let suffix = [16: "w", 32: "d", 64: "q"][laneBits] else {
+        fatalError("There is no x86 shift of \(laneBits)-bit lanes")
+    }
+    let name = "\(instruction)\(suffix)128"
+    return x86Builtin(name, ["a", x86ShiftCount("bits")], as: "i\(laneBits)", returning: type)
+}
+
+func x86ShiftedLeft(for element: Element) -> String {
+    guard element.bits == 8 else {
+        return "return \(x86Shift("psll", laneBits: element.bits, returning: element.cVector));"
+    }
+    let unsigned = element.cUnsignedVector
+    let shifted = x86Shift("psll", laneBits: 16, returning: unsigned)
+    let mask = splat("mask", as: unsigned, lanes: element.laneCount)
+    return """
+        const uint8_t mask = (uint8_t)(0xFFu << (bits & 31));
+        return \(fromUnsignedBits("\(shifted) & \(mask)", of: element));
+        """
+}
+
+func x86ShiftedRight(for element: Element) -> String {
+    let unsigned = element.cUnsignedVector
+    switch (element.category, element.bits) {
+    case (.unsignedInteger, 8):
+        let shifted = x86Shift("psrl", laneBits: 16, returning: unsigned)
+        let mask = splat("mask", as: unsigned, lanes: element.laneCount)
+        return """
+            const uint8_t mask = (uint8_t)(0xFF >> (bits & 31));
+            return \(shifted) & \(mask);
+            """
+    case (.signedInteger, 8):
+        let shifted = x86Shift("psrl", laneBits: 16, returning: unsigned)
+        let mask = splat("mask", as: unsigned, lanes: element.laneCount)
+        let signs = splat("sign", as: unsigned, lanes: element.laneCount)
+        return """
+            const uint8_t mask = (uint8_t)(0xFF >> (bits & 31));
+            const uint8_t sign = (uint8_t)(0x80 >> (bits & 31));
+            const \(unsigned) shifted = \(shifted) & \(mask);
+            const \(unsigned) signs = \(signs);
+            return (\(element.cVector))((shifted ^ signs) - signs);
+            """
+    case (.signedInteger, 64):
+        let right = x86Shift("psrl", laneBits: 64, returning: element.cVector)
+        let count = x86ShiftCount("(int)(64u - (unsigned)bits)")
+        let sign = x86Builtin(
+            "psllq128",
+            ["(a < 0)", count],
+            as: "i64",
+            returning: element.cVector
+        )
+        return """
+            const \(element.cVector) right = \(right);
+            const \(element.cVector) sign = \(sign);
+            return right | sign;
+            """
+    default:
+        let instruction = element.category == .unsignedInteger ? "psrl" : "psra"
+        let shifted = x86Shift(instruction, laneBits: element.bits, returning: element.cVector)
+        return "return \(shifted);"
+    }
+}
+
+func x86Extremum(
+    _ name: String,
+    _ first: String,
+    _ second: String,
+    for element: Element
+) -> String {
+    "__builtin_ia32_\(name)\(element.bits == 32 ? "ps" : "pd")(\(first), \(second))"
+}
+
+func x86Reduction(
+    for element: Element,
+    combining combine: (_ first: String, _ second: String) -> String
+) -> String? {
+    guard element.category == .float else { return nil }
+    let lanes = element.laneCount
+    let reverse = (0..<lanes).reversed().map(String.init).joined(separator: ", ")
+    let reversed = "const \(element.cVector) reversed = __builtin_shufflevector(a, a, \(reverse));"
+    guard lanes == 4 else {
+        return """
+            \(reversed)
+            const \(element.cVector) combined = \(combine("a", "reversed"));
+            return combined[0];
+            """
+    }
+    return """
+        \(reversed)
+        const \(element.cVector) pairs = \(combine("a", "reversed"));
+        const \(element.cVector) swapped = __builtin_shufflevector(pairs, pairs, 1, 0, 3, 2);
+        const \(element.cVector) combined = \(combine("pairs", "swapped"));
+        return combined[0];
+        """
+}
+
+func x86TableLookup(_ bytes: String, _ indices: String, for element: Element) -> String {
+    x86Builtin("pshufb128", [bytes, indices], as: "i8", returning: element.cVector)
+}
+
+func slideUpIndices(for element: Element) -> String {
+    let bytes = "chighway_ops_vector_u8"
+    let first = splat("first", as: bytes, lanes: 16)
+    return """
+        const uint8_t first = (uint8_t)(0 - lanes * sizeof(\(element.cType)));
+        const \(bytes) indices = \(first) + \(iota(as: bytes, lanes: 16));
+        """
+}
+
+func x86SlideUp(for element: Element) -> String {
+    let vector = x86Vector("i64")
+    let left = x86Builtin(
+        "psllq128",
+        ["high", x86ShiftCount("shift")],
+        as: "i64",
+        returning: vector
+    )
+    let right = x86Builtin(
+        "psrlq128",
+        ["low", x86ShiftCount("64 - shift")],
+        as: "i64",
+        returning: vector
+    )
+    return """
+        const \(vector) zero = {0, 0};
+        const \(vector) whole = (\(vector))a;
+        const \(vector) moved = __builtin_shufflevector(zero, whole, 0, 2);
+        const long long selected = -(long long)(lanes >= \(element.laneCount / 2));
+        const \(vector) mask = {selected, selected};
+        const \(vector) high = (moved & mask) | (whole & ~mask);
+        const \(vector) low = __builtin_shufflevector(zero, high, 0, 2);
+        const int shift = (int)((lanes * \(element.bits)) & 63);
+        return (\(element.cVector))(\(left) | \(right));
+        """
+}
+
 let ops: [Op] = [
     Op("zero", "Zero", [.tag], .vector, .all) { element in
         "return \(compoundLiteral(element.cVector, ["0"]));"
@@ -369,13 +595,60 @@ let ops: [Op] = [
     Op("multiplying", "Mul", [.vector, .vector], .vector, .all(bits: [16, 32, 64])) { element in
         binaryArithmetic("*", for: element)
     },
-    Op("dividing", "Div", [.vector, .vector], .vector, .float) { _ in
-        "return a / b;"
+    Op(
+        "dividing",
+        "Div",
+        [.vector, .vector],
+        .vector,
+        .float,
+        targets: TargetBodies(
+            neon: { _ in "return a / b;" },
+            sse2: { _ in "return a / b;" }
+        )
+    ) { element in
+        let zero = compoundLiteral(element.cVector, ["0"])
+        let nonZero = "(\(element.cUnsignedVector))(b != \(zero))"
+        let quotient = unsignedBits("(a / b)", of: element)
+        return "return \(fromUnsignedBits("\(nonZero) & \(quotient)", of: element));"
     },
-    Op("minimum", "Min", [.vector, .vector], .vector, .all) { element in
+    Op(
+        "minimum",
+        "Min",
+        [.vector, .vector],
+        .vector,
+        .all,
+        targets: TargetBodies(
+            neon: { element in
+                guard element.category == .float else { return nil }
+                let code = neonTypeCode(of: element)
+                return "return \(neonBuiltin("vminnmq_v", ["a", "b"], code: code, for: element));"
+            },
+            sse2: { element in
+                element.category == .float
+                    ? "return \(x86Extremum("min", "a", "b", for: element));" : nil
+            }
+        )
+    ) { element in
         elementwiseExtremum("min", comparing: "<", for: element)
     },
-    Op("maximum", "Max", [.vector, .vector], .vector, .all) { element in
+    Op(
+        "maximum",
+        "Max",
+        [.vector, .vector],
+        .vector,
+        .all,
+        targets: TargetBodies(
+            neon: { element in
+                guard element.category == .float else { return nil }
+                let code = neonTypeCode(of: element)
+                return "return \(neonBuiltin("vmaxnmq_v", ["a", "b"], code: code, for: element));"
+            },
+            sse2: { element in
+                element.category == .float
+                    ? "return \(x86Extremum("max", "a", "b", for: element));" : nil
+            }
+        )
+    ) { element in
         elementwiseExtremum("max", comparing: ">", for: element)
     },
     Op("negated", "Neg", [.vector], .vector, .signedOrFloat) { element in
@@ -389,7 +662,14 @@ let ops: [Op] = [
     Op("squareRoot", "Sqrt", [.vector], .vector, .float) { _ in
         "return __builtin_elementwise_sqrt(a);"
     },
-    Op("multiplyAdding", "MulAdd", [.vector, .vector, .vector], .vector, .float) { _ in
+    Op(
+        "multiplyAdding",
+        "MulAdd",
+        [.vector, .vector, .vector],
+        .vector,
+        .float,
+        targets: TargetBodies(neon: { _ in "return __builtin_elementwise_fma(a, b, c);" })
+    ) { _ in
         """
         #pragma clang fp contract(off)
         return a * b + c;
@@ -439,7 +719,17 @@ let ops: [Op] = [
         "return ~a & b;"
     },
 
-    Op("shiftedLeft", "ShiftLeftSame", [.vector, .shiftAmount], .vector, .integer) { element in
+    Op(
+        "shiftedLeft",
+        "ShiftLeftSame",
+        [.vector, .shiftAmount],
+        .vector,
+        .integer,
+        targets: TargetBodies(
+            neon: { element in neonShift(negated: false, for: element) },
+            sse2: { element in x86ShiftedLeft(for: element) }
+        )
+    ) { element in
         let zero = compoundLiteral(element.cVector, ["0"])
         let shifted = fromUnsignedBits("\(unsignedBits("a", of: element)) << bits", of: element)
         return """
@@ -449,7 +739,17 @@ let ops: [Op] = [
             return \(shifted);
             """
     },
-    Op("shiftedRight", "ShiftRightSame", [.vector, .shiftAmount], .vector, .integer) { element in
+    Op(
+        "shiftedRight",
+        "ShiftRightSame",
+        [.vector, .shiftAmount],
+        .vector,
+        .integer,
+        targets: TargetBodies(
+            neon: { element in neonShift(negated: true, for: element) },
+            sse2: { element in x86ShiftedRight(for: element) }
+        )
+    ) { element in
         let outOfRange =
             element.category == .signedInteger
             ? "bits = \(element.bits - 1);"
@@ -517,7 +817,17 @@ let ops: [Op] = [
         """
     },
 
-    Op("sum", "ReduceSum", [.tag, .vector], .lane, .all(bits: [16, 32, 64])) { element in
+    Op(
+        "sum",
+        "ReduceSum",
+        [.tag, .vector],
+        .lane,
+        .all(bits: [16, 32, 64]),
+        targets: TargetBodies(
+            neon: { element in neonReduction("vaddvq", for: element) },
+            sse2: { element in x86Reduction(for: element) { "\($0) + \($1)" } }
+        )
+    ) { element in
         guard element.category == .float else { return "return __builtin_reduce_add(a);" }
         return """
             \(element.cType) sum = 0;
@@ -527,10 +837,34 @@ let ops: [Op] = [
             return sum;
             """
     },
-    Op("smallest", "ReduceMin", [.tag, .vector], .lane, .all(bits: [16, 32, 64])) { element in
+    Op(
+        "smallest",
+        "ReduceMin",
+        [.tag, .vector],
+        .lane,
+        .all(bits: [16, 32, 64]),
+        targets: TargetBodies(
+            neon: { element in neonReduction("vminvq", for: element) },
+            sse2: { element in
+                x86Reduction(for: element) { x86Extremum("min", $0, $1, for: element) }
+            }
+        )
+    ) { element in
         reducedExtremum("min", comparing: "<", from: infinity(of: element), for: element)
     },
-    Op("largest", "ReduceMax", [.tag, .vector], .lane, .all(bits: [16, 32, 64])) { element in
+    Op(
+        "largest",
+        "ReduceMax",
+        [.tag, .vector],
+        .lane,
+        .all(bits: [16, 32, 64]),
+        targets: TargetBodies(
+            neon: { element in neonReduction("vmaxvq", for: element) },
+            sse2: { element in
+                x86Reduction(for: element) { x86Extremum("max", $0, $1, for: element) }
+            }
+        )
+    ) { element in
         reducedExtremum("max", comparing: ">", from: "-\(infinity(of: element))", for: element)
     },
     Op("firstLane", "GetLane", [.vector], .lane, .all) { _ in
@@ -541,7 +875,28 @@ let ops: [Op] = [
         let indices = (0..<element.laneCount).reversed().map(String.init)
         return "return __builtin_shufflevector(a, a, \(indices.joined(separator: ", ")));"
     },
-    Op("slideUpLanes", "SlideUpLanes", [.tag, .vector, .laneAmount], .vector, .all) { element in
+    Op(
+        "slideUpLanes",
+        "SlideUpLanes",
+        [.tag, .vector, .laneAmount],
+        .vector,
+        .all,
+        targets: TargetBodies(
+            neon: { element in
+                """
+                \(slideUpIndices(for: element))
+                return \(neonTableLookup("a", "indices", for: element));
+                """
+            },
+            ssse3: { element in
+                """
+                \(slideUpIndices(for: element))
+                return \(x86TableLookup("a", "indices", for: element));
+                """
+            },
+            sse2: { element in x86SlideUp(for: element) }
+        )
+    ) { element in
         """
         \(element.cVector) result = {0};
         for (size_t i = lanes; i < \(element.laneCount); ++i) {
@@ -561,7 +916,20 @@ let ops: [Op] = [
         "TableLookupBytes",
         [.vector, .indices],
         .vector,
-        .integer(bits: [8])
+        .integer(bits: [8]),
+        targets: TargetBodies(
+            neon: { element in "return \(neonTableLookup("a", "b", for: element));" },
+            ssse3: { element in "return \(x86TableLookup("a", "b", for: element));" },
+            sse2: { element in
+                """
+                \(element.cVector) result;
+                for (size_t i = 0; i < 16; ++i) {
+                  result[i] = a[(uint8_t)b[i] & 15];
+                }
+                return result;
+                """
+            }
+        )
     ) { element in
         """
         \(element.cVector) result;
@@ -998,9 +1366,39 @@ func repeatingBlockBody(of element: Element) -> String {
     "return \(compoundLiteral(element.cVector, repeatingBlockLanes(of: element)));"
 }
 
+func cBody(of op: Op, for element: Element) -> String {
+    let targets = [
+        ("CHIGHWAY_OPS_NEON", op.targets.neon),
+        ("CHIGHWAY_OPS_X86 >= 3", op.targets.sse4),
+        ("CHIGHWAY_OPS_X86 >= 2", op.targets.ssse3),
+        ("CHIGHWAY_OPS_X86 >= 1", op.targets.sse2),
+    ]
+    let branches = targets.compactMap { condition, body in
+        body?(element).map { (condition: condition, body: $0) }
+    }
+    guard !branches.isEmpty else { return op.portable(element) }
+    let chain = branches.enumerated().flatMap { index, branch in
+        ["#\(index == 0 ? "if" : "elif") \(branch.condition)", branch.body]
+    }
+    return (chain + ["#else", op.portable(element), "#endif"]).joined(separator: "\n")
+}
+
+func rawVectorDeclarations() -> String {
+    let groups = [("CHIGHWAY_OPS_NEON", neonVectors), ("CHIGHWAY_OPS_X86", x86Vectors)]
+    return groups.map { condition, vectors in
+        let typedefs = vectors.map {
+            "typedef \($0.lane) \($0.name) __attribute__((\($0.attribute)));"
+        }
+        return (["#if \(condition)"] + typedefs + ["#endif"]).joined(separator: "\n")
+    }
+    .joined(separator: "\n\n")
+}
+
 func cFunction(returns: String, name: String, parameters: [String], body: String) -> String {
     let signature = parameters.isEmpty ? "void" : parameters.joined(separator: ", ")
-    let lines = body.split(separator: "\n", omittingEmptySubsequences: false).map { "  \($0)" }
+    let lines = body.split(separator: "\n", omittingEmptySubsequences: false).map {
+        $0.hasPrefix("#") ? String($0) : "  \($0)"
+    }
     return """
         CHIGHWAY_OPS_INLINE \(returns) \(name)(\(signature)) {
         \(lines.joined(separator: "\n"))
@@ -1045,6 +1443,8 @@ func generateHeader() -> String {
         #define CHIGHWAY_OPS_NEON 0
         #define CHIGHWAY_OPS_X86 0
         #endif
+
+        \(rawVectorDeclarations())
 
         /// Whether the target only emulates vectors, in which case a caller is better off
         /// with its own scalar code.
@@ -1098,7 +1498,7 @@ func generateHeader() -> String {
                 returns: cReturnType(op.returns, element),
                 name: cFunctionName(op.swiftName, element),
                 parameters: parameters,
-                body: op.portable(element)
+                body: cBody(of: op, for: element)
             )
         }
 
