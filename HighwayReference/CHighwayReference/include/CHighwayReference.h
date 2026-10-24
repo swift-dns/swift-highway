@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "CHighwayOps.h"
 
 // HWY_DISABLED_TARGETS is set by the build, see HighwayReference/Package.swift.
 #include "hwy/highway.h"
@@ -25,6 +26,10 @@ using TagU8 = hn::ScalableTag<uint8_t>;
 using VectorU8 = hn::VFromD<TagU8>;
 using MaskU8 = hn::MFromD<TagU8>;
 HWY_INLINE size_t laneCountU8() { return hn::Lanes(TagU8()); }
+HWY_INLINE VectorU8 fromPortU8(chighway_ops_vector_u8 v) { return hn::LoadU(TagU8(), reinterpret_cast<const uint8_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_u8 toPortU8(VectorU8 v) { chighway_ops_vector_u8 port; hn::StoreU(v, TagU8(), reinterpret_cast<uint8_t*>(&port)); return port; }
+HWY_INLINE MaskU8 maskFromPortU8(chighway_ops_mask_u8 m) { const hn::RebindToSigned<TagU8> di; return hn::MaskFromVec(hn::BitCast(TagU8(), hn::LoadU(di, reinterpret_cast<const int8_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_u8 maskToPortU8(MaskU8 m) { const hn::RebindToSigned<TagU8> di; chighway_ops_mask_u8 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagU8(), m)), di, reinterpret_cast<int8_t*>(&port)); return port; }
 HWY_INLINE VectorU8 zeroU8() { return hn::Zero(TagU8()); }
 HWY_INLINE VectorU8 repeatingU8(uint8_t value) { return hn::Set(TagU8(), value); }
 HWY_INLINE VectorU8 iotaU8(uint8_t value) { return hn::Iota(TagU8(), value); }
@@ -77,6 +82,10 @@ using TagU16 = hn::ScalableTag<uint16_t>;
 using VectorU16 = hn::VFromD<TagU16>;
 using MaskU16 = hn::MFromD<TagU16>;
 HWY_INLINE size_t laneCountU16() { return hn::Lanes(TagU16()); }
+HWY_INLINE VectorU16 fromPortU16(chighway_ops_vector_u16 v) { return hn::LoadU(TagU16(), reinterpret_cast<const uint16_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_u16 toPortU16(VectorU16 v) { chighway_ops_vector_u16 port; hn::StoreU(v, TagU16(), reinterpret_cast<uint16_t*>(&port)); return port; }
+HWY_INLINE MaskU16 maskFromPortU16(chighway_ops_mask_u16 m) { const hn::RebindToSigned<TagU16> di; return hn::MaskFromVec(hn::BitCast(TagU16(), hn::LoadU(di, reinterpret_cast<const int16_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_u16 maskToPortU16(MaskU16 m) { const hn::RebindToSigned<TagU16> di; chighway_ops_mask_u16 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagU16(), m)), di, reinterpret_cast<int16_t*>(&port)); return port; }
 HWY_INLINE VectorU16 zeroU16() { return hn::Zero(TagU16()); }
 HWY_INLINE VectorU16 repeatingU16(uint16_t value) { return hn::Set(TagU16(), value); }
 HWY_INLINE VectorU16 iotaU16(uint16_t value) { return hn::Iota(TagU16(), value); }
@@ -134,6 +143,10 @@ using TagU32 = hn::ScalableTag<uint32_t>;
 using VectorU32 = hn::VFromD<TagU32>;
 using MaskU32 = hn::MFromD<TagU32>;
 HWY_INLINE size_t laneCountU32() { return hn::Lanes(TagU32()); }
+HWY_INLINE VectorU32 fromPortU32(chighway_ops_vector_u32 v) { return hn::LoadU(TagU32(), reinterpret_cast<const uint32_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_u32 toPortU32(VectorU32 v) { chighway_ops_vector_u32 port; hn::StoreU(v, TagU32(), reinterpret_cast<uint32_t*>(&port)); return port; }
+HWY_INLINE MaskU32 maskFromPortU32(chighway_ops_mask_u32 m) { const hn::RebindToSigned<TagU32> di; return hn::MaskFromVec(hn::BitCast(TagU32(), hn::LoadU(di, reinterpret_cast<const int32_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_u32 maskToPortU32(MaskU32 m) { const hn::RebindToSigned<TagU32> di; chighway_ops_mask_u32 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagU32(), m)), di, reinterpret_cast<int32_t*>(&port)); return port; }
 HWY_INLINE VectorU32 zeroU32() { return hn::Zero(TagU32()); }
 HWY_INLINE VectorU32 repeatingU32(uint32_t value) { return hn::Set(TagU32(), value); }
 HWY_INLINE VectorU32 iotaU32(uint32_t value) { return hn::Iota(TagU32(), value); }
@@ -190,6 +203,10 @@ using TagU64 = hn::ScalableTag<uint64_t>;
 using VectorU64 = hn::VFromD<TagU64>;
 using MaskU64 = hn::MFromD<TagU64>;
 HWY_INLINE size_t laneCountU64() { return hn::Lanes(TagU64()); }
+HWY_INLINE VectorU64 fromPortU64(chighway_ops_vector_u64 v) { return hn::LoadU(TagU64(), reinterpret_cast<const uint64_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_u64 toPortU64(VectorU64 v) { chighway_ops_vector_u64 port; hn::StoreU(v, TagU64(), reinterpret_cast<uint64_t*>(&port)); return port; }
+HWY_INLINE MaskU64 maskFromPortU64(chighway_ops_mask_u64 m) { const hn::RebindToSigned<TagU64> di; return hn::MaskFromVec(hn::BitCast(TagU64(), hn::LoadU(di, reinterpret_cast<const int64_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_u64 maskToPortU64(MaskU64 m) { const hn::RebindToSigned<TagU64> di; chighway_ops_mask_u64 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagU64(), m)), di, reinterpret_cast<int64_t*>(&port)); return port; }
 HWY_INLINE VectorU64 zeroU64() { return hn::Zero(TagU64()); }
 HWY_INLINE VectorU64 repeatingU64(uint64_t value) { return hn::Set(TagU64(), value); }
 HWY_INLINE VectorU64 iotaU64(uint64_t value) { return hn::Iota(TagU64(), value); }
@@ -248,6 +265,10 @@ using TagI8 = hn::ScalableTag<int8_t>;
 using VectorI8 = hn::VFromD<TagI8>;
 using MaskI8 = hn::MFromD<TagI8>;
 HWY_INLINE size_t laneCountI8() { return hn::Lanes(TagI8()); }
+HWY_INLINE VectorI8 fromPortI8(chighway_ops_vector_i8 v) { return hn::LoadU(TagI8(), reinterpret_cast<const int8_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_i8 toPortI8(VectorI8 v) { chighway_ops_vector_i8 port; hn::StoreU(v, TagI8(), reinterpret_cast<int8_t*>(&port)); return port; }
+HWY_INLINE MaskI8 maskFromPortI8(chighway_ops_mask_i8 m) { const hn::RebindToSigned<TagI8> di; return hn::MaskFromVec(hn::BitCast(TagI8(), hn::LoadU(di, reinterpret_cast<const int8_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_i8 maskToPortI8(MaskI8 m) { const hn::RebindToSigned<TagI8> di; chighway_ops_mask_i8 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagI8(), m)), di, reinterpret_cast<int8_t*>(&port)); return port; }
 HWY_INLINE VectorI8 zeroI8() { return hn::Zero(TagI8()); }
 HWY_INLINE VectorI8 repeatingI8(int8_t value) { return hn::Set(TagI8(), value); }
 HWY_INLINE VectorI8 iotaI8(int8_t value) { return hn::Iota(TagI8(), value); }
@@ -301,6 +322,10 @@ using TagI16 = hn::ScalableTag<int16_t>;
 using VectorI16 = hn::VFromD<TagI16>;
 using MaskI16 = hn::MFromD<TagI16>;
 HWY_INLINE size_t laneCountI16() { return hn::Lanes(TagI16()); }
+HWY_INLINE VectorI16 fromPortI16(chighway_ops_vector_i16 v) { return hn::LoadU(TagI16(), reinterpret_cast<const int16_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_i16 toPortI16(VectorI16 v) { chighway_ops_vector_i16 port; hn::StoreU(v, TagI16(), reinterpret_cast<int16_t*>(&port)); return port; }
+HWY_INLINE MaskI16 maskFromPortI16(chighway_ops_mask_i16 m) { const hn::RebindToSigned<TagI16> di; return hn::MaskFromVec(hn::BitCast(TagI16(), hn::LoadU(di, reinterpret_cast<const int16_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_i16 maskToPortI16(MaskI16 m) { const hn::RebindToSigned<TagI16> di; chighway_ops_mask_i16 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagI16(), m)), di, reinterpret_cast<int16_t*>(&port)); return port; }
 HWY_INLINE VectorI16 zeroI16() { return hn::Zero(TagI16()); }
 HWY_INLINE VectorI16 repeatingI16(int16_t value) { return hn::Set(TagI16(), value); }
 HWY_INLINE VectorI16 iotaI16(int16_t value) { return hn::Iota(TagI16(), value); }
@@ -359,6 +384,10 @@ using TagI32 = hn::ScalableTag<int32_t>;
 using VectorI32 = hn::VFromD<TagI32>;
 using MaskI32 = hn::MFromD<TagI32>;
 HWY_INLINE size_t laneCountI32() { return hn::Lanes(TagI32()); }
+HWY_INLINE VectorI32 fromPortI32(chighway_ops_vector_i32 v) { return hn::LoadU(TagI32(), reinterpret_cast<const int32_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_i32 toPortI32(VectorI32 v) { chighway_ops_vector_i32 port; hn::StoreU(v, TagI32(), reinterpret_cast<int32_t*>(&port)); return port; }
+HWY_INLINE MaskI32 maskFromPortI32(chighway_ops_mask_i32 m) { const hn::RebindToSigned<TagI32> di; return hn::MaskFromVec(hn::BitCast(TagI32(), hn::LoadU(di, reinterpret_cast<const int32_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_i32 maskToPortI32(MaskI32 m) { const hn::RebindToSigned<TagI32> di; chighway_ops_mask_i32 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagI32(), m)), di, reinterpret_cast<int32_t*>(&port)); return port; }
 HWY_INLINE VectorI32 zeroI32() { return hn::Zero(TagI32()); }
 HWY_INLINE VectorI32 repeatingI32(int32_t value) { return hn::Set(TagI32(), value); }
 HWY_INLINE VectorI32 iotaI32(int32_t value) { return hn::Iota(TagI32(), value); }
@@ -417,6 +446,10 @@ using TagI64 = hn::ScalableTag<int64_t>;
 using VectorI64 = hn::VFromD<TagI64>;
 using MaskI64 = hn::MFromD<TagI64>;
 HWY_INLINE size_t laneCountI64() { return hn::Lanes(TagI64()); }
+HWY_INLINE VectorI64 fromPortI64(chighway_ops_vector_i64 v) { return hn::LoadU(TagI64(), reinterpret_cast<const int64_t*>(&v)); }
+HWY_INLINE chighway_ops_vector_i64 toPortI64(VectorI64 v) { chighway_ops_vector_i64 port; hn::StoreU(v, TagI64(), reinterpret_cast<int64_t*>(&port)); return port; }
+HWY_INLINE MaskI64 maskFromPortI64(chighway_ops_mask_i64 m) { const hn::RebindToSigned<TagI64> di; return hn::MaskFromVec(hn::BitCast(TagI64(), hn::LoadU(di, reinterpret_cast<const int64_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_i64 maskToPortI64(MaskI64 m) { const hn::RebindToSigned<TagI64> di; chighway_ops_mask_i64 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagI64(), m)), di, reinterpret_cast<int64_t*>(&port)); return port; }
 HWY_INLINE VectorI64 zeroI64() { return hn::Zero(TagI64()); }
 HWY_INLINE VectorI64 repeatingI64(int64_t value) { return hn::Set(TagI64(), value); }
 HWY_INLINE VectorI64 iotaI64(int64_t value) { return hn::Iota(TagI64(), value); }
@@ -477,6 +510,10 @@ using TagF32 = hn::ScalableTag<float>;
 using VectorF32 = hn::VFromD<TagF32>;
 using MaskF32 = hn::MFromD<TagF32>;
 HWY_INLINE size_t laneCountF32() { return hn::Lanes(TagF32()); }
+HWY_INLINE VectorF32 fromPortF32(chighway_ops_vector_f32 v) { return hn::LoadU(TagF32(), reinterpret_cast<const float*>(&v)); }
+HWY_INLINE chighway_ops_vector_f32 toPortF32(VectorF32 v) { chighway_ops_vector_f32 port; hn::StoreU(v, TagF32(), reinterpret_cast<float*>(&port)); return port; }
+HWY_INLINE MaskF32 maskFromPortF32(chighway_ops_mask_f32 m) { const hn::RebindToSigned<TagF32> di; return hn::MaskFromVec(hn::BitCast(TagF32(), hn::LoadU(di, reinterpret_cast<const int32_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_f32 maskToPortF32(MaskF32 m) { const hn::RebindToSigned<TagF32> di; chighway_ops_mask_f32 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagF32(), m)), di, reinterpret_cast<int32_t*>(&port)); return port; }
 HWY_INLINE VectorF32 zeroF32() { return hn::Zero(TagF32()); }
 HWY_INLINE VectorF32 repeatingF32(float value) { return hn::Set(TagF32(), value); }
 HWY_INLINE VectorF32 iotaF32(float value) { return hn::Iota(TagF32(), value); }
@@ -527,6 +564,10 @@ using TagF64 = hn::ScalableTag<double>;
 using VectorF64 = hn::VFromD<TagF64>;
 using MaskF64 = hn::MFromD<TagF64>;
 HWY_INLINE size_t laneCountF64() { return hn::Lanes(TagF64()); }
+HWY_INLINE VectorF64 fromPortF64(chighway_ops_vector_f64 v) { return hn::LoadU(TagF64(), reinterpret_cast<const double*>(&v)); }
+HWY_INLINE chighway_ops_vector_f64 toPortF64(VectorF64 v) { chighway_ops_vector_f64 port; hn::StoreU(v, TagF64(), reinterpret_cast<double*>(&port)); return port; }
+HWY_INLINE MaskF64 maskFromPortF64(chighway_ops_mask_f64 m) { const hn::RebindToSigned<TagF64> di; return hn::MaskFromVec(hn::BitCast(TagF64(), hn::LoadU(di, reinterpret_cast<const int64_t*>(&m)))); }
+HWY_INLINE chighway_ops_mask_f64 maskToPortF64(MaskF64 m) { const hn::RebindToSigned<TagF64> di; chighway_ops_mask_f64 port; hn::StoreU(hn::BitCast(di, hn::VecFromMask(TagF64(), m)), di, reinterpret_cast<int64_t*>(&port)); return port; }
 HWY_INLINE VectorF64 zeroF64() { return hn::Zero(TagF64()); }
 HWY_INLINE VectorF64 repeatingF64(double value) { return hn::Set(TagF64(), value); }
 HWY_INLINE VectorF64 iotaF64(double value) { return hn::Iota(TagF64(), value); }

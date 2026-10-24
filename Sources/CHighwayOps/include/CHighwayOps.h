@@ -7,6 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define CHIGHWAY_OPS_INLINE static inline __attribute__((always_inline))
 
 #if defined(CHIGHWAY_OPS_PORTABLE)
@@ -2313,5 +2317,9 @@ CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_load_first_widening_f32
 CHIGHWAY_OPS_INLINE chighway_ops_vector_f64 chighway_ops_repeating_block_f64(double v0, double v1) {
   return (chighway_ops_vector_f64){v0, v1};
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -53,10 +53,16 @@ package.targets += [
     ),
     .target(
         name: "CHighwayReference",
-        dependencies: ["CHighway"],
+        dependencies: ["CHighway", "CHighwayOps"],
         path: "CHighwayReference",
         publicHeadersPath: "include",
         cxxSettings: disabledTargets
+    ),
+    .testTarget(
+        name: "HighwayReferenceTests",
+        dependencies: ["CHighwayReference", "Highway"],
+        path: "HighwayReferenceTests",
+        swiftSettings: settings + [.interoperabilityMode(.Cxx)]
     ),
 ]
 

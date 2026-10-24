@@ -1,5 +1,5 @@
-// Generates the C header of the ops, the Swift layer over it, and the C++ header of the Highway
-// ops they are tested against, from the op list below.
+// Generates the C header of the ops, the Swift layer over it, the C++ header of the Highway ops
+// they are tested against, and the tests that compare the two, from the op list below.
 //
 // Run from the repository root:
 //
@@ -31,8 +31,9 @@ struct Element {
     var cUnsignedLane: String { "uint\(bits)_t" }
     var cUnsignedVector: String { "chighway_ops_vector_u\(bits)" }
     var cMaskLane: String { "int\(bits)_t" }
+    var swiftMaskLane: String { "Int\(bits)" }
     var swiftVector: String { "SIMD\(laneCount)<\(swiftType)>" }
-    var swiftMask: String { "SIMDMask<SIMD\(laneCount)<Int\(bits)>>" }
+    var swiftMask: String { "SIMDMask<SIMD\(laneCount)<\(swiftMaskLane)>>" }
 }
 
 let elements: [Element] = [
@@ -122,6 +123,7 @@ struct Applies {
 enum Parameter {
     case tag
     case vector
+    case indices
     case mask
     case lane
     case constLanePointer
@@ -557,7 +559,7 @@ let ops: [Op] = [
     Op(
         "tableLookupBytes",
         "TableLookupBytes",
-        [.vector, .vector],
+        [.vector, .indices],
         .vector,
         .integer(bits: [8])
     ) { element in
@@ -667,6 +669,10 @@ func cFunctionName(_ swiftName: String, _ element: Element) -> String {
     "chighway_ops_\(snakeCased(swiftName))_\(element.cSuffix)"
 }
 
+func referenceFunctionName(_ name: String, _ element: Element) -> String {
+    "\(name)\(element.suffix)"
+}
+
 func cWideningFunctionName(_ op: WideningOp, from narrow: Element, to wide: Element) -> String {
     "chighway_ops_\(snakeCased(op.swiftName))_\(narrow.cSuffix)_to_\(wide.cSuffix)"
 }
@@ -707,7 +713,7 @@ func bindings(of op: Op, for element: Element) -> [Binding] {
                     isInOut: false
                 )
             )
-        case .vector:
+        case .vector, .indices:
             let name = vectorNames.next() ?? "v"
             result.append(
                 Binding(
@@ -869,6 +875,27 @@ func unavailableSendableConformance(of type: String) -> String {
     """
 }
 
+func portConversions(of element: Element) -> String {
+    let signedTag = "const hn::RebindToSigned<\(element.tag)> di;"
+    var output = ""
+    output += "HWY_INLINE \(element.vector) \(referenceFunctionName("fromPort", element))"
+    output += "(\(element.cVector) v) { return hn::LoadU(\(element.tag)(), "
+    output += "reinterpret_cast<const \(element.cType)*>(&v)); }\n"
+    output += "HWY_INLINE \(element.cVector) \(referenceFunctionName("toPort", element))"
+    output += "(\(element.vector) v) { \(element.cVector) port; "
+    output += "hn::StoreU(v, \(element.tag)(), reinterpret_cast<\(element.cType)*>(&port)); "
+    output += "return port; }\n"
+    output += "HWY_INLINE \(element.mask) \(referenceFunctionName("maskFromPort", element))"
+    output += "(\(element.cMask) m) { \(signedTag) return hn::MaskFromVec(hn::BitCast("
+    output += "\(element.tag)(), hn::LoadU(di, "
+    output += "reinterpret_cast<const \(element.cMaskLane)*>(&m)))); }\n"
+    output += "HWY_INLINE \(element.cMask) \(referenceFunctionName("maskToPort", element))"
+    output += "(\(element.mask) m) { \(signedTag) \(element.cMask) port; "
+    output += "hn::StoreU(hn::BitCast(di, hn::VecFromMask(\(element.tag)(), m)), di, "
+    output += "reinterpret_cast<\(element.cMaskLane)*>(&port)); return port; }\n"
+    return output
+}
+
 func generateReferenceHeader() -> String {
     var output = """
         \(generationNotice)
@@ -878,6 +905,7 @@ func generateReferenceHeader() -> String {
 
         #include <stddef.h>
         #include <stdint.h>
+        #include "CHighwayOps.h"
 
         // HWY_DISABLED_TARGETS is set by the build, see HighwayReference/Package.swift.
         #include "hwy/highway.h"
@@ -901,8 +929,9 @@ func generateReferenceHeader() -> String {
         output += "using \(element.tag) = hn::ScalableTag<\(element.cType)>;\n"
         output += "using \(element.vector) = hn::VFromD<\(element.tag)>;\n"
         output += "using \(element.mask) = hn::MFromD<\(element.tag)>;\n"
-        output += "HWY_INLINE size_t laneCount\(element.suffix)()"
+        output += "HWY_INLINE size_t \(referenceFunctionName("laneCount", element))()"
         output += " { return hn::Lanes(\(element.tag)()); }\n"
+        output += portConversions(of: element)
 
         for op in ops where op.applies.matches(element) {
             let parameterBindings = bindings(of: op, for: element)
@@ -914,7 +943,7 @@ func generateReferenceHeader() -> String {
             let arguments = parameterBindings.map(\.argument).joined(separator: ", ")
             let returnKeyword = op.returns == .void ? "" : "return "
             output += "HWY_INLINE \(referenceReturnType(op.returns, element)) "
-            output += "\(op.swiftName)\(element.suffix)(\(declarations))"
+            output += "\(referenceFunctionName(op.swiftName, element))(\(declarations))"
             output += " { \(returnKeyword)hn::\(op.highwayName)(\(arguments)); }\n"
         }
 
@@ -932,7 +961,8 @@ func generateReferenceHeader() -> String {
         }
 
         let blockLanes = repeatingBlockLanes(of: element)
-        output += "HWY_INLINE \(element.vector) \(repeatingBlockName)\(element.suffix)("
+        output += "HWY_INLINE \(element.vector) "
+        output += "\(referenceFunctionName(repeatingBlockName, element))("
         output += blockLanes.map { "\(element.cType) \($0)" }.joined(separator: ", ")
         output += ") { return hn::Dup128VecFromValues(\(element.tag)(), "
         output += "\(blockLanes.joined(separator: ", "))); }\n"
@@ -989,6 +1019,10 @@ func generateHeader() -> String {
         #include <stdbool.h>
         #include <stddef.h>
         #include <stdint.h>
+
+        #ifdef __cplusplus
+        extern "C" {
+        #endif
 
         #define CHIGHWAY_OPS_INLINE static inline __attribute__((always_inline))
 
@@ -1090,6 +1124,10 @@ func generateHeader() -> String {
     }
 
     output += """
+        #ifdef __cplusplus
+        }
+        #endif
+
         #endif
 
         """
@@ -1116,10 +1154,12 @@ func swiftDeclaration(_ binding: Binding) -> String {
     return "\(naming): \(inoutKeyword)\(binding.swiftType)"
 }
 
-/// How a Swift call passes `binding` on to a function that has the same parameter.
-func swiftCallArgument(_ binding: Binding) -> String {
+/// How a Swift call passes `binding`, or `expression` in its place, on to a function that has the
+/// same parameter.
+func swiftCallArgument(_ binding: Binding, passing expression: String? = nil) -> String {
     let label = binding.swiftLabel ?? binding.swiftName
-    let value = binding.isInOut ? "&\(binding.swiftName)" : binding.swiftName
+    let operand = expression ?? binding.swiftName
+    let value = binding.isInOut ? "&\(operand)" : operand
     return label == "_" ? value : "\(label): \(value)"
 }
 
@@ -1602,6 +1642,429 @@ func generateElement(_ element: Element) -> String {
     return output
 }
 
+func fnv1a(_ text: String) -> UInt64 {
+    text.utf8.reduce(0xCBF2_9CE4_8422_2325) { ($0 ^ UInt64($1)) &* 0x100_0000_01B3 }
+}
+
+func referenceTestSeed(_ element: Element, _ test: String, _ input: String) -> String {
+    String(format: "0x%016llX", fnv1a("\(element.suffix)/\(test)/\(input)"))
+}
+
+struct ReferenceInput {
+    let parameter: Parameter
+    let name: String
+    let values: String
+
+    var description: String {
+        switch parameter {
+        case .lane: return "hex(\(name))"
+        case .count, .shiftAmount, .laneAmount: return name
+        default: return "describe(\(name))"
+        }
+    }
+}
+
+func hasOutOfContractInputs(_ op: Op) -> Bool {
+    op.parameters.contains { parameter in
+        switch parameter {
+        case .shiftAmount, .laneAmount, .indices: return true
+        default: return false
+        }
+    }
+}
+
+func isAligned(_ op: Op) -> Bool {
+    guard case .vectors(_, let aligned)? = op.span else { return false }
+    return aligned
+}
+
+func pointerLanes(of op: Op, for element: Element) -> Int {
+    switch op.span {
+    case .vectors(let count, _)?: return count * element.laneCount
+    case .first?: return element.laneCount
+    case nil: fatalError("\(op.swiftName) takes a pointer but has no span extent")
+    }
+}
+
+func pointerExpression(_ closureParameter: String, aligned: Bool) -> String {
+    aligned ? closureParameter : "\(closureParameter).baseAddress!"
+}
+
+func referenceInputs(
+    of op: Op,
+    for element: Element,
+    test: String,
+    inContract: Bool
+) -> [ReferenceInput] {
+    var inputs: [ReferenceInput] = []
+    for (binding, parameter) in zip(bindings(of: op, for: element), op.parameters) {
+        let seed = "seed: \(referenceTestSeed(element, test, String(inputs.count)))"
+        let values: String
+        switch parameter {
+        case .tag, .lanePointer, .outVector:
+            continue
+        case .vector:
+            values = "Inputs.vectors(H.Vector.self, \(seed))"
+        case .indices:
+            values = "Inputs.tableIndices(H.Vector.self, \(seed), inContract: \(inContract))"
+        case .mask:
+            values = "Inputs.masks(H.Mask.self, \(seed))"
+        case .lane:
+            values = "Inputs.lanes(H.Lane.self, \(seed))"
+        case .count where op.span != nil:
+            values = "Inputs.bufferCounts(lanes: H.laneCount)"
+        case .count:
+            values = "Inputs.maskCounts(lanes: H.laneCount, lane: \(element.swiftMaskLane).self)"
+        case .shiftAmount:
+            values = "Inputs.shiftAmounts(bits: \(element.bits), inContract: \(inContract))"
+        case .laneAmount:
+            values = "Inputs.laneAmounts(lanes: H.laneCount, inContract: \(inContract))"
+        case .constLanePointer:
+            let lanes = pointerLanes(of: op, for: element)
+            values = "Inputs.buffers(H.Lane.self, count: \(lanes), \(seed))"
+        }
+        inputs.append(ReferenceInput(parameter: parameter, name: binding.swiftName, values: values))
+    }
+    return inputs
+}
+
+let referenceCombinators = [2: "everyPair", 3: "mixedTriples", 4: "mixedQuadruples"]
+
+func referenceLoop(over inputs: [ReferenceInput], for element: Element, test: String) -> String? {
+    guard let first = inputs.first else { return nil }
+    guard inputs.count > 1 else { return "for \(first.name) in \(first.name)Inputs" }
+    guard let combinator = referenceCombinators[inputs.count] else {
+        fatalError("\(test) has \(inputs.count) inputs, which nothing combines")
+    }
+    var arguments = inputs.map { "\($0.name)Inputs" }
+    if inputs.count > 2 {
+        arguments.append("seed: \(referenceTestSeed(element, test, "combinations"))")
+    }
+    let names = inputs.map(\.name).joined(separator: ", ")
+    return "for (\(names)) in \(combinator)(\(arguments.joined(separator: ", ")))"
+}
+
+func referenceDescription(of inputs: [ReferenceInput], suffix: String = "") -> String {
+    let fields = inputs.map { "\($0.name): \\(\($0.description))" }
+    return "\"\(fields.joined(separator: ", "))\(suffix)\""
+}
+
+func portCall(_ name: String, _ arguments: [String]) -> String {
+    "H.\(name)(\(arguments.joined(separator: ", ")))"
+}
+
+func referenceCall(_ name: String, _ arguments: [String]) -> String {
+    "HighwayReference.\(name)(\(arguments.joined(separator: ", ")))"
+}
+
+func referenceResult(_ call: String, returning returns: ReturnType) -> String {
+    switch returns {
+    case .vector, .mask: return "port(\(call))"
+    default: return call
+    }
+}
+
+func referenceCalls(
+    of op: Op,
+    for element: Element,
+    pointer: String
+) -> (port: String, reference: String) {
+    var portArguments: [String] = []
+    var referenceArguments: [String] = []
+    var outVectorIndex = 0
+
+    for (binding, parameter) in zip(bindings(of: op, for: element), op.parameters) {
+        switch parameter {
+        case .tag:
+            continue
+        case .vector, .indices, .mask:
+            portArguments.append(swiftCallArgument(binding))
+            referenceArguments.append("reference(\(binding.swiftName))")
+        case .lane, .count, .shiftAmount, .laneAmount:
+            portArguments.append(swiftCallArgument(binding))
+            referenceArguments.append(swiftArgument(binding, parameter))
+        case .constLanePointer, .lanePointer:
+            portArguments.append(swiftCallArgument(binding, passing: pointer))
+            referenceArguments.append(pointer)
+        case .outVector:
+            portArguments.append(swiftCallArgument(binding, passing: "p\(outVectorIndex)"))
+            referenceArguments.append("&r\(outVectorIndex)")
+            outVectorIndex += 1
+        }
+    }
+
+    let keyword = isUnsafe(op) ? "unsafe " : ""
+    let call = referenceCall(referenceFunctionName(op.swiftName, element), referenceArguments)
+    let reference = referenceResult(call, returning: op.returns)
+    return ("\(keyword)\(portCall(op.swiftName, portArguments))", "\(keyword)\(reference)")
+}
+
+let emulatedShiftAttribute = """
+    @Test(
+        .disabled(
+            if: Highway.targetName == "EMU128",
+            "EMU128 has no defined result for these shift counts"
+        )
+    )
+    """
+
+func referenceTestFunction(
+    _ test: String,
+    label: String,
+    for element: Element,
+    inputs: [ReferenceInput],
+    declarations: [String] = [],
+    disabledOnEmulation: Bool = false,
+    statements: String
+) -> String {
+    let header =
+        disabledOnEmulation
+        ? "\(emulatedShiftAttribute)\nfunc \(test)() {"
+        : "@Test func \(test)() {"
+    var lines = ["let mismatches = Mismatches(\"\(label)\")"]
+    lines += inputs.map { "let \($0.name)Inputs = \($0.values)" }
+    lines += declarations
+    if let loop = referenceLoop(over: inputs, for: element, test: test) {
+        lines.append("\(loop) {\n\(statements)\n}")
+    } else {
+        lines.append(statements)
+    }
+    lines.append("mismatches.record()")
+    return """
+        \(header)
+        \(lines.joined(separator: "\n"))
+        }
+        """
+}
+
+func referenceLoadStatements(
+    of source: String,
+    aligned: Bool,
+    port: String,
+    reference: String,
+    description: String
+) -> String {
+    let results = "(\(port), \(reference))"
+    let scope =
+        aligned
+        ? "unsafe withAlignedLanes(\(source)) { source in \(results) }.result"
+        : "\(source).withUnsafeBufferPointer { source in \(results) }"
+    return """
+        let (portResult, referenceResult) = \(scope)
+        mismatches.check(portResult, referenceResult, \(description))
+        """
+}
+
+func referenceOutVectorStatements(
+    of source: String,
+    count: Int,
+    for element: Element,
+    port: String,
+    reference: String,
+    inputs: [ReferenceInput]
+) -> String {
+    let zero = referenceCall(referenceFunctionName("zero", element), [])
+    var statements = (0..<count).map { "var p\($0) = \(portCall("zero", []))" }
+    statements += (0..<count).map { "var r\($0) = \(zero)" }
+    statements.append("\(source).withUnsafeBufferPointer { source in\n\(port)\n\(reference)\n}")
+    for index in 0..<count {
+        let description = referenceDescription(of: inputs, suffix: ", v\(index)")
+        statements.append("mismatches.check(p\(index), port(r\(index)), \(description))")
+    }
+    return statements.joined(separator: "\n")
+}
+
+func referenceStoreStatements(
+    aligned: Bool,
+    port: String,
+    reference: String,
+    description: String
+) -> String {
+    let stores = [("portLanes", port), ("referenceLanes", reference)].map { lanes, call in
+        let closure = "{ destination in \(call) }"
+        return aligned
+            ? "let \(lanes) = unsafe withAlignedLanes(sentinel) \(closure).lanes"
+            : "var \(lanes) = sentinel\n\(lanes).withUnsafeMutableBufferPointer \(closure)"
+    }
+    let comparison = "mismatches.check(portLanes, referenceLanes, \(description))"
+    return (stores + [comparison]).joined(separator: "\n")
+}
+
+func referenceTest(of op: Op, for element: Element, inContract: Bool) -> String {
+    let test = inContract ? op.swiftName : "\(op.swiftName)OutOfContract"
+    let inputs = referenceInputs(of: op, for: element, test: test, inContract: inContract)
+    let description = referenceDescription(of: inputs)
+    let aligned = isAligned(op)
+    let isStore = op.parameters.contains(.lanePointer)
+    let pointer = pointerExpression(isStore ? "destination" : "source", aligned: aligned)
+    let calls = referenceCalls(of: op, for: element, pointer: pointer)
+    var declarations: [String] = []
+    let statements: String
+
+    if let source = inputs.first(where: { $0.parameter == .constLanePointer })?.name {
+        let outVectors = op.parameters.filter { $0 == .outVector }.count
+        statements =
+            outVectors == 0
+            ? referenceLoadStatements(
+                of: source,
+                aligned: aligned,
+                port: calls.port,
+                reference: calls.reference,
+                description: description
+            )
+            : referenceOutVectorStatements(
+                of: source,
+                count: outVectors,
+                for: element,
+                port: calls.port,
+                reference: calls.reference,
+                inputs: inputs
+            )
+    } else if isStore {
+        let lanes = pointerLanes(of: op, for: element)
+        declarations.append("let sentinel = Inputs.sentinel(H.Lane.self, count: \(lanes) + 4)")
+        statements = referenceStoreStatements(
+            aligned: aligned,
+            port: calls.port,
+            reference: calls.reference,
+            description: description
+        )
+    } else {
+        statements = "mismatches.check(\(calls.port), \(calls.reference), \(description))"
+    }
+
+    return referenceTestFunction(
+        test,
+        label: inContract ? op.swiftName : "\(op.swiftName) out of contract",
+        for: element,
+        inputs: inputs,
+        declarations: declarations,
+        disabledOnEmulation: !inContract && op.parameters.contains(.shiftAmount),
+        statements: statements
+    )
+}
+
+func wideningReferenceTest(_ op: WideningOp, from narrow: Element, to wide: Element) -> String {
+    let test = "\(op.swiftName)From\(narrow.swiftType)"
+    let seed = "seed: \(referenceTestSeed(wide, test, "0"))"
+    var inputs = [
+        ReferenceInput(
+            parameter: .constLanePointer,
+            name: "from",
+            values: "Inputs.buffers(\(narrow.swiftType).self, count: H.laneCount, \(seed))"
+        )
+    ]
+    var portArguments = ["from: source.baseAddress!"]
+    var referenceArguments = ["source.baseAddress!"]
+    if op.takesCount {
+        inputs.append(
+            ReferenceInput(
+                parameter: .count,
+                name: "count",
+                values: "Inputs.bufferCounts(lanes: H.laneCount)"
+            )
+        )
+        portArguments.append("count: count")
+        referenceArguments.append("count")
+    }
+
+    let function = wideningFunctionName(op, from: narrow, to: wide)
+    let reference = referenceResult(referenceCall(function, referenceArguments), returning: .vector)
+    return referenceTestFunction(
+        test,
+        label: "\(op.swiftName) from \(narrow.swiftType)",
+        for: wide,
+        inputs: inputs,
+        statements: referenceLoadStatements(
+            of: "from",
+            aligned: false,
+            port: "unsafe \(portCall(op.swiftName, portArguments))",
+            reference: "unsafe \(reference)",
+            description: referenceDescription(of: inputs)
+        )
+    )
+}
+
+func repeatingBlockReferenceTest(for element: Element) -> String {
+    let seed = "seed: \(referenceTestSeed(element, repeatingBlockName, "0"))"
+    let vectors = ReferenceInput(
+        parameter: .vector,
+        name: "vector",
+        values: "Inputs.vectors(H.Vector.self, \(seed))"
+    )
+    let lanes = repeatingBlockLanes(of: element).indices.map { "vector[\($0)]" }
+    let function = referenceFunctionName(repeatingBlockName, element)
+    let port = portCall(repeatingBlockName, lanes)
+    let reference = referenceResult(referenceCall(function, lanes), returning: .vector)
+    let description = "\"lanes: \\(describe(vector))\""
+    return referenceTestFunction(
+        repeatingBlockName,
+        label: repeatingBlockName,
+        for: element,
+        inputs: [vectors],
+        statements: "mismatches.check(\(port), \(reference), \(description))"
+    )
+}
+
+func laneCountReferenceTest(for element: Element) -> String {
+    let call = referenceCall(referenceFunctionName("laneCount", element), [])
+    return referenceTestFunction(
+        "laneCount",
+        label: "laneCount",
+        for: element,
+        inputs: [],
+        statements: "mismatches.check(H.laneCount, \(call), \"\")"
+    )
+}
+
+func generateReferenceTests(_ element: Element) -> String {
+    var tests = [laneCountReferenceTest(for: element)]
+    for op in ops where op.applies.matches(element) {
+        tests.append(referenceTest(of: op, for: element, inContract: true))
+        if hasOutOfContractInputs(op) {
+            tests.append(referenceTest(of: op, for: element, inContract: false))
+        }
+    }
+    for op in wideningOps {
+        for narrow in wideningSources(of: element) {
+            tests.append(wideningReferenceTest(op, from: narrow, to: element))
+        }
+    }
+    tests.append(repeatingBlockReferenceTest(for: element))
+
+    return """
+        \(generationNotice)
+
+        import CHighwayReference
+        import Highway
+        import Testing
+
+        @Suite("\(element.namespace) against Highway")
+        struct \(element.namespace)ReferenceTests {
+            typealias H = \(element.namespace)
+
+            func reference(_ vector: H.Vector) -> HighwayReference.\(element.vector) {
+                HighwayReference.\(referenceFunctionName("fromPort", element))(vector)
+            }
+
+            func port(_ vector: HighwayReference.\(element.vector)) -> H.Vector {
+                HighwayReference.\(referenceFunctionName("toPort", element))(vector)
+            }
+
+            func reference(_ mask: H.Mask) -> HighwayReference.\(element.mask) {
+                HighwayReference.\(referenceFunctionName("maskFromPort", element))(mask._storage)
+            }
+
+            func port(_ mask: HighwayReference.\(element.mask)) -> H.Mask {
+                H.Mask(HighwayReference.\(referenceFunctionName("maskToPort", element))(mask))
+            }
+
+        \(tests.joined(separator: "\n\n"))
+        }
+
+        """
+}
+
 func write(_ contents: String, to path: String) throws {
     let url = URL(fileURLWithPath: path)
     try FileManager.default.createDirectory(
@@ -1617,6 +2080,8 @@ let headerPath = "\(repositoryRoot)/Sources/CHighwayOps/include/CHighwayOps.h"
 let referenceHeaderPath =
     "\(repositoryRoot)/HighwayReference/CHighwayReference/include/CHighwayReference.h"
 let generatedSwiftRoot = "\(repositoryRoot)/Sources/Highway/Generated"
+let generatedReferenceTestsRoot =
+    "\(repositoryRoot)/HighwayReference/HighwayReferenceTests/Generated"
 
 // The generated Swift is formatted here rather than by hand, so that what this writes and what
 // `swift format` wants can never disagree, which would make the two CI checks fight each other.
@@ -1635,13 +2100,19 @@ func format(_ path: String) throws {
 }
 
 try? FileManager.default.removeItem(atPath: generatedSwiftRoot)
+try? FileManager.default.removeItem(atPath: generatedReferenceTestsRoot)
 try write(generateHeader(), to: headerPath)
 try write(generateReferenceHeader(), to: referenceHeaderPath)
 try write(generateProtocols(), to: "\(generatedSwiftRoot)/HighwayElement.swift")
 for element in elements {
     try write(generateElement(element), to: "\(generatedSwiftRoot)/\(element.namespace).swift")
+    try write(
+        generateReferenceTests(element),
+        to: "\(generatedReferenceTestsRoot)/\(element.namespace)ReferenceTests.swift"
+    )
 }
 try format(generatedSwiftRoot)
+try format(generatedReferenceTestsRoot)
 FileHandle.standardError.write(
     Data("** ✅ Generated \(elements.count) element types.\n".utf8)
 )
