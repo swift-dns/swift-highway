@@ -3,6 +3,522 @@
 import CHighwayReference
 public import Highway
 
+public enum HighwayReferenceUInt8 {
+    public typealias Lane = UInt8
+    public typealias Vector = HighwayReference.VectorU8
+
+    @export(implementation) @inline(always)
+    public static var laneCount: Int {
+        Int(HighwayReference.laneCountU8())
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func load(from span: Span<Lane>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return unsafe load(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func load(fromUnchecked span: Span<Lane>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadU8($0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadAligned(from span: Span<Lane>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        precondition(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        return unsafe loadAligned(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadAligned(fromUnchecked span: Span<Lane>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        assert(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadAlignedU8($0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadFirst(from span: Span<Lane>) -> Vector {
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadFirstU8($0.baseAddress, $0.count)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func store(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        unsafe store(a, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func store(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>) {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeU8(a, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func append(_ a: Vector, to output: inout OutputSpan<Lane>) {
+        precondition(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        unsafe append(a, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func append(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>) {
+        assert(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeU8(
+                a,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeAligned(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        precondition(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        unsafe storeAligned(a, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeAligned(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>) {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        assert(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeAlignedU8(a, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendAligned(_ a: Vector, to output: inout OutputSpan<Lane>) {
+        precondition(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        precondition(
+            output.span.withUnsafeBufferPointer {
+                (UInt(bitPattern: $0.baseAddress) &+ UInt($0.count &* MemoryLayout<Lane>.stride))
+                    % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "OutputSpan does not continue at an address aligned to the vector size"
+        )
+        unsafe appendAligned(a, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendAligned(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>) {
+        assert(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        assert(
+            output.span.withUnsafeBufferPointer {
+                (UInt(bitPattern: $0.baseAddress) &+ UInt($0.count &* MemoryLayout<Lane>.stride))
+                    % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "OutputSpan does not continue at an address aligned to the vector size"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeAlignedU8(
+                a,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeFirst(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeFirstU8(a, $0.baseAddress, $0.count)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func append(_ a: Vector, addingCount: Int, to output: inout OutputSpan<Lane>) {
+        precondition(addingCount >= 0 && addingCount <= laneCount, "Count out of bounds")
+        precondition(
+            addingCount <= output.freeCapacity,
+            "OutputSpan has less free capacity than the count"
+        )
+        unsafe append(a, addingCount: addingCount, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func append(
+        _ a: Vector,
+        addingCount: Int,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(addingCount >= 0 && addingCount <= laneCount, "Count out of bounds")
+        assert(
+            addingCount <= output.freeCapacity,
+            "OutputSpan has less free capacity than the count"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeFirstU8(
+                a,
+                buffer.baseAddress?.advanced(by: initializedCount),
+                addingCount
+            )
+            initializedCount &+= addingCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved2(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector
+    ) {
+        precondition(
+            span.count >= 2 * laneCount,
+            "Span has fewer elements than 2 vectors have lanes"
+        )
+        unsafe loadInterleaved2(fromUnchecked: span, &v0, &v1)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved2(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector
+    ) {
+        assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadInterleaved2U8($0.baseAddress.unsafelyUnwrapped, &v0, &v1)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved3(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    ) {
+        precondition(
+            span.count >= 3 * laneCount,
+            "Span has fewer elements than 3 vectors have lanes"
+        )
+        unsafe loadInterleaved3(fromUnchecked: span, &v0, &v1, &v2)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved3(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    ) {
+        assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadInterleaved3U8(
+                $0.baseAddress.unsafelyUnwrapped,
+                &v0,
+                &v1,
+                &v2
+            )
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved4(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    ) {
+        precondition(
+            span.count >= 4 * laneCount,
+            "Span has fewer elements than 4 vectors have lanes"
+        )
+        unsafe loadInterleaved4(fromUnchecked: span, &v0, &v1, &v2, &v3)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved4(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    ) {
+        assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadInterleaved4U8(
+                $0.baseAddress.unsafelyUnwrapped,
+                &v0,
+                &v1,
+                &v2,
+                &v3
+            )
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved2(_ a: Vector, _ b: Vector, to span: inout MutableSpan<Lane>)
+    {
+        precondition(
+            span.count >= 2 * laneCount,
+            "Span has fewer elements than 2 vectors have lanes"
+        )
+        unsafe storeInterleaved2(a, b, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeInterleaved2U8(a, b, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 2 * laneCount,
+            "OutputSpan has less free capacity than 2 vectors have lanes"
+        )
+        unsafe appendInterleaved2(a, b, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 2 * laneCount,
+            "OutputSpan has less free capacity than 2 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeInterleaved2U8(
+                a,
+                b,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 2 * laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to span: inout MutableSpan<Lane>
+    ) {
+        precondition(
+            span.count >= 3 * laneCount,
+            "Span has fewer elements than 3 vectors have lanes"
+        )
+        unsafe storeInterleaved3(a, b, c, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeInterleaved3U8(a, b, c, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 3 * laneCount,
+            "OutputSpan has less free capacity than 3 vectors have lanes"
+        )
+        unsafe appendInterleaved3(a, b, c, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 3 * laneCount,
+            "OutputSpan has less free capacity than 3 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeInterleaved3U8(
+                a,
+                b,
+                c,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 3 * laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to span: inout MutableSpan<Lane>
+    ) {
+        precondition(
+            span.count >= 4 * laneCount,
+            "Span has fewer elements than 4 vectors have lanes"
+        )
+        unsafe storeInterleaved4(a, b, c, d, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeInterleaved4U8(
+                a,
+                b,
+                c,
+                d,
+                $0.baseAddress.unsafelyUnwrapped
+            )
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 4 * laneCount,
+            "OutputSpan has less free capacity than 4 vectors have lanes"
+        )
+        unsafe appendInterleaved4(a, b, c, d, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 4 * laneCount,
+            "OutputSpan has less free capacity than 4 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeInterleaved4U8(
+                a,
+                b,
+                c,
+                d,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 4 * laneCount
+        }
+    }
+
+}
+
 @inline(never)
 public func portZeroU8() -> HighwayUInt8.Vector {
     HighwayUInt8.zero()
@@ -24,6 +540,16 @@ public func highwayRepeatingU8(_ value: UInt8) -> HighwayReference.VectorU8 {
 }
 
 @inline(never)
+public func portRepeatingU8ConstantValue() -> HighwayUInt8.Vector {
+    HighwayUInt8.repeating(26)
+}
+
+@inline(never)
+public func highwayRepeatingU8ConstantValue() -> HighwayReference.VectorU8 {
+    HighwayReference.repeatingU8(26)
+}
+
+@inline(never)
 public func portIotaU8(_ value: HighwayUInt8.Lane) -> HighwayUInt8.Vector {
     HighwayUInt8.iota(value)
 }
@@ -31,6 +557,16 @@ public func portIotaU8(_ value: HighwayUInt8.Lane) -> HighwayUInt8.Vector {
 @inline(never)
 public func highwayIotaU8(_ value: UInt8) -> HighwayReference.VectorU8 {
     HighwayReference.iotaU8(value)
+}
+
+@inline(never)
+public func portIotaU8ConstantValue() -> HighwayUInt8.Vector {
+    HighwayUInt8.iota(26)
+}
+
+@inline(never)
+public func highwayIotaU8ConstantValue() -> HighwayReference.VectorU8 {
+    HighwayReference.iotaU8(26)
 }
 
 @inline(never)
@@ -68,6 +604,19 @@ public func highwayLoadFirstU8(from: UnsafePointer<UInt8>, count: Int) -> Highwa
 }
 
 @inline(never)
+public func portLoadFirstU8ConstantCount(
+    from: UnsafePointer<HighwayUInt8.Lane>
+) -> HighwayUInt8.Vector {
+    unsafe HighwayUInt8.loadFirst(from: from, count: 1)
+}
+
+@inline(never)
+public func highwayLoadFirstU8ConstantCount(from: UnsafePointer<UInt8>) -> HighwayReference.VectorU8
+{
+    unsafe HighwayReference.loadFirstU8(from, 1)
+}
+
+@inline(never)
 public func portStoreU8(_ a: HighwayUInt8.Vector, to: UnsafeMutablePointer<HighwayUInt8.Lane>) {
     unsafe HighwayUInt8.store(a, to: to)
 }
@@ -75,6 +624,16 @@ public func portStoreU8(_ a: HighwayUInt8.Vector, to: UnsafeMutablePointer<Highw
 @inline(never)
 public func highwayStoreU8(_ a: HighwayReference.VectorU8, to: UnsafeMutablePointer<UInt8>) {
     unsafe HighwayReference.storeU8(a, to)
+}
+
+@inline(never)
+public func portStoreU8ConstantA(to: UnsafeMutablePointer<HighwayUInt8.Lane>) {
+    unsafe HighwayUInt8.store(HighwayUInt8.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreU8ConstantA(to: UnsafeMutablePointer<UInt8>) {
+    unsafe HighwayReference.storeU8(HighwayReference.repeatingU8(26), to)
 }
 
 @inline(never)
@@ -88,6 +647,16 @@ public func portStoreAlignedU8(
 @inline(never)
 public func highwayStoreAlignedU8(_ a: HighwayReference.VectorU8, to: UnsafeMutablePointer<UInt8>) {
     unsafe HighwayReference.storeAlignedU8(a, to)
+}
+
+@inline(never)
+public func portStoreAlignedU8ConstantA(to: UnsafeMutablePointer<HighwayUInt8.Lane>) {
+    unsafe HighwayUInt8.storeAligned(HighwayUInt8.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreAlignedU8ConstantA(to: UnsafeMutablePointer<UInt8>) {
+    unsafe HighwayReference.storeAlignedU8(HighwayReference.repeatingU8(26), to)
 }
 
 @inline(never)
@@ -109,6 +678,32 @@ public func highwayStoreFirstU8(
 }
 
 @inline(never)
+public func portStoreFirstU8ConstantA(to: UnsafeMutablePointer<HighwayUInt8.Lane>, count: Int) {
+    unsafe HighwayUInt8.storeFirst(HighwayUInt8.repeating(26), to: to, count: count)
+}
+
+@inline(never)
+public func highwayStoreFirstU8ConstantA(to: UnsafeMutablePointer<UInt8>, count: Int) {
+    unsafe HighwayReference.storeFirstU8(HighwayReference.repeatingU8(26), to, count)
+}
+
+@inline(never)
+public func portStoreFirstU8ConstantCount(
+    _ a: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeFirst(a, to: to, count: 1)
+}
+
+@inline(never)
+public func highwayStoreFirstU8ConstantCount(
+    _ a: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeFirstU8(a, to, 1)
+}
+
+@inline(never)
 public func portAddingU8(_ a: HighwayUInt8.Vector, _ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector
 {
     HighwayUInt8.adding(a, b)
@@ -120,6 +715,26 @@ public func highwayAddingU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.VectorU8 {
     HighwayReference.addingU8(a, b)
+}
+
+@inline(never)
+public func portAddingU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.adding(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayAddingU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    HighwayReference.addingU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portAddingU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.adding(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayAddingU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    HighwayReference.addingU8(a, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -139,6 +754,30 @@ public func highwaySubtractingU8(
 }
 
 @inline(never)
+public func portSubtractingU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.subtracting(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwaySubtractingU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.subtractingU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portSubtractingU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.subtracting(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwaySubtractingU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.subtractingU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portMinimumU8(_ a: HighwayUInt8.Vector, _ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector
 {
     HighwayUInt8.minimum(a, b)
@@ -153,6 +792,26 @@ public func highwayMinimumU8(
 }
 
 @inline(never)
+public func portMinimumU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.minimum(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayMinimumU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    HighwayReference.minimumU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portMinimumU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.minimum(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayMinimumU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    HighwayReference.minimumU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portMaximumU8(_ a: HighwayUInt8.Vector, _ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector
 {
     HighwayUInt8.maximum(a, b)
@@ -164,6 +823,26 @@ public func highwayMaximumU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.VectorU8 {
     HighwayReference.maximumU8(a, b)
+}
+
+@inline(never)
+public func portMaximumU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.maximum(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayMaximumU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    HighwayReference.maximumU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portMaximumU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.maximum(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayMaximumU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    HighwayReference.maximumU8(a, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -183,6 +862,30 @@ public func highwaySaturatingAddingU8(
 }
 
 @inline(never)
+public func portSaturatingAddingU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.saturatingAdding(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwaySaturatingAddingU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.saturatingAddingU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portSaturatingAddingU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.saturatingAdding(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwaySaturatingAddingU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.saturatingAddingU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portSaturatingSubtractingU8(
     _ a: HighwayUInt8.Vector,
     _ b: HighwayUInt8.Vector
@@ -196,6 +899,30 @@ public func highwaySaturatingSubtractingU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.VectorU8 {
     HighwayReference.saturatingSubtractingU8(a, b)
+}
+
+@inline(never)
+public func portSaturatingSubtractingU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.saturatingSubtracting(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwaySaturatingSubtractingU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.saturatingSubtractingU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portSaturatingSubtractingU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.saturatingSubtracting(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwaySaturatingSubtractingU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.saturatingSubtractingU8(a, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -215,6 +942,30 @@ public func highwayRoundedAverageU8(
 }
 
 @inline(never)
+public func portRoundedAverageU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.roundedAverage(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayRoundedAverageU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.roundedAverageU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portRoundedAverageU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.roundedAverage(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayRoundedAverageU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.roundedAverageU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portBitwiseAndU8(
     _ a: HighwayUInt8.Vector,
     _ b: HighwayUInt8.Vector
@@ -228,6 +979,30 @@ public func highwayBitwiseAndU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.VectorU8 {
     HighwayReference.bitwiseAndU8(a, b)
+}
+
+@inline(never)
+public func portBitwiseAndU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseAnd(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseAndU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseAndU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portBitwiseAndU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseAnd(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseAndU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseAndU8(a, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -247,6 +1022,28 @@ public func highwayBitwiseOrU8(
 }
 
 @inline(never)
+public func portBitwiseOrU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseOr(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseOrU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.VectorU8
+{
+    HighwayReference.bitwiseOrU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portBitwiseOrU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseOr(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseOrU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.VectorU8
+{
+    HighwayReference.bitwiseOrU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portBitwiseXorU8(
     _ a: HighwayUInt8.Vector,
     _ b: HighwayUInt8.Vector
@@ -263,6 +1060,30 @@ public func highwayBitwiseXorU8(
 }
 
 @inline(never)
+public func portBitwiseXorU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseXor(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseXorU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseXorU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portBitwiseXorU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseXor(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseXorU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseXorU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portBitwiseNotU8(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
     HighwayUInt8.bitwiseNot(a)
 }
@@ -270,6 +1091,16 @@ public func portBitwiseNotU8(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
 @inline(never)
 public func highwayBitwiseNotU8(_ a: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
     HighwayReference.bitwiseNotU8(a)
+}
+
+@inline(never)
+public func portBitwiseNotU8ConstantA() -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseNot(HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseNotU8ConstantA() -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseNotU8(HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -289,8 +1120,32 @@ public func highwayBitwiseAndNotU8(
 }
 
 @inline(never)
-public func portShiftedLeftU8(_ a: HighwayUInt8.Vector, by bits: Int) -> HighwayUInt8.Vector {
-    HighwayUInt8.shiftedLeft(a, by: bits)
+public func portBitwiseAndNotU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseAndNot(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseAndNotU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseAndNotU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portBitwiseAndNotU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseAndNot(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseAndNotU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseAndNotU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
+public func portShiftedLeftU8(_ a: HighwayUInt8.Vector, by bits: Int32) -> HighwayUInt8.Vector {
+    HighwayUInt8.shiftedLeft(a, by: Int(bits))
 }
 
 @inline(never)
@@ -302,8 +1157,30 @@ public func highwayShiftedLeftU8(
 }
 
 @inline(never)
-public func portShiftedRightU8(_ a: HighwayUInt8.Vector, by bits: Int) -> HighwayUInt8.Vector {
-    HighwayUInt8.shiftedRight(a, by: bits)
+public func portShiftedLeftU8ConstantA(by bits: Int32) -> HighwayUInt8.Vector {
+    HighwayUInt8.shiftedLeft(HighwayUInt8.repeating(26), by: Int(bits))
+}
+
+@inline(never)
+public func highwayShiftedLeftU8ConstantA(by bits: Int32) -> HighwayReference.VectorU8 {
+    HighwayReference.shiftedLeftU8(HighwayReference.repeatingU8(26), bits)
+}
+
+@inline(never)
+public func portShiftedLeftU8ConstantBits(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.shiftedLeft(a, by: 3)
+}
+
+@inline(never)
+public func highwayShiftedLeftU8ConstantBits(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.shiftedLeftU8(a, 3)
+}
+
+@inline(never)
+public func portShiftedRightU8(_ a: HighwayUInt8.Vector, by bits: Int32) -> HighwayUInt8.Vector {
+    HighwayUInt8.shiftedRight(a, by: Int(bits))
 }
 
 @inline(never)
@@ -312,6 +1189,28 @@ public func highwayShiftedRightU8(
     by bits: Int32
 ) -> HighwayReference.VectorU8 {
     HighwayReference.shiftedRightU8(a, bits)
+}
+
+@inline(never)
+public func portShiftedRightU8ConstantA(by bits: Int32) -> HighwayUInt8.Vector {
+    HighwayUInt8.shiftedRight(HighwayUInt8.repeating(26), by: Int(bits))
+}
+
+@inline(never)
+public func highwayShiftedRightU8ConstantA(by bits: Int32) -> HighwayReference.VectorU8 {
+    HighwayReference.shiftedRightU8(HighwayReference.repeatingU8(26), bits)
+}
+
+@inline(never)
+public func portShiftedRightU8ConstantBits(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.shiftedRight(a, by: 3)
+}
+
+@inline(never)
+public func highwayShiftedRightU8ConstantBits(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.shiftedRightU8(a, 3)
 }
 
 @inline(never)
@@ -325,6 +1224,26 @@ public func highwayEqualToU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.MaskU8 {
     HighwayReference.equalToU8(a, b)
+}
+
+@inline(never)
+public func portEqualToU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.equalTo(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayEqualToU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.MaskU8 {
+    HighwayReference.equalToU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portEqualToU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.equalTo(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayEqualToU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.MaskU8 {
+    HighwayReference.equalToU8(a, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -344,6 +1263,28 @@ public func highwayNotEqualToU8(
 }
 
 @inline(never)
+public func portNotEqualToU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.notEqualTo(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayNotEqualToU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.MaskU8
+{
+    HighwayReference.notEqualToU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portNotEqualToU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.notEqualTo(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayNotEqualToU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.MaskU8
+{
+    HighwayReference.notEqualToU8(a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portLessThanU8(_ a: HighwayUInt8.Vector, _ b: HighwayUInt8.Vector) -> HighwayUInt8.Mask
 {
     HighwayUInt8.lessThan(a, b)
@@ -355,6 +1296,26 @@ public func highwayLessThanU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.MaskU8 {
     HighwayReference.lessThanU8(a, b)
+}
+
+@inline(never)
+public func portLessThanU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.lessThan(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayLessThanU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.MaskU8 {
+    HighwayReference.lessThanU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portLessThanU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.lessThan(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayLessThanU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.MaskU8 {
+    HighwayReference.lessThanU8(a, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -371,6 +1332,28 @@ public func highwayGreaterThanU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.MaskU8 {
     HighwayReference.greaterThanU8(a, b)
+}
+
+@inline(never)
+public func portGreaterThanU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.greaterThan(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayGreaterThanU8ConstantA(_ b: HighwayReference.VectorU8) -> HighwayReference.MaskU8
+{
+    HighwayReference.greaterThanU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portGreaterThanU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Mask {
+    HighwayUInt8.greaterThan(a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayGreaterThanU8ConstantB(_ a: HighwayReference.VectorU8) -> HighwayReference.MaskU8
+{
+    HighwayReference.greaterThanU8(a, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -392,6 +1375,38 @@ public func highwaySelectingU8(
 }
 
 @inline(never)
+public func portSelectingU8ConstantA(
+    _ mask: HighwayUInt8.Mask,
+    _ b: HighwayUInt8.Vector
+) -> HighwayUInt8.Vector {
+    HighwayUInt8.selecting(mask, HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwaySelectingU8ConstantA(
+    _ mask: HighwayReference.MaskU8,
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.selectingU8(mask, HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portSelectingU8ConstantB(
+    _ mask: HighwayUInt8.Mask,
+    _ a: HighwayUInt8.Vector
+) -> HighwayUInt8.Vector {
+    HighwayUInt8.selecting(mask, a, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwaySelectingU8ConstantB(
+    _ mask: HighwayReference.MaskU8,
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.selectingU8(mask, a, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portSelectingOrZeroU8(
     _ mask: HighwayUInt8.Mask,
     _ a: HighwayUInt8.Vector
@@ -405,6 +1420,18 @@ public func highwaySelectingOrZeroU8(
     _ a: HighwayReference.VectorU8
 ) -> HighwayReference.VectorU8 {
     HighwayReference.selectingOrZeroU8(mask, a)
+}
+
+@inline(never)
+public func portSelectingOrZeroU8ConstantA(_ mask: HighwayUInt8.Mask) -> HighwayUInt8.Vector {
+    HighwayUInt8.selectingOrZero(mask, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwaySelectingOrZeroU8ConstantA(
+    _ mask: HighwayReference.MaskU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.selectingOrZeroU8(mask, HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -424,6 +1451,18 @@ public func highwayZeroingSelectedU8(
 }
 
 @inline(never)
+public func portZeroingSelectedU8ConstantA(_ mask: HighwayUInt8.Mask) -> HighwayUInt8.Vector {
+    HighwayUInt8.zeroingSelected(mask, HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayZeroingSelectedU8ConstantA(
+    _ mask: HighwayReference.MaskU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.zeroingSelectedU8(mask, HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portFirstLanesU8(count: Int) -> HighwayUInt8.Mask {
     HighwayUInt8.firstLanes(count: count)
 }
@@ -431,6 +1470,16 @@ public func portFirstLanesU8(count: Int) -> HighwayUInt8.Mask {
 @inline(never)
 public func highwayFirstLanesU8(count: Int) -> HighwayReference.MaskU8 {
     HighwayReference.firstLanesU8(count)
+}
+
+@inline(never)
+public func portFirstLanesU8ConstantCount() -> HighwayUInt8.Mask {
+    HighwayUInt8.firstLanes(count: 1)
+}
+
+@inline(never)
+public func highwayFirstLanesU8ConstantCount() -> HighwayReference.MaskU8 {
+    HighwayReference.firstLanesU8(1)
 }
 
 @inline(never)
@@ -484,6 +1533,16 @@ public func highwayFirstLaneU8(_ a: HighwayReference.VectorU8) -> UInt8 {
 }
 
 @inline(never)
+public func portFirstLaneU8ConstantA() -> HighwayUInt8.Lane {
+    HighwayUInt8.firstLane(HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayFirstLaneU8ConstantA() -> UInt8 {
+    HighwayReference.firstLaneU8(HighwayReference.repeatingU8(26))
+}
+
+@inline(never)
 public func portReversedU8(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
     HighwayUInt8.reversed(a)
 }
@@ -491,6 +1550,16 @@ public func portReversedU8(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
 @inline(never)
 public func highwayReversedU8(_ a: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
     HighwayReference.reversedU8(a)
+}
+
+@inline(never)
+public func portReversedU8ConstantA() -> HighwayUInt8.Vector {
+    HighwayUInt8.reversed(HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwayReversedU8ConstantA() -> HighwayReference.VectorU8 {
+    HighwayReference.reversedU8(HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -507,6 +1576,28 @@ public func highwaySlideUpLanesU8(
 }
 
 @inline(never)
+public func portSlideUpLanesU8ConstantA(by lanes: Int) -> HighwayUInt8.Vector {
+    HighwayUInt8.slideUpLanes(HighwayUInt8.repeating(26), by: lanes)
+}
+
+@inline(never)
+public func highwaySlideUpLanesU8ConstantA(by lanes: Int) -> HighwayReference.VectorU8 {
+    HighwayReference.slideUpLanesU8(HighwayReference.repeatingU8(26), lanes)
+}
+
+@inline(never)
+public func portSlideUpLanesU8ConstantLanes(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.slideUpLanes(a, by: 1)
+}
+
+@inline(never)
+public func highwaySlideUpLanesU8ConstantLanes(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.slideUpLanesU8(a, 1)
+}
+
+@inline(never)
 public func portSlide1UpU8(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
     HighwayUInt8.slide1Up(a)
 }
@@ -514,6 +1605,16 @@ public func portSlide1UpU8(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
 @inline(never)
 public func highwaySlide1UpU8(_ a: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
     HighwayReference.slide1UpU8(a)
+}
+
+@inline(never)
+public func portSlide1UpU8ConstantA() -> HighwayUInt8.Vector {
+    HighwayUInt8.slide1Up(HighwayUInt8.repeating(26))
+}
+
+@inline(never)
+public func highwaySlide1UpU8ConstantA() -> HighwayReference.VectorU8 {
+    HighwayReference.slide1UpU8(HighwayReference.repeatingU8(26))
 }
 
 @inline(never)
@@ -530,6 +1631,30 @@ public func highwayTableLookupBytesU8(
     _ b: HighwayReference.VectorU8
 ) -> HighwayReference.VectorU8 {
     HighwayReference.tableLookupBytesU8(a, b)
+}
+
+@inline(never)
+public func portTableLookupBytesU8ConstantA(_ b: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.tableLookupBytes(HighwayUInt8.repeating(26), b)
+}
+
+@inline(never)
+public func highwayTableLookupBytesU8ConstantA(
+    _ b: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.tableLookupBytesU8(HighwayReference.repeatingU8(26), b)
+}
+
+@inline(never)
+public func portTableLookupBytesU8ConstantB(_ a: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.tableLookupBytes(a, HighwayUInt8.repeating(3))
+}
+
+@inline(never)
+public func highwayTableLookupBytesU8ConstantB(
+    _ a: HighwayReference.VectorU8
+) -> HighwayReference.VectorU8 {
+    HighwayReference.tableLookupBytesU8(a, HighwayReference.repeatingU8(3))
 }
 
 @inline(never)
@@ -611,6 +1736,38 @@ public func highwayStoreInterleaved2U8(
 }
 
 @inline(never)
+public func portStoreInterleaved2U8ConstantA(
+    _ b: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved2(HighwayUInt8.repeating(26), b, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved2U8ConstantA(
+    _ b: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved2U8(HighwayReference.repeatingU8(26), b, to)
+}
+
+@inline(never)
+public func portStoreInterleaved2U8ConstantB(
+    _ a: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved2(a, HighwayUInt8.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved2U8ConstantB(
+    _ a: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved2U8(a, HighwayReference.repeatingU8(26), to)
+}
+
+@inline(never)
 public func portStoreInterleaved3U8(
     _ a: HighwayUInt8.Vector,
     _ b: HighwayUInt8.Vector,
@@ -628,6 +1785,60 @@ public func highwayStoreInterleaved3U8(
     to: UnsafeMutablePointer<UInt8>
 ) {
     unsafe HighwayReference.storeInterleaved3U8(a, b, c, to)
+}
+
+@inline(never)
+public func portStoreInterleaved3U8ConstantA(
+    _ b: HighwayUInt8.Vector,
+    _ c: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved3(HighwayUInt8.repeating(26), b, c, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved3U8ConstantA(
+    _ b: HighwayReference.VectorU8,
+    _ c: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved3U8(HighwayReference.repeatingU8(26), b, c, to)
+}
+
+@inline(never)
+public func portStoreInterleaved3U8ConstantB(
+    _ a: HighwayUInt8.Vector,
+    _ c: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved3(a, HighwayUInt8.repeating(26), c, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved3U8ConstantB(
+    _ a: HighwayReference.VectorU8,
+    _ c: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved3U8(a, HighwayReference.repeatingU8(26), c, to)
+}
+
+@inline(never)
+public func portStoreInterleaved3U8ConstantC(
+    _ a: HighwayUInt8.Vector,
+    _ b: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved3(a, b, HighwayUInt8.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved3U8ConstantC(
+    _ a: HighwayReference.VectorU8,
+    _ b: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved3U8(a, b, HighwayReference.repeatingU8(26), to)
 }
 
 @inline(never)
@@ -650,6 +1861,86 @@ public func highwayStoreInterleaved4U8(
     to: UnsafeMutablePointer<UInt8>
 ) {
     unsafe HighwayReference.storeInterleaved4U8(a, b, c, d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4U8ConstantA(
+    _ b: HighwayUInt8.Vector,
+    _ c: HighwayUInt8.Vector,
+    _ d: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved4(HighwayUInt8.repeating(26), b, c, d, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4U8ConstantA(
+    _ b: HighwayReference.VectorU8,
+    _ c: HighwayReference.VectorU8,
+    _ d: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved4U8(HighwayReference.repeatingU8(26), b, c, d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4U8ConstantB(
+    _ a: HighwayUInt8.Vector,
+    _ c: HighwayUInt8.Vector,
+    _ d: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved4(a, HighwayUInt8.repeating(26), c, d, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4U8ConstantB(
+    _ a: HighwayReference.VectorU8,
+    _ c: HighwayReference.VectorU8,
+    _ d: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved4U8(a, HighwayReference.repeatingU8(26), c, d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4U8ConstantC(
+    _ a: HighwayUInt8.Vector,
+    _ b: HighwayUInt8.Vector,
+    _ d: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved4(a, b, HighwayUInt8.repeating(26), d, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4U8ConstantC(
+    _ a: HighwayReference.VectorU8,
+    _ b: HighwayReference.VectorU8,
+    _ d: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved4U8(a, b, HighwayReference.repeatingU8(26), d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4U8ConstantD(
+    _ a: HighwayUInt8.Vector,
+    _ b: HighwayUInt8.Vector,
+    _ c: HighwayUInt8.Vector,
+    to: UnsafeMutablePointer<HighwayUInt8.Lane>
+) {
+    unsafe HighwayUInt8.storeInterleaved4(a, b, c, HighwayUInt8.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4U8ConstantD(
+    _ a: HighwayReference.VectorU8,
+    _ b: HighwayReference.VectorU8,
+    _ c: HighwayReference.VectorU8,
+    to: UnsafeMutablePointer<UInt8>
+) {
+    unsafe HighwayReference.storeInterleaved4U8(a, b, c, HighwayReference.repeatingU8(26), to)
 }
 
 @inline(never)
@@ -727,5 +2018,999 @@ public func highwayRepeatingBlockU8(
         v13,
         v14,
         v15
+    )
+}
+
+@inline(never)
+public func portMaskedLowercaseU8(_ v: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    HighwayUInt8.bitwiseOr(
+        v,
+        HighwayUInt8.selectingOrZero(
+            HighwayUInt8.lessThan(
+                HighwayUInt8.subtracting(v, HighwayUInt8.repeating(0x41)),
+                HighwayUInt8.repeating(26)
+            ),
+            HighwayUInt8.repeating(0x20)
+        )
+    )
+}
+
+@inline(never)
+public func highwayMaskedLowercaseU8(_ v: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    HighwayReference.bitwiseOrU8(
+        v,
+        HighwayReference.selectingOrZeroU8(
+            HighwayReference.lessThanU8(
+                HighwayReference.subtractingU8(v, HighwayReference.repeatingU8(0x41)),
+                HighwayReference.repeatingU8(26)
+            ),
+            HighwayReference.repeatingU8(0x20)
+        )
+    )
+}
+
+@inline(never)
+public func portDigitValuesU8(_ v: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    let letters = HighwayUInt8.subtracting(v, HighwayUInt8.repeating(0x61))
+    let numbers = HighwayUInt8.adding(
+        HighwayUInt8.minimum(
+            HighwayUInt8.subtracting(v, HighwayUInt8.repeating(0x30)),
+            HighwayUInt8.repeating(36)
+        ),
+        HighwayUInt8.repeating(26)
+    )
+    return HighwayUInt8.selecting(
+        HighwayUInt8.lessThan(letters, HighwayUInt8.repeating(26)),
+        letters,
+        numbers
+    )
+}
+
+@inline(never)
+public func highwayDigitValuesU8(_ v: HighwayReference.VectorU8) -> HighwayReference.VectorU8 {
+    let letters = HighwayReference.subtractingU8(v, HighwayReference.repeatingU8(0x61))
+    let numbers = HighwayReference.addingU8(
+        HighwayReference.minimumU8(
+            HighwayReference.subtractingU8(v, HighwayReference.repeatingU8(0x30)),
+            HighwayReference.repeatingU8(36)
+        ),
+        HighwayReference.repeatingU8(26)
+    )
+    return HighwayReference.selectingU8(
+        HighwayReference.lessThanU8(letters, HighwayReference.repeatingU8(26)),
+        letters,
+        numbers
+    )
+}
+
+@inline(never)
+public func portNoneAboveU8(_ v: HighwayUInt8.Vector) -> Bool {
+    HighwayUInt8.allFalse(HighwayUInt8.greaterThan(v, HighwayUInt8.repeating(26)))
+}
+
+@inline(never)
+public func highwayNoneAboveU8(_ v: HighwayReference.VectorU8) -> Bool {
+    HighwayReference.allFalseU8(HighwayReference.greaterThanU8(v, HighwayReference.repeatingU8(26)))
+}
+
+@inline(never)
+public func portLargestDigitU8(from: UnsafePointer<HighwayUInt8.Lane>, count: Int) -> Bool {
+    var largest = HighwayUInt8.zero()
+    let laneCount = HighwayUInt8.laneCount
+    var from = unsafe from
+    var count = count
+    while count >= laneCount {
+        let loaded = unsafe HighwayUInt8.load(from: from)
+        let letters = HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x61))
+        let numbers = HighwayUInt8.adding(
+            HighwayUInt8.minimum(
+                HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x30)),
+                HighwayUInt8.repeating(36)
+            ),
+            HighwayUInt8.repeating(26)
+        )
+        largest = HighwayUInt8.maximum(
+            largest,
+            HighwayUInt8.selecting(
+                HighwayUInt8.lessThan(letters, HighwayUInt8.repeating(26)),
+                letters,
+                numbers
+            )
+        )
+        unsafe from += laneCount
+        count -= laneCount
+    }
+    if count > 0 {
+        let loaded = unsafe HighwayUInt8.loadFirst(from: from, count: count)
+        let letters = HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x61))
+        let numbers = HighwayUInt8.adding(
+            HighwayUInt8.minimum(
+                HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x30)),
+                HighwayUInt8.repeating(36)
+            ),
+            HighwayUInt8.repeating(26)
+        )
+        largest = HighwayUInt8.maximum(
+            largest,
+            HighwayUInt8.selectingOrZero(
+                HighwayUInt8.firstLanes(count: count),
+                HighwayUInt8.selecting(
+                    HighwayUInt8.lessThan(letters, HighwayUInt8.repeating(26)),
+                    letters,
+                    numbers
+                )
+            )
+        )
+    }
+    return HighwayUInt8.allFalse(HighwayUInt8.greaterThan(largest, HighwayUInt8.repeating(35)))
+}
+
+@inline(never)
+public func highwayLargestDigitU8(from: UnsafePointer<UInt8>, count: Int) -> Bool {
+    var largest = HighwayReference.zeroU8()
+    let laneCount = HighwayReferenceUInt8.laneCount
+    var from = unsafe from
+    var count = count
+    while count >= laneCount {
+        let loaded = unsafe HighwayReference.loadU8(from)
+        let letters = HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x61))
+        let numbers = HighwayReference.addingU8(
+            HighwayReference.minimumU8(
+                HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x30)),
+                HighwayReference.repeatingU8(36)
+            ),
+            HighwayReference.repeatingU8(26)
+        )
+        largest = HighwayReference.maximumU8(
+            largest,
+            HighwayReference.selectingU8(
+                HighwayReference.lessThanU8(letters, HighwayReference.repeatingU8(26)),
+                letters,
+                numbers
+            )
+        )
+        unsafe from += laneCount
+        count -= laneCount
+    }
+    if count > 0 {
+        let loaded = unsafe HighwayReference.loadFirstU8(from, count)
+        let letters = HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x61))
+        let numbers = HighwayReference.addingU8(
+            HighwayReference.minimumU8(
+                HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x30)),
+                HighwayReference.repeatingU8(36)
+            ),
+            HighwayReference.repeatingU8(26)
+        )
+        largest = HighwayReference.maximumU8(
+            largest,
+            HighwayReference.selectingOrZeroU8(
+                HighwayReference.firstLanesU8(count),
+                HighwayReference.selectingU8(
+                    HighwayReference.lessThanU8(letters, HighwayReference.repeatingU8(26)),
+                    letters,
+                    numbers
+                )
+            )
+        )
+    }
+    return HighwayReference.allFalseU8(
+        HighwayReference.greaterThanU8(largest, HighwayReference.repeatingU8(35))
+    )
+}
+
+@inline(never)
+public func portUTF8LookupStepU8(_ input: HighwayUInt8.Vector) -> HighwayUInt8.Vector {
+    let byte1High = HighwayUInt8.repeatingBlock(
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        128,
+        128,
+        128,
+        128,
+        33,
+        1,
+        21,
+        73
+    )
+    let byte1Low = HighwayUInt8.repeatingBlock(
+        231,
+        163,
+        131,
+        131,
+        139,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        219,
+        203,
+        203
+    )
+    let byte2High = HighwayUInt8.repeatingBlock(
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        230,
+        174,
+        186,
+        186,
+        1,
+        1,
+        1,
+        1
+    )
+    let prev1 = HighwayUInt8.slide1Up(input)
+    let prev2 = HighwayUInt8.slideUpLanes(input, by: 2)
+    let prev3 = HighwayUInt8.slideUpLanes(input, by: 3)
+    return HighwayUInt8.bitwiseXor(
+        HighwayUInt8.bitwiseAnd(
+            HighwayUInt8.bitwiseAnd(
+                HighwayUInt8.tableLookupBytes(byte1High, HighwayUInt8.shiftedRight(prev1, by: 4)),
+                HighwayUInt8.tableLookupBytes(
+                    byte1Low,
+                    HighwayUInt8.bitwiseAnd(prev1, HighwayUInt8.repeating(0x0F))
+                )
+            ),
+            HighwayUInt8.tableLookupBytes(byte2High, HighwayUInt8.shiftedRight(input, by: 4))
+        ),
+        HighwayUInt8.bitwiseOr(
+            HighwayUInt8.saturatingSubtracting(prev2, HighwayUInt8.repeating(0x60)),
+            HighwayUInt8.saturatingSubtracting(prev3, HighwayUInt8.repeating(0x70))
+        )
+    )
+}
+
+@inline(never)
+public func highwayUTF8LookupStepU8(_ input: HighwayReference.VectorU8) -> HighwayReference.VectorU8
+{
+    let byte1High = HighwayReference.repeatingBlockU8(
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        128,
+        128,
+        128,
+        128,
+        33,
+        1,
+        21,
+        73
+    )
+    let byte1Low = HighwayReference.repeatingBlockU8(
+        231,
+        163,
+        131,
+        131,
+        139,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        219,
+        203,
+        203
+    )
+    let byte2High = HighwayReference.repeatingBlockU8(
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        230,
+        174,
+        186,
+        186,
+        1,
+        1,
+        1,
+        1
+    )
+    let prev1 = HighwayReference.slide1UpU8(input)
+    let prev2 = HighwayReference.slideUpLanesU8(input, 2)
+    let prev3 = HighwayReference.slideUpLanesU8(input, 3)
+    return HighwayReference.bitwiseXorU8(
+        HighwayReference.bitwiseAndU8(
+            HighwayReference.bitwiseAndU8(
+                HighwayReference.tableLookupBytesU8(
+                    byte1High,
+                    HighwayReference.shiftedRightU8(prev1, 4)
+                ),
+                HighwayReference.tableLookupBytesU8(
+                    byte1Low,
+                    HighwayReference.bitwiseAndU8(prev1, HighwayReference.repeatingU8(0x0F))
+                )
+            ),
+            HighwayReference.tableLookupBytesU8(
+                byte2High,
+                HighwayReference.shiftedRightU8(input, 4)
+            )
+        ),
+        HighwayReference.bitwiseOrU8(
+            HighwayReference.saturatingSubtractingU8(prev2, HighwayReference.repeatingU8(0x60)),
+            HighwayReference.saturatingSubtractingU8(prev3, HighwayReference.repeatingU8(0x70))
+        )
+    )
+}
+
+@available(SwiftStdlib 5.1, *)
+@inline(never)
+public func portLargestDigitSpanU8(_ inputBytesSpan: Span<HighwayUInt8.Lane>) -> Bool {
+    let count = inputBytesSpan.count
+    guard count > 0 else {
+        return true
+    }
+
+    let laneCount = HighwayUInt8.laneCount
+    var remainingBytesSpan = inputBytesSpan
+    var largestDigit = HighwayUInt8.zero()
+    while remainingBytesSpan.count >= laneCount {
+        let loaded = HighwayUInt8.load(from: remainingBytesSpan)
+        let letters = HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x61))
+        let numbers = HighwayUInt8.adding(
+            HighwayUInt8.minimum(
+                HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x30)),
+                HighwayUInt8.repeating(36)
+            ),
+            HighwayUInt8.repeating(26)
+        )
+        largestDigit = HighwayUInt8.maximum(
+            largestDigit,
+            HighwayUInt8.selecting(
+                HighwayUInt8.lessThan(letters, HighwayUInt8.repeating(26)),
+                letters,
+                numbers
+            )
+        )
+        let remainingBytesRange = unsafe Range<Int>(
+            uncheckedBounds: (laneCount, remainingBytesSpan.count)
+        )
+        remainingBytesSpan = unsafe remainingBytesSpan.extracting(unchecked: remainingBytesRange)
+    }
+    if !remainingBytesSpan.isEmpty {
+        let remaining = remainingBytesSpan.count
+        let loaded = HighwayUInt8.loadFirst(from: remainingBytesSpan)
+        let letters = HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x61))
+        let numbers = HighwayUInt8.adding(
+            HighwayUInt8.minimum(
+                HighwayUInt8.subtracting(loaded, HighwayUInt8.repeating(0x30)),
+                HighwayUInt8.repeating(36)
+            ),
+            HighwayUInt8.repeating(26)
+        )
+        largestDigit = HighwayUInt8.maximum(
+            largestDigit,
+            HighwayUInt8.selectingOrZero(
+                HighwayUInt8.firstLanes(count: remaining),
+                HighwayUInt8.selecting(
+                    HighwayUInt8.lessThan(letters, HighwayUInt8.repeating(26)),
+                    letters,
+                    numbers
+                )
+            )
+        )
+    }
+    return HighwayUInt8.allFalse(HighwayUInt8.greaterThan(largestDigit, HighwayUInt8.repeating(35)))
+}
+
+@available(SwiftStdlib 5.1, *)
+@inline(never)
+public func highwayLargestDigitSpanU8(_ inputBytesSpan: Span<UInt8>) -> Bool {
+    let count = inputBytesSpan.count
+    guard count > 0 else {
+        return true
+    }
+
+    let laneCount = HighwayReferenceUInt8.laneCount
+    var remainingBytesSpan = inputBytesSpan
+    var largestDigit = HighwayReference.zeroU8()
+    while remainingBytesSpan.count >= laneCount {
+        let loaded = HighwayReferenceUInt8.load(from: remainingBytesSpan)
+        let letters = HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x61))
+        let numbers = HighwayReference.addingU8(
+            HighwayReference.minimumU8(
+                HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x30)),
+                HighwayReference.repeatingU8(36)
+            ),
+            HighwayReference.repeatingU8(26)
+        )
+        largestDigit = HighwayReference.maximumU8(
+            largestDigit,
+            HighwayReference.selectingU8(
+                HighwayReference.lessThanU8(letters, HighwayReference.repeatingU8(26)),
+                letters,
+                numbers
+            )
+        )
+        let remainingBytesRange = unsafe Range<Int>(
+            uncheckedBounds: (laneCount, remainingBytesSpan.count)
+        )
+        remainingBytesSpan = unsafe remainingBytesSpan.extracting(unchecked: remainingBytesRange)
+    }
+    if !remainingBytesSpan.isEmpty {
+        let remaining = remainingBytesSpan.count
+        let loaded = HighwayReferenceUInt8.loadFirst(from: remainingBytesSpan)
+        let letters = HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x61))
+        let numbers = HighwayReference.addingU8(
+            HighwayReference.minimumU8(
+                HighwayReference.subtractingU8(loaded, HighwayReference.repeatingU8(0x30)),
+                HighwayReference.repeatingU8(36)
+            ),
+            HighwayReference.repeatingU8(26)
+        )
+        largestDigit = HighwayReference.maximumU8(
+            largestDigit,
+            HighwayReference.selectingOrZeroU8(
+                HighwayReference.firstLanesU8(remaining),
+                HighwayReference.selectingU8(
+                    HighwayReference.lessThanU8(letters, HighwayReference.repeatingU8(26)),
+                    letters,
+                    numbers
+                )
+            )
+        )
+    }
+    return HighwayReference.allFalseU8(
+        HighwayReference.greaterThanU8(largestDigit, HighwayReference.repeatingU8(35))
+    )
+}
+
+@available(SwiftStdlib 5.1, *)
+@inline(never)
+public func portMaskedLowercaseSpanU8(
+    span: Span<HighwayUInt8.Lane>,
+    into output: inout OutputSpan<HighwayUInt8.Lane>
+) -> Int {
+    let laneCount = HighwayUInt8.laneCount
+    var remainingBytesSpan = span
+    while !remainingBytesSpan.isEmpty {
+        let windowLength = min(laneCount, remainingBytesSpan.count)
+        let window =
+            if windowLength == laneCount {
+                HighwayUInt8.load(from: remainingBytesSpan)
+            } else {
+                HighwayUInt8.loadFirst(from: remainingBytesSpan)
+            }
+        if HighwayUInt8.allFalse(HighwayUInt8.greaterThan(window, HighwayUInt8.repeating(0x7F))) {
+            let isUppercasedLetter = HighwayUInt8.lessThan(
+                HighwayUInt8.subtracting(window, HighwayUInt8.repeating(0x41)),
+                HighwayUInt8.repeating(26)
+            )
+            let lowercased = HighwayUInt8.bitwiseOr(
+                window,
+                HighwayUInt8.selectingOrZero(
+                    isUppercasedLetter,
+                    HighwayUInt8.repeating(0b0010_0000)
+                )
+            )
+            if windowLength == laneCount {
+                unsafe HighwayUInt8.append(lowercased, toUnchecked: &output)
+            } else {
+                unsafe HighwayUInt8.append(
+                    lowercased,
+                    addingCount: windowLength,
+                    toUnchecked: &output
+                )
+            }
+            let remainingBytesRange = unsafe Range<Int>(
+                uncheckedBounds: (windowLength, remainingBytesSpan.count)
+            )
+            remainingBytesSpan = unsafe remainingBytesSpan.extracting(
+                unchecked: remainingBytesRange
+            )
+            continue
+        }
+        break
+    }
+    return remainingBytesSpan.count
+}
+
+@available(SwiftStdlib 5.1, *)
+@inline(never)
+public func highwayMaskedLowercaseSpanU8(
+    span: Span<UInt8>,
+    into output: inout OutputSpan<UInt8>
+) -> Int {
+    let laneCount = HighwayReferenceUInt8.laneCount
+    var remainingBytesSpan = span
+    while !remainingBytesSpan.isEmpty {
+        let windowLength = min(laneCount, remainingBytesSpan.count)
+        let window =
+            if windowLength == laneCount {
+                HighwayReferenceUInt8.load(from: remainingBytesSpan)
+            } else {
+                HighwayReferenceUInt8.loadFirst(from: remainingBytesSpan)
+            }
+        if HighwayReference.allFalseU8(
+            HighwayReference.greaterThanU8(window, HighwayReference.repeatingU8(0x7F))
+        ) {
+            let isUppercasedLetter = HighwayReference.lessThanU8(
+                HighwayReference.subtractingU8(window, HighwayReference.repeatingU8(0x41)),
+                HighwayReference.repeatingU8(26)
+            )
+            let lowercased = HighwayReference.bitwiseOrU8(
+                window,
+                HighwayReference.selectingOrZeroU8(
+                    isUppercasedLetter,
+                    HighwayReference.repeatingU8(0b0010_0000)
+                )
+            )
+            if windowLength == laneCount {
+                unsafe HighwayReferenceUInt8.append(lowercased, toUnchecked: &output)
+            } else {
+                unsafe HighwayReferenceUInt8.append(
+                    lowercased,
+                    addingCount: windowLength,
+                    toUnchecked: &output
+                )
+            }
+            let remainingBytesRange = unsafe Range<Int>(
+                uncheckedBounds: (windowLength, remainingBytesSpan.count)
+            )
+            remainingBytesSpan = unsafe remainingBytesSpan.extracting(
+                unchecked: remainingBytesRange
+            )
+            continue
+        }
+        break
+    }
+    return remainingBytesSpan.count
+}
+
+@available(SwiftStdlib 5.1, *)
+@inline(never)
+public func portUTF8LookupSpanU8(_ bytes: Span<HighwayUInt8.Lane>) -> Bool {
+    let count = bytes.count
+    guard count > 0 else {
+        return true
+    }
+
+    let laneCount = HighwayUInt8.laneCount
+    guard _fastPath(laneCount >= 16) else {
+        return false
+    }
+
+    let byte1High = HighwayUInt8.repeatingBlock(
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        128,
+        128,
+        128,
+        128,
+        33,
+        1,
+        21,
+        73
+    )
+    let byte1Low = HighwayUInt8.repeatingBlock(
+        231,
+        163,
+        131,
+        131,
+        139,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        219,
+        203,
+        203
+    )
+    let byte2High = HighwayUInt8.repeatingBlock(
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        230,
+        174,
+        186,
+        186,
+        1,
+        1,
+        1,
+        1
+    )
+    let headBytes = HighwayUInt8.loadFirst(from: bytes)
+    let input = headBytes
+    let prev1 = HighwayUInt8.slide1Up(headBytes)
+    let prev2 = HighwayUInt8.slideUpLanes(headBytes, by: 2)
+    let prev3 = HighwayUInt8.slideUpLanes(headBytes, by: 3)
+    let specialCases = HighwayUInt8.bitwiseAnd(
+        HighwayUInt8.bitwiseAnd(
+            HighwayUInt8.tableLookupBytes(byte1High, HighwayUInt8.shiftedRight(prev1, by: 4)),
+            HighwayUInt8.tableLookupBytes(
+                byte1Low,
+                HighwayUInt8.bitwiseAnd(prev1, HighwayUInt8.repeating(0x0F))
+            )
+        ),
+        HighwayUInt8.tableLookupBytes(byte2High, HighwayUInt8.shiftedRight(input, by: 4))
+    )
+    let mustBe23Continuation = HighwayUInt8.bitwiseAnd(
+        HighwayUInt8.bitwiseOr(
+            HighwayUInt8.saturatingSubtracting(prev2, HighwayUInt8.repeating(0xE0 &- 0x80)),
+            HighwayUInt8.saturatingSubtracting(prev3, HighwayUInt8.repeating(0xF0 &- 0x80))
+        ),
+        HighwayUInt8.repeating(0x80)
+    )
+    var errors = HighwayUInt8.bitwiseXor(mustBe23Continuation, specialCases)
+
+    if count > laneCount {
+        var remainingBytesSpan = unsafe bytes.extracting(
+            unchecked: Range<Int>(uncheckedBounds: (laneCount &- 3, count))
+        )
+        while remainingBytesSpan.count >= laneCount &+ 3 {
+            let windowCount = remainingBytesSpan.count
+            let input = unsafe HighwayUInt8.load(
+                fromUnchecked: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (3, windowCount))
+                )
+            )
+            let prev1 = unsafe HighwayUInt8.load(
+                fromUnchecked: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (2, windowCount))
+                )
+            )
+            let prev2 = unsafe HighwayUInt8.load(
+                fromUnchecked: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (1, windowCount))
+                )
+            )
+            let prev3 = unsafe HighwayUInt8.load(fromUnchecked: remainingBytesSpan)
+            let specialCases = HighwayUInt8.bitwiseAnd(
+                HighwayUInt8.bitwiseAnd(
+                    HighwayUInt8.tableLookupBytes(
+                        byte1High,
+                        HighwayUInt8.shiftedRight(prev1, by: 4)
+                    ),
+                    HighwayUInt8.tableLookupBytes(
+                        byte1Low,
+                        HighwayUInt8.bitwiseAnd(prev1, HighwayUInt8.repeating(0x0F))
+                    )
+                ),
+                HighwayUInt8.tableLookupBytes(byte2High, HighwayUInt8.shiftedRight(input, by: 4))
+            )
+            let mustBe23Continuation = HighwayUInt8.bitwiseAnd(
+                HighwayUInt8.bitwiseOr(
+                    HighwayUInt8.saturatingSubtracting(prev2, HighwayUInt8.repeating(0xE0 &- 0x80)),
+                    HighwayUInt8.saturatingSubtracting(prev3, HighwayUInt8.repeating(0xF0 &- 0x80))
+                ),
+                HighwayUInt8.repeating(0x80)
+            )
+            errors = HighwayUInt8.bitwiseOr(
+                errors,
+                HighwayUInt8.bitwiseXor(mustBe23Continuation, specialCases)
+            )
+            let remainingBytesRange = unsafe Range<Int>(
+                uncheckedBounds: (laneCount, remainingBytesSpan.count)
+            )
+            remainingBytesSpan = unsafe remainingBytesSpan.extracting(
+                unchecked: remainingBytesRange
+            )
+        }
+        if remainingBytesSpan.count > 3 {
+            let windowCount = remainingBytesSpan.count
+            let input = unsafe HighwayUInt8.loadFirst(
+                from: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (3, windowCount))
+                )
+            )
+            let prev1 = unsafe HighwayUInt8.loadFirst(
+                from: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (2, windowCount))
+                )
+            )
+            let prev2 = unsafe HighwayUInt8.loadFirst(
+                from: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (1, windowCount))
+                )
+            )
+            let prev3 = HighwayUInt8.loadFirst(from: remainingBytesSpan)
+            let specialCases = HighwayUInt8.bitwiseAnd(
+                HighwayUInt8.bitwiseAnd(
+                    HighwayUInt8.tableLookupBytes(
+                        byte1High,
+                        HighwayUInt8.shiftedRight(prev1, by: 4)
+                    ),
+                    HighwayUInt8.tableLookupBytes(
+                        byte1Low,
+                        HighwayUInt8.bitwiseAnd(prev1, HighwayUInt8.repeating(0x0F))
+                    )
+                ),
+                HighwayUInt8.tableLookupBytes(byte2High, HighwayUInt8.shiftedRight(input, by: 4))
+            )
+            let mustBe23Continuation = HighwayUInt8.bitwiseAnd(
+                HighwayUInt8.bitwiseOr(
+                    HighwayUInt8.saturatingSubtracting(prev2, HighwayUInt8.repeating(0xE0 &- 0x80)),
+                    HighwayUInt8.saturatingSubtracting(prev3, HighwayUInt8.repeating(0xF0 &- 0x80))
+                ),
+                HighwayUInt8.repeating(0x80)
+            )
+            errors = HighwayUInt8.bitwiseOr(
+                errors,
+                HighwayUInt8.bitwiseXor(mustBe23Continuation, specialCases)
+            )
+        }
+    }
+
+    if count >= 3 {
+        let last = unsafe bytes[unchecked: count &- 1]
+        let secondToLast = unsafe bytes[unchecked: count &- 2]
+        let thirdToLast = unsafe bytes[unchecked: count &- 3]
+        if last >= 0xC0 || secondToLast >= 0xE0 || thirdToLast >= 0xF0 {
+            return false
+        }
+    }
+
+    return HighwayUInt8.allFalse(HighwayUInt8.notEqualTo(errors, HighwayUInt8.zero()))
+}
+
+@available(SwiftStdlib 5.1, *)
+@inline(never)
+public func highwayUTF8LookupSpanU8(_ bytes: Span<UInt8>) -> Bool {
+    let count = bytes.count
+    guard count > 0 else {
+        return true
+    }
+
+    let laneCount = HighwayReferenceUInt8.laneCount
+    guard _fastPath(laneCount >= 16) else {
+        return false
+    }
+
+    let byte1High = HighwayReference.repeatingBlockU8(
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        128,
+        128,
+        128,
+        128,
+        33,
+        1,
+        21,
+        73
+    )
+    let byte1Low = HighwayReference.repeatingBlockU8(
+        231,
+        163,
+        131,
+        131,
+        139,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        219,
+        203,
+        203
+    )
+    let byte2High = HighwayReference.repeatingBlockU8(
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        230,
+        174,
+        186,
+        186,
+        1,
+        1,
+        1,
+        1
+    )
+    let headBytes = HighwayReferenceUInt8.loadFirst(from: bytes)
+    let input = headBytes
+    let prev1 = HighwayReference.slide1UpU8(headBytes)
+    let prev2 = HighwayReference.slideUpLanesU8(headBytes, 2)
+    let prev3 = HighwayReference.slideUpLanesU8(headBytes, 3)
+    let specialCases = HighwayReference.bitwiseAndU8(
+        HighwayReference.bitwiseAndU8(
+            HighwayReference.tableLookupBytesU8(
+                byte1High,
+                HighwayReference.shiftedRightU8(prev1, 4)
+            ),
+            HighwayReference.tableLookupBytesU8(
+                byte1Low,
+                HighwayReference.bitwiseAndU8(prev1, HighwayReference.repeatingU8(0x0F))
+            )
+        ),
+        HighwayReference.tableLookupBytesU8(byte2High, HighwayReference.shiftedRightU8(input, 4))
+    )
+    let mustBe23Continuation = HighwayReference.bitwiseAndU8(
+        HighwayReference.bitwiseOrU8(
+            HighwayReference.saturatingSubtractingU8(
+                prev2,
+                HighwayReference.repeatingU8(0xE0 &- 0x80)
+            ),
+            HighwayReference.saturatingSubtractingU8(
+                prev3,
+                HighwayReference.repeatingU8(0xF0 &- 0x80)
+            )
+        ),
+        HighwayReference.repeatingU8(0x80)
+    )
+    var errors = HighwayReference.bitwiseXorU8(mustBe23Continuation, specialCases)
+
+    if count > laneCount {
+        var remainingBytesSpan = unsafe bytes.extracting(
+            unchecked: Range<Int>(uncheckedBounds: (laneCount &- 3, count))
+        )
+        while remainingBytesSpan.count >= laneCount &+ 3 {
+            let windowCount = remainingBytesSpan.count
+            let input = unsafe HighwayReferenceUInt8.load(
+                fromUnchecked: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (3, windowCount))
+                )
+            )
+            let prev1 = unsafe HighwayReferenceUInt8.load(
+                fromUnchecked: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (2, windowCount))
+                )
+            )
+            let prev2 = unsafe HighwayReferenceUInt8.load(
+                fromUnchecked: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (1, windowCount))
+                )
+            )
+            let prev3 = unsafe HighwayReferenceUInt8.load(fromUnchecked: remainingBytesSpan)
+            let specialCases = HighwayReference.bitwiseAndU8(
+                HighwayReference.bitwiseAndU8(
+                    HighwayReference.tableLookupBytesU8(
+                        byte1High,
+                        HighwayReference.shiftedRightU8(prev1, 4)
+                    ),
+                    HighwayReference.tableLookupBytesU8(
+                        byte1Low,
+                        HighwayReference.bitwiseAndU8(prev1, HighwayReference.repeatingU8(0x0F))
+                    )
+                ),
+                HighwayReference.tableLookupBytesU8(
+                    byte2High,
+                    HighwayReference.shiftedRightU8(input, 4)
+                )
+            )
+            let mustBe23Continuation = HighwayReference.bitwiseAndU8(
+                HighwayReference.bitwiseOrU8(
+                    HighwayReference.saturatingSubtractingU8(
+                        prev2,
+                        HighwayReference.repeatingU8(0xE0 &- 0x80)
+                    ),
+                    HighwayReference.saturatingSubtractingU8(
+                        prev3,
+                        HighwayReference.repeatingU8(0xF0 &- 0x80)
+                    )
+                ),
+                HighwayReference.repeatingU8(0x80)
+            )
+            errors = HighwayReference.bitwiseOrU8(
+                errors,
+                HighwayReference.bitwiseXorU8(mustBe23Continuation, specialCases)
+            )
+            let remainingBytesRange = unsafe Range<Int>(
+                uncheckedBounds: (laneCount, remainingBytesSpan.count)
+            )
+            remainingBytesSpan = unsafe remainingBytesSpan.extracting(
+                unchecked: remainingBytesRange
+            )
+        }
+        if remainingBytesSpan.count > 3 {
+            let windowCount = remainingBytesSpan.count
+            let input = unsafe HighwayReferenceUInt8.loadFirst(
+                from: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (3, windowCount))
+                )
+            )
+            let prev1 = unsafe HighwayReferenceUInt8.loadFirst(
+                from: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (2, windowCount))
+                )
+            )
+            let prev2 = unsafe HighwayReferenceUInt8.loadFirst(
+                from: remainingBytesSpan.extracting(
+                    unchecked: Range(uncheckedBounds: (1, windowCount))
+                )
+            )
+            let prev3 = HighwayReferenceUInt8.loadFirst(from: remainingBytesSpan)
+            let specialCases = HighwayReference.bitwiseAndU8(
+                HighwayReference.bitwiseAndU8(
+                    HighwayReference.tableLookupBytesU8(
+                        byte1High,
+                        HighwayReference.shiftedRightU8(prev1, 4)
+                    ),
+                    HighwayReference.tableLookupBytesU8(
+                        byte1Low,
+                        HighwayReference.bitwiseAndU8(prev1, HighwayReference.repeatingU8(0x0F))
+                    )
+                ),
+                HighwayReference.tableLookupBytesU8(
+                    byte2High,
+                    HighwayReference.shiftedRightU8(input, 4)
+                )
+            )
+            let mustBe23Continuation = HighwayReference.bitwiseAndU8(
+                HighwayReference.bitwiseOrU8(
+                    HighwayReference.saturatingSubtractingU8(
+                        prev2,
+                        HighwayReference.repeatingU8(0xE0 &- 0x80)
+                    ),
+                    HighwayReference.saturatingSubtractingU8(
+                        prev3,
+                        HighwayReference.repeatingU8(0xF0 &- 0x80)
+                    )
+                ),
+                HighwayReference.repeatingU8(0x80)
+            )
+            errors = HighwayReference.bitwiseOrU8(
+                errors,
+                HighwayReference.bitwiseXorU8(mustBe23Continuation, specialCases)
+            )
+        }
+    }
+
+    if count >= 3 {
+        let last = unsafe bytes[unchecked: count &- 1]
+        let secondToLast = unsafe bytes[unchecked: count &- 2]
+        let thirdToLast = unsafe bytes[unchecked: count &- 3]
+        if last >= 0xC0 || secondToLast >= 0xE0 || thirdToLast >= 0xF0 {
+            return false
+        }
+    }
+
+    return HighwayReference.allFalseU8(
+        HighwayReference.notEqualToU8(errors, HighwayReference.zeroU8())
     )
 }

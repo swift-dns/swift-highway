@@ -5,30 +5,64 @@ public import CHighwayOps
 /// Highway's vectors of `Int64`, and the ops over them.
 public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatype {
     public typealias Lane = Int64
-    public typealias Vector = SIMD2<Int64>
-    public typealias Mask = SIMDMask<SIMD2<Int64>>
+
+    public struct Vector: Sendable {
+        public var raw: chighway_ops_raw_vector_i64
+
+        @export(implementation) @inline(always)
+        public init(raw: chighway_ops_raw_vector_i64) {
+            self.raw = raw
+        }
+
+        @export(implementation) @inline(always)
+        public init(_ simd: SIMD2<Int64>) {
+            raw = chighway_ops_to_raw_vector_i64(simd)
+        }
+
+        @export(implementation) @inline(always)
+        public var simd: SIMD2<Int64> { chighway_ops_from_raw_vector_i64(raw) }
+    }
+
+    public struct Mask: Sendable {
+        public var raw: chighway_ops_raw_mask_i64
+
+        @export(implementation) @inline(always)
+        public init(raw: chighway_ops_raw_mask_i64) {
+            self.raw = raw
+        }
+
+        @export(implementation) @inline(always)
+        public init(_ simd: SIMDMask<SIMD2<Int64>>) {
+            raw = chighway_ops_to_raw_mask_i64(simd._storage)
+        }
+
+        @export(implementation) @inline(always)
+        public var simd: SIMDMask<SIMD2<Int64>> {
+            SIMDMask<SIMD2<Int64>>(chighway_ops_from_raw_mask_i64(raw))
+        }
+    }
 
     @export(implementation) @inline(always)
     public static var laneCount: Int { Int(chighway_ops_lane_count_i64()) }
 
     @export(implementation) @inline(always)
     public static func zero() -> Vector {
-        chighway_ops_zero_i64()
+        Vector(raw: chighway_ops_zero_i64())
     }
 
     @export(implementation) @inline(always)
     public static func repeating(_ value: Lane) -> Vector {
-        chighway_ops_repeating_i64(value)
+        Vector(raw: chighway_ops_repeating_i64(value))
     }
 
     @export(implementation) @inline(always)
     public static func iota(_ value: Lane) -> Vector {
-        chighway_ops_iota_i64(value)
+        Vector(raw: chighway_ops_iota_i64(value))
     }
 
     @export(implementation) @inline(always)
     public static func load(from: UnsafePointer<Lane>) -> Vector {
-        unsafe chighway_ops_load_i64(from)
+        Vector(raw: unsafe chighway_ops_load_i64(from))
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -43,13 +77,13 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     public static func load(fromUnchecked span: Span<Lane>) -> Vector {
         assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
         return span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_i64($0.baseAddress.unsafelyUnwrapped)
+            Vector(raw: unsafe chighway_ops_load_i64($0.baseAddress.unsafelyUnwrapped))
         }
     }
 
     @export(implementation) @inline(always)
     public static func loadAligned(from: UnsafePointer<Lane>) -> Vector {
-        unsafe chighway_ops_load_aligned_i64(from)
+        Vector(raw: unsafe chighway_ops_load_aligned_i64(from))
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -76,26 +110,26 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
             "Span does not start at an address aligned to the vector size"
         )
         return span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_aligned_i64($0.baseAddress.unsafelyUnwrapped)
+            Vector(raw: unsafe chighway_ops_load_aligned_i64($0.baseAddress.unsafelyUnwrapped))
         }
     }
 
     @export(implementation) @inline(always)
     public static func loadFirst(from: UnsafePointer<Lane>, count: Int) -> Vector {
-        unsafe chighway_ops_load_first_i64(from, count)
+        Vector(raw: unsafe chighway_ops_load_first_i64(from, count))
     }
 
     @available(SwiftStdlib 5.1, *)
     @export(implementation) @inline(always)
     public static func loadFirst(from span: Span<Lane>) -> Vector {
         span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_first_i64($0.baseAddress, $0.count)
+            Vector(raw: unsafe chighway_ops_load_first_i64($0.baseAddress, $0.count))
         }
     }
 
     @export(implementation) @inline(always)
     public static func store(_ a: Vector, to: UnsafeMutablePointer<Lane>) {
-        unsafe chighway_ops_store_i64(a, to)
+        unsafe chighway_ops_store_i64(a.raw, to)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -110,7 +144,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     public static func store(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>) {
         assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
         span.withUnsafeMutableBufferPointer {
-            unsafe chighway_ops_store_i64(a, $0.baseAddress.unsafelyUnwrapped)
+            unsafe chighway_ops_store_i64(a.raw, $0.baseAddress.unsafelyUnwrapped)
         }
     }
 
@@ -133,7 +167,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         )
         unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
             unsafe chighway_ops_store_i64(
-                a,
+                a.raw,
                 buffer.baseAddress.unsafelyUnwrapped + initializedCount
             )
             initializedCount &+= laneCount
@@ -142,7 +176,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
 
     @export(implementation) @inline(always)
     public static func storeAligned(_ a: Vector, to: UnsafeMutablePointer<Lane>) {
-        unsafe chighway_ops_store_aligned_i64(a, to)
+        unsafe chighway_ops_store_aligned_i64(a.raw, to)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -169,7 +203,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
             "Span does not start at an address aligned to the vector size"
         )
         span.withUnsafeMutableBufferPointer {
-            unsafe chighway_ops_store_aligned_i64(a, $0.baseAddress.unsafelyUnwrapped)
+            unsafe chighway_ops_store_aligned_i64(a.raw, $0.baseAddress.unsafelyUnwrapped)
         }
     }
 
@@ -206,7 +240,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         )
         unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
             unsafe chighway_ops_store_aligned_i64(
-                a,
+                a.raw,
                 buffer.baseAddress.unsafelyUnwrapped + initializedCount
             )
             initializedCount &+= laneCount
@@ -215,14 +249,14 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
 
     @export(implementation) @inline(always)
     public static func storeFirst(_ a: Vector, to: UnsafeMutablePointer<Lane>, count: Int) {
-        unsafe chighway_ops_store_first_i64(a, to, count)
+        unsafe chighway_ops_store_first_i64(a.raw, to, count)
     }
 
     @available(SwiftStdlib 5.1, *)
     @export(implementation) @inline(always)
     public static func storeFirst(_ a: Vector, to span: inout MutableSpan<Lane>) {
         span.withUnsafeMutableBufferPointer {
-            unsafe chighway_ops_store_first_i64(a, $0.baseAddress, $0.count)
+            unsafe chighway_ops_store_first_i64(a.raw, $0.baseAddress, $0.count)
         }
     }
 
@@ -251,7 +285,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         )
         unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
             unsafe chighway_ops_store_first_i64(
-                a,
+                a.raw,
                 buffer.baseAddress?.advanced(by: initializedCount),
                 addingCount
             )
@@ -261,167 +295,167 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
 
     @export(implementation) @inline(always)
     public static func adding(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_adding_i64(a, b)
+        Vector(raw: chighway_ops_adding_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func subtracting(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_subtracting_i64(a, b)
+        Vector(raw: chighway_ops_subtracting_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func multiplying(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_multiplying_i64(a, b)
+        Vector(raw: chighway_ops_multiplying_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func minimum(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_minimum_i64(a, b)
+        Vector(raw: chighway_ops_minimum_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func maximum(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_maximum_i64(a, b)
+        Vector(raw: chighway_ops_maximum_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func negated(_ a: Vector) -> Vector {
-        chighway_ops_negated_i64(a)
+        Vector(raw: chighway_ops_negated_i64(a.raw))
     }
 
     @export(implementation) @inline(always)
     public static func magnitude(_ a: Vector) -> Vector {
-        chighway_ops_magnitude_i64(a)
+        Vector(raw: chighway_ops_magnitude_i64(a.raw))
     }
 
     @export(implementation) @inline(always)
     public static func bitwiseAnd(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_bitwise_and_i64(a, b)
+        Vector(raw: chighway_ops_bitwise_and_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func bitwiseOr(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_bitwise_or_i64(a, b)
+        Vector(raw: chighway_ops_bitwise_or_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func bitwiseXor(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_bitwise_xor_i64(a, b)
+        Vector(raw: chighway_ops_bitwise_xor_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func bitwiseNot(_ a: Vector) -> Vector {
-        chighway_ops_bitwise_not_i64(a)
+        Vector(raw: chighway_ops_bitwise_not_i64(a.raw))
     }
 
     @export(implementation) @inline(always)
     public static func bitwiseAndNot(_ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_bitwise_and_not_i64(a, b)
+        Vector(raw: chighway_ops_bitwise_and_not_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func shiftedLeft(_ a: Vector, by bits: Int) -> Vector {
-        chighway_ops_shifted_left_i64(a, Int32(truncatingIfNeeded: bits))
+        Vector(raw: chighway_ops_shifted_left_i64(a.raw, Int32(truncatingIfNeeded: bits)))
     }
 
     @export(implementation) @inline(always)
     public static func shiftedRight(_ a: Vector, by bits: Int) -> Vector {
-        chighway_ops_shifted_right_i64(a, Int32(truncatingIfNeeded: bits))
+        Vector(raw: chighway_ops_shifted_right_i64(a.raw, Int32(truncatingIfNeeded: bits)))
     }
 
     @export(implementation) @inline(always)
     public static func equalTo(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_equal_to_i64(a, b))
+        Mask(raw: chighway_ops_equal_to_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func notEqualTo(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_not_equal_to_i64(a, b))
+        Mask(raw: chighway_ops_not_equal_to_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func lessThan(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_less_than_i64(a, b))
+        Mask(raw: chighway_ops_less_than_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func greaterThan(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_greater_than_i64(a, b))
+        Mask(raw: chighway_ops_greater_than_i64(a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func selecting(_ mask: Mask, _ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_selecting_i64(mask._storage, a, b)
+        Vector(raw: chighway_ops_selecting_i64(mask.raw, a.raw, b.raw))
     }
 
     @export(implementation) @inline(always)
     public static func selectingOrZero(_ mask: Mask, _ a: Vector) -> Vector {
-        chighway_ops_selecting_or_zero_i64(mask._storage, a)
+        Vector(raw: chighway_ops_selecting_or_zero_i64(mask.raw, a.raw))
     }
 
     @export(implementation) @inline(always)
     public static func zeroingSelected(_ mask: Mask, _ a: Vector) -> Vector {
-        chighway_ops_zeroing_selected_i64(mask._storage, a)
+        Vector(raw: chighway_ops_zeroing_selected_i64(mask.raw, a.raw))
     }
 
     @export(implementation) @inline(always)
     public static func firstLanes(count: Int) -> Mask {
-        Mask(chighway_ops_first_lanes_i64(count))
+        Mask(raw: chighway_ops_first_lanes_i64(count))
     }
 
     @export(implementation) @inline(always)
     public static func allTrue(_ mask: Mask) -> Bool {
-        chighway_ops_all_true_i64(mask._storage)
+        chighway_ops_all_true_i64(mask.raw)
     }
 
     @export(implementation) @inline(always)
     public static func allFalse(_ mask: Mask) -> Bool {
-        chighway_ops_all_false_i64(mask._storage)
+        chighway_ops_all_false_i64(mask.raw)
     }
 
     @export(implementation) @inline(always)
     public static func trueCount(_ mask: Mask) -> Int {
-        Int(chighway_ops_true_count_i64(mask._storage))
+        Int(chighway_ops_true_count_i64(mask.raw))
     }
 
     @export(implementation) @inline(always)
     public static func firstTrueIndex(_ mask: Mask) -> Int {
-        Int(chighway_ops_first_true_index_i64(mask._storage))
+        Int(chighway_ops_first_true_index_i64(mask.raw))
     }
 
     @export(implementation) @inline(always)
     public static func sum(_ a: Vector) -> Lane {
-        chighway_ops_sum_i64(a)
+        chighway_ops_sum_i64(a.raw)
     }
 
     @export(implementation) @inline(always)
     public static func smallest(_ a: Vector) -> Lane {
-        chighway_ops_smallest_i64(a)
+        chighway_ops_smallest_i64(a.raw)
     }
 
     @export(implementation) @inline(always)
     public static func largest(_ a: Vector) -> Lane {
-        chighway_ops_largest_i64(a)
+        chighway_ops_largest_i64(a.raw)
     }
 
     @export(implementation) @inline(always)
     public static func firstLane(_ a: Vector) -> Lane {
-        chighway_ops_first_lane_i64(a)
+        chighway_ops_first_lane_i64(a.raw)
     }
 
     @export(implementation) @inline(always)
     public static func reversed(_ a: Vector) -> Vector {
-        chighway_ops_reversed_i64(a)
+        Vector(raw: chighway_ops_reversed_i64(a.raw))
     }
 
     @export(implementation) @inline(always)
     public static func slideUpLanes(_ a: Vector, by lanes: Int) -> Vector {
-        chighway_ops_slide_up_lanes_i64(a, lanes)
+        Vector(raw: chighway_ops_slide_up_lanes_i64(a.raw, lanes))
     }
 
     @export(implementation) @inline(always)
     public static func slide1Up(_ a: Vector) -> Vector {
-        chighway_ops_slide1_up_i64(a)
+        Vector(raw: chighway_ops_slide1_up_i64(a.raw))
     }
 
     @export(implementation) @inline(always)
@@ -430,7 +464,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         _ v0: inout Vector,
         _ v1: inout Vector
     ) {
-        unsafe chighway_ops_load_interleaved2_i64(from, &v0, &v1)
+        unsafe chighway_ops_load_interleaved2_i64(from, &v0.raw, &v1.raw)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -456,7 +490,11 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     ) {
         assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
         span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_interleaved2_i64($0.baseAddress.unsafelyUnwrapped, &v0, &v1)
+            unsafe chighway_ops_load_interleaved2_i64(
+                $0.baseAddress.unsafelyUnwrapped,
+                &v0.raw,
+                &v1.raw
+            )
         }
     }
 
@@ -467,7 +505,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         _ v1: inout Vector,
         _ v2: inout Vector
     ) {
-        unsafe chighway_ops_load_interleaved3_i64(from, &v0, &v1, &v2)
+        unsafe chighway_ops_load_interleaved3_i64(from, &v0.raw, &v1.raw, &v2.raw)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -497,9 +535,9 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         span.withUnsafeBufferPointer {
             unsafe chighway_ops_load_interleaved3_i64(
                 $0.baseAddress.unsafelyUnwrapped,
-                &v0,
-                &v1,
-                &v2
+                &v0.raw,
+                &v1.raw,
+                &v2.raw
             )
         }
     }
@@ -512,7 +550,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         _ v2: inout Vector,
         _ v3: inout Vector
     ) {
-        unsafe chighway_ops_load_interleaved4_i64(from, &v0, &v1, &v2, &v3)
+        unsafe chighway_ops_load_interleaved4_i64(from, &v0.raw, &v1.raw, &v2.raw, &v3.raw)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -544,17 +582,17 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         span.withUnsafeBufferPointer {
             unsafe chighway_ops_load_interleaved4_i64(
                 $0.baseAddress.unsafelyUnwrapped,
-                &v0,
-                &v1,
-                &v2,
-                &v3
+                &v0.raw,
+                &v1.raw,
+                &v2.raw,
+                &v3.raw
             )
         }
     }
 
     @export(implementation) @inline(always)
     public static func storeInterleaved2(_ a: Vector, _ b: Vector, to: UnsafeMutablePointer<Lane>) {
-        unsafe chighway_ops_store_interleaved2_i64(a, b, to)
+        unsafe chighway_ops_store_interleaved2_i64(a.raw, b.raw, to)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -577,7 +615,11 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     ) {
         assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
         span.withUnsafeMutableBufferPointer {
-            unsafe chighway_ops_store_interleaved2_i64(a, b, $0.baseAddress.unsafelyUnwrapped)
+            unsafe chighway_ops_store_interleaved2_i64(
+                a.raw,
+                b.raw,
+                $0.baseAddress.unsafelyUnwrapped
+            )
         }
     }
 
@@ -608,8 +650,8 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         )
         unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
             unsafe chighway_ops_store_interleaved2_i64(
-                a,
-                b,
+                a.raw,
+                b.raw,
                 buffer.baseAddress.unsafelyUnwrapped + initializedCount
             )
             initializedCount &+= 2 * laneCount
@@ -623,7 +665,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         _ c: Vector,
         to: UnsafeMutablePointer<Lane>
     ) {
-        unsafe chighway_ops_store_interleaved3_i64(a, b, c, to)
+        unsafe chighway_ops_store_interleaved3_i64(a.raw, b.raw, c.raw, to)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -651,7 +693,12 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     ) {
         assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
         span.withUnsafeMutableBufferPointer {
-            unsafe chighway_ops_store_interleaved3_i64(a, b, c, $0.baseAddress.unsafelyUnwrapped)
+            unsafe chighway_ops_store_interleaved3_i64(
+                a.raw,
+                b.raw,
+                c.raw,
+                $0.baseAddress.unsafelyUnwrapped
+            )
         }
     }
 
@@ -684,9 +731,9 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         )
         unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
             unsafe chighway_ops_store_interleaved3_i64(
-                a,
-                b,
-                c,
+                a.raw,
+                b.raw,
+                c.raw,
                 buffer.baseAddress.unsafelyUnwrapped + initializedCount
             )
             initializedCount &+= 3 * laneCount
@@ -701,7 +748,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         _ d: Vector,
         to: UnsafeMutablePointer<Lane>
     ) {
-        unsafe chighway_ops_store_interleaved4_i64(a, b, c, d, to)
+        unsafe chighway_ops_store_interleaved4_i64(a.raw, b.raw, c.raw, d.raw, to)
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -731,7 +778,13 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     ) {
         assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
         span.withUnsafeMutableBufferPointer {
-            unsafe chighway_ops_store_interleaved4_i64(a, b, c, d, $0.baseAddress.unsafelyUnwrapped)
+            unsafe chighway_ops_store_interleaved4_i64(
+                a.raw,
+                b.raw,
+                c.raw,
+                d.raw,
+                $0.baseAddress.unsafelyUnwrapped
+            )
         }
     }
 
@@ -766,10 +819,10 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
         )
         unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
             unsafe chighway_ops_store_interleaved4_i64(
-                a,
-                b,
-                c,
-                d,
+                a.raw,
+                b.raw,
+                c.raw,
+                d.raw,
                 buffer.baseAddress.unsafelyUnwrapped + initializedCount
             )
             initializedCount &+= 4 * laneCount
@@ -778,7 +831,7 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
 
     @export(implementation) @inline(always)
     public static func loadWidening(from: UnsafePointer<Int8>) -> Vector {
-        unsafe chighway_ops_load_widening_i8_to_i64(from)
+        Vector(raw: unsafe chighway_ops_load_widening_i8_to_i64(from))
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -793,13 +846,15 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     public static func loadWidening(fromUnchecked span: Span<Int8>) -> Vector {
         assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
         return span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_widening_i8_to_i64($0.baseAddress.unsafelyUnwrapped)
+            Vector(
+                raw: unsafe chighway_ops_load_widening_i8_to_i64($0.baseAddress.unsafelyUnwrapped)
+            )
         }
     }
 
     @export(implementation) @inline(always)
     public static func loadWidening(from: UnsafePointer<Int16>) -> Vector {
-        unsafe chighway_ops_load_widening_i16_to_i64(from)
+        Vector(raw: unsafe chighway_ops_load_widening_i16_to_i64(from))
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -814,13 +869,15 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     public static func loadWidening(fromUnchecked span: Span<Int16>) -> Vector {
         assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
         return span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_widening_i16_to_i64($0.baseAddress.unsafelyUnwrapped)
+            Vector(
+                raw: unsafe chighway_ops_load_widening_i16_to_i64($0.baseAddress.unsafelyUnwrapped)
+            )
         }
     }
 
     @export(implementation) @inline(always)
     public static func loadWidening(from: UnsafePointer<Int32>) -> Vector {
-        unsafe chighway_ops_load_widening_i32_to_i64(from)
+        Vector(raw: unsafe chighway_ops_load_widening_i32_to_i64(from))
     }
 
     @available(SwiftStdlib 5.1, *)
@@ -835,52 +892,58 @@ public enum HighwayInt64: HighwayElement, HighwayIntegerElement, SendableMetatyp
     public static func loadWidening(fromUnchecked span: Span<Int32>) -> Vector {
         assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
         return span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_widening_i32_to_i64($0.baseAddress.unsafelyUnwrapped)
+            Vector(
+                raw: unsafe chighway_ops_load_widening_i32_to_i64($0.baseAddress.unsafelyUnwrapped)
+            )
         }
     }
 
     @export(implementation) @inline(always)
     public static func loadFirstWidening(from: UnsafePointer<Int8>, count: Int) -> Vector {
-        unsafe chighway_ops_load_first_widening_i8_to_i64(from, count)
+        Vector(raw: unsafe chighway_ops_load_first_widening_i8_to_i64(from, count))
     }
 
     @available(SwiftStdlib 5.1, *)
     @export(implementation) @inline(always)
     public static func loadFirstWidening(from span: Span<Int8>) -> Vector {
         span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_first_widening_i8_to_i64($0.baseAddress, $0.count)
+            Vector(raw: unsafe chighway_ops_load_first_widening_i8_to_i64($0.baseAddress, $0.count))
         }
     }
 
     @export(implementation) @inline(always)
     public static func loadFirstWidening(from: UnsafePointer<Int16>, count: Int) -> Vector {
-        unsafe chighway_ops_load_first_widening_i16_to_i64(from, count)
+        Vector(raw: unsafe chighway_ops_load_first_widening_i16_to_i64(from, count))
     }
 
     @available(SwiftStdlib 5.1, *)
     @export(implementation) @inline(always)
     public static func loadFirstWidening(from span: Span<Int16>) -> Vector {
         span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_first_widening_i16_to_i64($0.baseAddress, $0.count)
+            Vector(
+                raw: unsafe chighway_ops_load_first_widening_i16_to_i64($0.baseAddress, $0.count)
+            )
         }
     }
 
     @export(implementation) @inline(always)
     public static func loadFirstWidening(from: UnsafePointer<Int32>, count: Int) -> Vector {
-        unsafe chighway_ops_load_first_widening_i32_to_i64(from, count)
+        Vector(raw: unsafe chighway_ops_load_first_widening_i32_to_i64(from, count))
     }
 
     @available(SwiftStdlib 5.1, *)
     @export(implementation) @inline(always)
     public static func loadFirstWidening(from span: Span<Int32>) -> Vector {
         span.withUnsafeBufferPointer {
-            unsafe chighway_ops_load_first_widening_i32_to_i64($0.baseAddress, $0.count)
+            Vector(
+                raw: unsafe chighway_ops_load_first_widening_i32_to_i64($0.baseAddress, $0.count)
+            )
         }
     }
 
     @export(implementation) @inline(always)
     public static func repeatingBlock(_ v0: Lane, _ v1: Lane) -> Vector {
-        chighway_ops_repeating_block_i64(v0, v1)
+        Vector(raw: chighway_ops_repeating_block_i64(v0, v1))
     }
 
 }

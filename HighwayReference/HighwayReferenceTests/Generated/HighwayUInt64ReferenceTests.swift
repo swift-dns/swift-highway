@@ -4,24 +4,28 @@ import CHighwayReference
 import Highway
 import Testing
 
+extension HighwayUInt64.Vector: ReferenceVector {}
+
+extension HighwayUInt64.Mask: ReferenceMask {}
+
 @Suite("HighwayUInt64 against Highway")
 struct HighwayUInt64ReferenceTests {
     typealias H = HighwayUInt64
 
     func reference(_ vector: H.Vector) -> HighwayReference.VectorU64 {
-        HighwayReference.fromPortU64(vector)
+        HighwayReference.fromPortU64(vector.simd)
     }
 
     func port(_ vector: HighwayReference.VectorU64) -> H.Vector {
-        HighwayReference.toPortU64(vector)
+        H.Vector(HighwayReference.toPortU64(vector))
     }
 
     func reference(_ mask: H.Mask) -> HighwayReference.MaskU64 {
-        HighwayReference.maskFromPortU64(mask._storage)
+        HighwayReference.maskFromPortU64(mask.simd._storage)
     }
 
     func port(_ mask: HighwayReference.MaskU64) -> H.Mask {
-        H.Mask(HighwayReference.maskToPortU64(mask))
+        H.Mask(SIMDMask<SIMD2<Int64>>(HighwayReference.maskToPortU64(mask)))
     }
 
     @Test func laneCount() {
@@ -1299,8 +1303,8 @@ struct HighwayUInt64ReferenceTests {
         let vectorInputs = Inputs.vectors(H.Vector.self, seed: 0xBE41_7528_7029_B0F6)
         for vector in vectorInputs {
             mismatches.check(
-                H.repeatingBlock(vector[0], vector[1]),
-                port(HighwayReference.repeatingBlockU64(vector[0], vector[1])),
+                H.repeatingBlock(vector.simd[0], vector.simd[1]),
+                port(HighwayReference.repeatingBlockU64(vector.simd[0], vector.simd[1])),
                 "lanes: \(describe(vector))"
             )
         }

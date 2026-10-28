@@ -3,6 +3,570 @@
 import CHighwayReference
 public import Highway
 
+public enum HighwayReferenceInt32 {
+    public typealias Lane = Int32
+    public typealias Vector = HighwayReference.VectorI32
+
+    @export(implementation) @inline(always)
+    public static var laneCount: Int {
+        Int(HighwayReference.laneCountI32())
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func load(from span: Span<Lane>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return unsafe load(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func load(fromUnchecked span: Span<Lane>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadI32($0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadAligned(from span: Span<Lane>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        precondition(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        return unsafe loadAligned(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadAligned(fromUnchecked span: Span<Lane>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        assert(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadAlignedI32($0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadFirst(from span: Span<Lane>) -> Vector {
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadFirstI32($0.baseAddress, $0.count)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func store(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        unsafe store(a, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func store(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>) {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeI32(a, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func append(_ a: Vector, to output: inout OutputSpan<Lane>) {
+        precondition(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        unsafe append(a, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func append(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>) {
+        assert(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeI32(
+                a,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeAligned(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        precondition(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        unsafe storeAligned(a, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeAligned(_ a: Vector, toUnchecked span: inout MutableSpan<Lane>) {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        assert(
+            span.withUnsafeBufferPointer {
+                UInt(bitPattern: $0.baseAddress) % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "Span does not start at an address aligned to the vector size"
+        )
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeAlignedI32(a, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendAligned(_ a: Vector, to output: inout OutputSpan<Lane>) {
+        precondition(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        precondition(
+            output.span.withUnsafeBufferPointer {
+                (UInt(bitPattern: $0.baseAddress) &+ UInt($0.count &* MemoryLayout<Lane>.stride))
+                    % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "OutputSpan does not continue at an address aligned to the vector size"
+        )
+        unsafe appendAligned(a, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendAligned(_ a: Vector, toUnchecked output: inout OutputSpan<Lane>) {
+        assert(
+            output.freeCapacity >= laneCount,
+            "OutputSpan has less free capacity than a vector has lanes"
+        )
+        assert(
+            output.span.withUnsafeBufferPointer {
+                (UInt(bitPattern: $0.baseAddress) &+ UInt($0.count &* MemoryLayout<Lane>.stride))
+                    % UInt(laneCount * MemoryLayout<Lane>.stride) == 0
+            },
+            "OutputSpan does not continue at an address aligned to the vector size"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeAlignedI32(
+                a,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeFirst(_ a: Vector, to span: inout MutableSpan<Lane>) {
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeFirstI32(a, $0.baseAddress, $0.count)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func append(_ a: Vector, addingCount: Int, to output: inout OutputSpan<Lane>) {
+        precondition(addingCount >= 0 && addingCount <= laneCount, "Count out of bounds")
+        precondition(
+            addingCount <= output.freeCapacity,
+            "OutputSpan has less free capacity than the count"
+        )
+        unsafe append(a, addingCount: addingCount, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func append(
+        _ a: Vector,
+        addingCount: Int,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(addingCount >= 0 && addingCount <= laneCount, "Count out of bounds")
+        assert(
+            addingCount <= output.freeCapacity,
+            "OutputSpan has less free capacity than the count"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeFirstI32(
+                a,
+                buffer.baseAddress?.advanced(by: initializedCount),
+                addingCount
+            )
+            initializedCount &+= addingCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved2(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector
+    ) {
+        precondition(
+            span.count >= 2 * laneCount,
+            "Span has fewer elements than 2 vectors have lanes"
+        )
+        unsafe loadInterleaved2(fromUnchecked: span, &v0, &v1)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved2(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector
+    ) {
+        assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadInterleaved2I32($0.baseAddress.unsafelyUnwrapped, &v0, &v1)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved3(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    ) {
+        precondition(
+            span.count >= 3 * laneCount,
+            "Span has fewer elements than 3 vectors have lanes"
+        )
+        unsafe loadInterleaved3(fromUnchecked: span, &v0, &v1, &v2)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved3(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector
+    ) {
+        assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadInterleaved3I32(
+                $0.baseAddress.unsafelyUnwrapped,
+                &v0,
+                &v1,
+                &v2
+            )
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadInterleaved4(
+        from span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    ) {
+        precondition(
+            span.count >= 4 * laneCount,
+            "Span has fewer elements than 4 vectors have lanes"
+        )
+        unsafe loadInterleaved4(fromUnchecked: span, &v0, &v1, &v2, &v3)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadInterleaved4(
+        fromUnchecked span: Span<Lane>,
+        _ v0: inout Vector,
+        _ v1: inout Vector,
+        _ v2: inout Vector,
+        _ v3: inout Vector
+    ) {
+        assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadInterleaved4I32(
+                $0.baseAddress.unsafelyUnwrapped,
+                &v0,
+                &v1,
+                &v2,
+                &v3
+            )
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved2(_ a: Vector, _ b: Vector, to span: inout MutableSpan<Lane>)
+    {
+        precondition(
+            span.count >= 2 * laneCount,
+            "Span has fewer elements than 2 vectors have lanes"
+        )
+        unsafe storeInterleaved2(a, b, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 2 * laneCount, "Span has fewer elements than 2 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeInterleaved2I32(a, b, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 2 * laneCount,
+            "OutputSpan has less free capacity than 2 vectors have lanes"
+        )
+        unsafe appendInterleaved2(a, b, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved2(
+        _ a: Vector,
+        _ b: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 2 * laneCount,
+            "OutputSpan has less free capacity than 2 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeInterleaved2I32(
+                a,
+                b,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 2 * laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to span: inout MutableSpan<Lane>
+    ) {
+        precondition(
+            span.count >= 3 * laneCount,
+            "Span has fewer elements than 3 vectors have lanes"
+        )
+        unsafe storeInterleaved3(a, b, c, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 3 * laneCount, "Span has fewer elements than 3 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeInterleaved3I32(a, b, c, $0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 3 * laneCount,
+            "OutputSpan has less free capacity than 3 vectors have lanes"
+        )
+        unsafe appendInterleaved3(a, b, c, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved3(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 3 * laneCount,
+            "OutputSpan has less free capacity than 3 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeInterleaved3I32(
+                a,
+                b,
+                c,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 3 * laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to span: inout MutableSpan<Lane>
+    ) {
+        precondition(
+            span.count >= 4 * laneCount,
+            "Span has fewer elements than 4 vectors have lanes"
+        )
+        unsafe storeInterleaved4(a, b, c, d, toUnchecked: &span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func storeInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked span: inout MutableSpan<Lane>
+    ) {
+        assert(span.count >= 4 * laneCount, "Span has fewer elements than 4 vectors have lanes")
+        span.withUnsafeMutableBufferPointer {
+            unsafe HighwayReference.storeInterleaved4I32(
+                a,
+                b,
+                c,
+                d,
+                $0.baseAddress.unsafelyUnwrapped
+            )
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        to output: inout OutputSpan<Lane>
+    ) {
+        precondition(
+            output.freeCapacity >= 4 * laneCount,
+            "OutputSpan has less free capacity than 4 vectors have lanes"
+        )
+        unsafe appendInterleaved4(a, b, c, d, toUnchecked: &output)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func appendInterleaved4(
+        _ a: Vector,
+        _ b: Vector,
+        _ c: Vector,
+        _ d: Vector,
+        toUnchecked output: inout OutputSpan<Lane>
+    ) {
+        assert(
+            output.freeCapacity >= 4 * laneCount,
+            "OutputSpan has less free capacity than 4 vectors have lanes"
+        )
+        unsafe output.withUnsafeMutableBufferPointer { buffer, initializedCount in
+            unsafe HighwayReference.storeInterleaved4I32(
+                a,
+                b,
+                c,
+                d,
+                buffer.baseAddress.unsafelyUnwrapped + initializedCount
+            )
+            initializedCount &+= 4 * laneCount
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadWidening(from span: Span<Int8>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return unsafe loadWidening(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadWidening(fromUnchecked span: Span<Int8>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadWideningI8ToI32($0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadWidening(from span: Span<Int16>) -> Vector {
+        precondition(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return unsafe loadWidening(fromUnchecked: span)
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @unsafe @export(implementation) @inline(always)
+    public static func loadWidening(fromUnchecked span: Span<Int16>) -> Vector {
+        assert(span.count >= laneCount, "Span has fewer elements than a vector has lanes")
+        return span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadWideningI16ToI32($0.baseAddress.unsafelyUnwrapped)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadFirstWidening(from span: Span<Int8>) -> Vector {
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadFirstWideningI8ToI32($0.baseAddress, $0.count)
+        }
+    }
+
+    @available(SwiftStdlib 5.1, *)
+    @export(implementation) @inline(always)
+    public static func loadFirstWidening(from span: Span<Int16>) -> Vector {
+        span.withUnsafeBufferPointer {
+            unsafe HighwayReference.loadFirstWideningI16ToI32($0.baseAddress, $0.count)
+        }
+    }
+
+}
+
 @inline(never)
 public func portZeroI32() -> HighwayInt32.Vector {
     HighwayInt32.zero()
@@ -24,6 +588,16 @@ public func highwayRepeatingI32(_ value: Int32) -> HighwayReference.VectorI32 {
 }
 
 @inline(never)
+public func portRepeatingI32ConstantValue() -> HighwayInt32.Vector {
+    HighwayInt32.repeating(26)
+}
+
+@inline(never)
+public func highwayRepeatingI32ConstantValue() -> HighwayReference.VectorI32 {
+    HighwayReference.repeatingI32(26)
+}
+
+@inline(never)
 public func portIotaI32(_ value: HighwayInt32.Lane) -> HighwayInt32.Vector {
     HighwayInt32.iota(value)
 }
@@ -31,6 +605,16 @@ public func portIotaI32(_ value: HighwayInt32.Lane) -> HighwayInt32.Vector {
 @inline(never)
 public func highwayIotaI32(_ value: Int32) -> HighwayReference.VectorI32 {
     HighwayReference.iotaI32(value)
+}
+
+@inline(never)
+public func portIotaI32ConstantValue() -> HighwayInt32.Vector {
+    HighwayInt32.iota(26)
+}
+
+@inline(never)
+public func highwayIotaI32ConstantValue() -> HighwayReference.VectorI32 {
+    HighwayReference.iotaI32(26)
 }
 
 @inline(never)
@@ -70,6 +654,20 @@ public func highwayLoadFirstI32(
 }
 
 @inline(never)
+public func portLoadFirstI32ConstantCount(
+    from: UnsafePointer<HighwayInt32.Lane>
+) -> HighwayInt32.Vector {
+    unsafe HighwayInt32.loadFirst(from: from, count: 1)
+}
+
+@inline(never)
+public func highwayLoadFirstI32ConstantCount(
+    from: UnsafePointer<Int32>
+) -> HighwayReference.VectorI32 {
+    unsafe HighwayReference.loadFirstI32(from, 1)
+}
+
+@inline(never)
 public func portStoreI32(_ a: HighwayInt32.Vector, to: UnsafeMutablePointer<HighwayInt32.Lane>) {
     unsafe HighwayInt32.store(a, to: to)
 }
@@ -77,6 +675,16 @@ public func portStoreI32(_ a: HighwayInt32.Vector, to: UnsafeMutablePointer<High
 @inline(never)
 public func highwayStoreI32(_ a: HighwayReference.VectorI32, to: UnsafeMutablePointer<Int32>) {
     unsafe HighwayReference.storeI32(a, to)
+}
+
+@inline(never)
+public func portStoreI32ConstantA(to: UnsafeMutablePointer<HighwayInt32.Lane>) {
+    unsafe HighwayInt32.store(HighwayInt32.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreI32ConstantA(to: UnsafeMutablePointer<Int32>) {
+    unsafe HighwayReference.storeI32(HighwayReference.repeatingI32(26), to)
 }
 
 @inline(never)
@@ -91,6 +699,16 @@ public func portStoreAlignedI32(
 public func highwayStoreAlignedI32(_ a: HighwayReference.VectorI32, to: UnsafeMutablePointer<Int32>)
 {
     unsafe HighwayReference.storeAlignedI32(a, to)
+}
+
+@inline(never)
+public func portStoreAlignedI32ConstantA(to: UnsafeMutablePointer<HighwayInt32.Lane>) {
+    unsafe HighwayInt32.storeAligned(HighwayInt32.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreAlignedI32ConstantA(to: UnsafeMutablePointer<Int32>) {
+    unsafe HighwayReference.storeAlignedI32(HighwayReference.repeatingI32(26), to)
 }
 
 @inline(never)
@@ -112,6 +730,32 @@ public func highwayStoreFirstI32(
 }
 
 @inline(never)
+public func portStoreFirstI32ConstantA(to: UnsafeMutablePointer<HighwayInt32.Lane>, count: Int) {
+    unsafe HighwayInt32.storeFirst(HighwayInt32.repeating(26), to: to, count: count)
+}
+
+@inline(never)
+public func highwayStoreFirstI32ConstantA(to: UnsafeMutablePointer<Int32>, count: Int) {
+    unsafe HighwayReference.storeFirstI32(HighwayReference.repeatingI32(26), to, count)
+}
+
+@inline(never)
+public func portStoreFirstI32ConstantCount(
+    _ a: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeFirst(a, to: to, count: 1)
+}
+
+@inline(never)
+public func highwayStoreFirstI32ConstantCount(
+    _ a: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeFirstI32(a, to, 1)
+}
+
+@inline(never)
 public func portAddingI32(_ a: HighwayInt32.Vector, _ b: HighwayInt32.Vector) -> HighwayInt32.Vector
 {
     HighwayInt32.adding(a, b)
@@ -123,6 +767,28 @@ public func highwayAddingI32(
     _ b: HighwayReference.VectorI32
 ) -> HighwayReference.VectorI32 {
     HighwayReference.addingI32(a, b)
+}
+
+@inline(never)
+public func portAddingI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.adding(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayAddingI32ConstantA(_ b: HighwayReference.VectorI32) -> HighwayReference.VectorI32
+{
+    HighwayReference.addingI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portAddingI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.adding(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayAddingI32ConstantB(_ a: HighwayReference.VectorI32) -> HighwayReference.VectorI32
+{
+    HighwayReference.addingI32(a, HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -142,6 +808,30 @@ public func highwaySubtractingI32(
 }
 
 @inline(never)
+public func portSubtractingI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.subtracting(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwaySubtractingI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.subtractingI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portSubtractingI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.subtracting(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwaySubtractingI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.subtractingI32(a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portMultiplyingI32(
     _ a: HighwayInt32.Vector,
     _ b: HighwayInt32.Vector
@@ -155,6 +845,30 @@ public func highwayMultiplyingI32(
     _ b: HighwayReference.VectorI32
 ) -> HighwayReference.VectorI32 {
     HighwayReference.multiplyingI32(a, b)
+}
+
+@inline(never)
+public func portMultiplyingI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.multiplying(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayMultiplyingI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.multiplyingI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portMultiplyingI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.multiplying(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayMultiplyingI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.multiplyingI32(a, HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -174,6 +888,30 @@ public func highwayMinimumI32(
 }
 
 @inline(never)
+public func portMinimumI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.minimum(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayMinimumI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.minimumI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portMinimumI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.minimum(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayMinimumI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.minimumI32(a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portMaximumI32(
     _ a: HighwayInt32.Vector,
     _ b: HighwayInt32.Vector
@@ -190,6 +928,30 @@ public func highwayMaximumI32(
 }
 
 @inline(never)
+public func portMaximumI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.maximum(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayMaximumI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.maximumI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portMaximumI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.maximum(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayMaximumI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.maximumI32(a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portNegatedI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
     HighwayInt32.negated(a)
 }
@@ -200,6 +962,16 @@ public func highwayNegatedI32(_ a: HighwayReference.VectorI32) -> HighwayReferen
 }
 
 @inline(never)
+public func portNegatedI32ConstantA() -> HighwayInt32.Vector {
+    HighwayInt32.negated(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayNegatedI32ConstantA() -> HighwayReference.VectorI32 {
+    HighwayReference.negatedI32(HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portMagnitudeI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
     HighwayInt32.magnitude(a)
 }
@@ -207,6 +979,16 @@ public func portMagnitudeI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
 @inline(never)
 public func highwayMagnitudeI32(_ a: HighwayReference.VectorI32) -> HighwayReference.VectorI32 {
     HighwayReference.magnitudeI32(a)
+}
+
+@inline(never)
+public func portMagnitudeI32ConstantA() -> HighwayInt32.Vector {
+    HighwayInt32.magnitude(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayMagnitudeI32ConstantA() -> HighwayReference.VectorI32 {
+    HighwayReference.magnitudeI32(HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -226,6 +1008,30 @@ public func highwayBitwiseAndI32(
 }
 
 @inline(never)
+public func portBitwiseAndI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseAnd(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseAndI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseAndI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portBitwiseAndI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseAnd(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseAndI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseAndI32(a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portBitwiseOrI32(
     _ a: HighwayInt32.Vector,
     _ b: HighwayInt32.Vector
@@ -239,6 +1045,30 @@ public func highwayBitwiseOrI32(
     _ b: HighwayReference.VectorI32
 ) -> HighwayReference.VectorI32 {
     HighwayReference.bitwiseOrI32(a, b)
+}
+
+@inline(never)
+public func portBitwiseOrI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseOr(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseOrI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseOrI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portBitwiseOrI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseOr(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseOrI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseOrI32(a, HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -258,6 +1088,30 @@ public func highwayBitwiseXorI32(
 }
 
 @inline(never)
+public func portBitwiseXorI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseXor(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseXorI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseXorI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portBitwiseXorI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseXor(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseXorI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseXorI32(a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portBitwiseNotI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
     HighwayInt32.bitwiseNot(a)
 }
@@ -265,6 +1119,16 @@ public func portBitwiseNotI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
 @inline(never)
 public func highwayBitwiseNotI32(_ a: HighwayReference.VectorI32) -> HighwayReference.VectorI32 {
     HighwayReference.bitwiseNotI32(a)
+}
+
+@inline(never)
+public func portBitwiseNotI32ConstantA() -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseNot(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseNotI32ConstantA() -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseNotI32(HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -284,8 +1148,32 @@ public func highwayBitwiseAndNotI32(
 }
 
 @inline(never)
-public func portShiftedLeftI32(_ a: HighwayInt32.Vector, by bits: Int) -> HighwayInt32.Vector {
-    HighwayInt32.shiftedLeft(a, by: bits)
+public func portBitwiseAndNotI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseAndNot(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayBitwiseAndNotI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseAndNotI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portBitwiseAndNotI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.bitwiseAndNot(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayBitwiseAndNotI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.bitwiseAndNotI32(a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
+public func portShiftedLeftI32(_ a: HighwayInt32.Vector, by bits: Int32) -> HighwayInt32.Vector {
+    HighwayInt32.shiftedLeft(a, by: Int(bits))
 }
 
 @inline(never)
@@ -297,8 +1185,30 @@ public func highwayShiftedLeftI32(
 }
 
 @inline(never)
-public func portShiftedRightI32(_ a: HighwayInt32.Vector, by bits: Int) -> HighwayInt32.Vector {
-    HighwayInt32.shiftedRight(a, by: bits)
+public func portShiftedLeftI32ConstantA(by bits: Int32) -> HighwayInt32.Vector {
+    HighwayInt32.shiftedLeft(HighwayInt32.repeating(26), by: Int(bits))
+}
+
+@inline(never)
+public func highwayShiftedLeftI32ConstantA(by bits: Int32) -> HighwayReference.VectorI32 {
+    HighwayReference.shiftedLeftI32(HighwayReference.repeatingI32(26), bits)
+}
+
+@inline(never)
+public func portShiftedLeftI32ConstantBits(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.shiftedLeft(a, by: 3)
+}
+
+@inline(never)
+public func highwayShiftedLeftI32ConstantBits(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.shiftedLeftI32(a, 3)
+}
+
+@inline(never)
+public func portShiftedRightI32(_ a: HighwayInt32.Vector, by bits: Int32) -> HighwayInt32.Vector {
+    HighwayInt32.shiftedRight(a, by: Int(bits))
 }
 
 @inline(never)
@@ -307,6 +1217,28 @@ public func highwayShiftedRightI32(
     by bits: Int32
 ) -> HighwayReference.VectorI32 {
     HighwayReference.shiftedRightI32(a, bits)
+}
+
+@inline(never)
+public func portShiftedRightI32ConstantA(by bits: Int32) -> HighwayInt32.Vector {
+    HighwayInt32.shiftedRight(HighwayInt32.repeating(26), by: Int(bits))
+}
+
+@inline(never)
+public func highwayShiftedRightI32ConstantA(by bits: Int32) -> HighwayReference.VectorI32 {
+    HighwayReference.shiftedRightI32(HighwayReference.repeatingI32(26), bits)
+}
+
+@inline(never)
+public func portShiftedRightI32ConstantBits(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.shiftedRight(a, by: 3)
+}
+
+@inline(never)
+public func highwayShiftedRightI32ConstantBits(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.shiftedRightI32(a, 3)
 }
 
 @inline(never)
@@ -321,6 +1253,28 @@ public func highwayEqualToI32(
     _ b: HighwayReference.VectorI32
 ) -> HighwayReference.MaskI32 {
     HighwayReference.equalToI32(a, b)
+}
+
+@inline(never)
+public func portEqualToI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.equalTo(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayEqualToI32ConstantA(_ b: HighwayReference.VectorI32) -> HighwayReference.MaskI32
+{
+    HighwayReference.equalToI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portEqualToI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.equalTo(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayEqualToI32ConstantB(_ a: HighwayReference.VectorI32) -> HighwayReference.MaskI32
+{
+    HighwayReference.equalToI32(a, HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -340,6 +1294,30 @@ public func highwayNotEqualToI32(
 }
 
 @inline(never)
+public func portNotEqualToI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.notEqualTo(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayNotEqualToI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.MaskI32 {
+    HighwayReference.notEqualToI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portNotEqualToI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.notEqualTo(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayNotEqualToI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.MaskI32 {
+    HighwayReference.notEqualToI32(a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portLessThanI32(_ a: HighwayInt32.Vector, _ b: HighwayInt32.Vector) -> HighwayInt32.Mask
 {
     HighwayInt32.lessThan(a, b)
@@ -351,6 +1329,28 @@ public func highwayLessThanI32(
     _ b: HighwayReference.VectorI32
 ) -> HighwayReference.MaskI32 {
     HighwayReference.lessThanI32(a, b)
+}
+
+@inline(never)
+public func portLessThanI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.lessThan(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayLessThanI32ConstantA(_ b: HighwayReference.VectorI32) -> HighwayReference.MaskI32
+{
+    HighwayReference.lessThanI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portLessThanI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.lessThan(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayLessThanI32ConstantB(_ a: HighwayReference.VectorI32) -> HighwayReference.MaskI32
+{
+    HighwayReference.lessThanI32(a, HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -367,6 +1367,30 @@ public func highwayGreaterThanI32(
     _ b: HighwayReference.VectorI32
 ) -> HighwayReference.MaskI32 {
     HighwayReference.greaterThanI32(a, b)
+}
+
+@inline(never)
+public func portGreaterThanI32ConstantA(_ b: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.greaterThan(HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwayGreaterThanI32ConstantA(
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.MaskI32 {
+    HighwayReference.greaterThanI32(HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portGreaterThanI32ConstantB(_ a: HighwayInt32.Vector) -> HighwayInt32.Mask {
+    HighwayInt32.greaterThan(a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayGreaterThanI32ConstantB(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.MaskI32 {
+    HighwayReference.greaterThanI32(a, HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -388,6 +1412,38 @@ public func highwaySelectingI32(
 }
 
 @inline(never)
+public func portSelectingI32ConstantA(
+    _ mask: HighwayInt32.Mask,
+    _ b: HighwayInt32.Vector
+) -> HighwayInt32.Vector {
+    HighwayInt32.selecting(mask, HighwayInt32.repeating(26), b)
+}
+
+@inline(never)
+public func highwaySelectingI32ConstantA(
+    _ mask: HighwayReference.MaskI32,
+    _ b: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.selectingI32(mask, HighwayReference.repeatingI32(26), b)
+}
+
+@inline(never)
+public func portSelectingI32ConstantB(
+    _ mask: HighwayInt32.Mask,
+    _ a: HighwayInt32.Vector
+) -> HighwayInt32.Vector {
+    HighwayInt32.selecting(mask, a, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwaySelectingI32ConstantB(
+    _ mask: HighwayReference.MaskI32,
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.selectingI32(mask, a, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portSelectingOrZeroI32(
     _ mask: HighwayInt32.Mask,
     _ a: HighwayInt32.Vector
@@ -401,6 +1457,18 @@ public func highwaySelectingOrZeroI32(
     _ a: HighwayReference.VectorI32
 ) -> HighwayReference.VectorI32 {
     HighwayReference.selectingOrZeroI32(mask, a)
+}
+
+@inline(never)
+public func portSelectingOrZeroI32ConstantA(_ mask: HighwayInt32.Mask) -> HighwayInt32.Vector {
+    HighwayInt32.selectingOrZero(mask, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwaySelectingOrZeroI32ConstantA(
+    _ mask: HighwayReference.MaskI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.selectingOrZeroI32(mask, HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -420,6 +1488,18 @@ public func highwayZeroingSelectedI32(
 }
 
 @inline(never)
+public func portZeroingSelectedI32ConstantA(_ mask: HighwayInt32.Mask) -> HighwayInt32.Vector {
+    HighwayInt32.zeroingSelected(mask, HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayZeroingSelectedI32ConstantA(
+    _ mask: HighwayReference.MaskI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.zeroingSelectedI32(mask, HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portFirstLanesI32(count: Int) -> HighwayInt32.Mask {
     HighwayInt32.firstLanes(count: count)
 }
@@ -427,6 +1507,16 @@ public func portFirstLanesI32(count: Int) -> HighwayInt32.Mask {
 @inline(never)
 public func highwayFirstLanesI32(count: Int) -> HighwayReference.MaskI32 {
     HighwayReference.firstLanesI32(count)
+}
+
+@inline(never)
+public func portFirstLanesI32ConstantCount() -> HighwayInt32.Mask {
+    HighwayInt32.firstLanes(count: 1)
+}
+
+@inline(never)
+public func highwayFirstLanesI32ConstantCount() -> HighwayReference.MaskI32 {
+    HighwayReference.firstLanesI32(1)
 }
 
 @inline(never)
@@ -480,6 +1570,16 @@ public func highwaySumI32(_ a: HighwayReference.VectorI32) -> Int32 {
 }
 
 @inline(never)
+public func portSumI32ConstantA() -> HighwayInt32.Lane {
+    HighwayInt32.sum(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwaySumI32ConstantA() -> Int32 {
+    HighwayReference.sumI32(HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portSmallestI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Lane {
     HighwayInt32.smallest(a)
 }
@@ -487,6 +1587,16 @@ public func portSmallestI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Lane {
 @inline(never)
 public func highwaySmallestI32(_ a: HighwayReference.VectorI32) -> Int32 {
     HighwayReference.smallestI32(a)
+}
+
+@inline(never)
+public func portSmallestI32ConstantA() -> HighwayInt32.Lane {
+    HighwayInt32.smallest(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwaySmallestI32ConstantA() -> Int32 {
+    HighwayReference.smallestI32(HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -500,6 +1610,16 @@ public func highwayLargestI32(_ a: HighwayReference.VectorI32) -> Int32 {
 }
 
 @inline(never)
+public func portLargestI32ConstantA() -> HighwayInt32.Lane {
+    HighwayInt32.largest(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayLargestI32ConstantA() -> Int32 {
+    HighwayReference.largestI32(HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portFirstLaneI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Lane {
     HighwayInt32.firstLane(a)
 }
@@ -510,6 +1630,16 @@ public func highwayFirstLaneI32(_ a: HighwayReference.VectorI32) -> Int32 {
 }
 
 @inline(never)
+public func portFirstLaneI32ConstantA() -> HighwayInt32.Lane {
+    HighwayInt32.firstLane(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayFirstLaneI32ConstantA() -> Int32 {
+    HighwayReference.firstLaneI32(HighwayReference.repeatingI32(26))
+}
+
+@inline(never)
 public func portReversedI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
     HighwayInt32.reversed(a)
 }
@@ -517,6 +1647,16 @@ public func portReversedI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
 @inline(never)
 public func highwayReversedI32(_ a: HighwayReference.VectorI32) -> HighwayReference.VectorI32 {
     HighwayReference.reversedI32(a)
+}
+
+@inline(never)
+public func portReversedI32ConstantA() -> HighwayInt32.Vector {
+    HighwayInt32.reversed(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwayReversedI32ConstantA() -> HighwayReference.VectorI32 {
+    HighwayReference.reversedI32(HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -533,6 +1673,28 @@ public func highwaySlideUpLanesI32(
 }
 
 @inline(never)
+public func portSlideUpLanesI32ConstantA(by lanes: Int) -> HighwayInt32.Vector {
+    HighwayInt32.slideUpLanes(HighwayInt32.repeating(26), by: lanes)
+}
+
+@inline(never)
+public func highwaySlideUpLanesI32ConstantA(by lanes: Int) -> HighwayReference.VectorI32 {
+    HighwayReference.slideUpLanesI32(HighwayReference.repeatingI32(26), lanes)
+}
+
+@inline(never)
+public func portSlideUpLanesI32ConstantLanes(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
+    HighwayInt32.slideUpLanes(a, by: 1)
+}
+
+@inline(never)
+public func highwaySlideUpLanesI32ConstantLanes(
+    _ a: HighwayReference.VectorI32
+) -> HighwayReference.VectorI32 {
+    HighwayReference.slideUpLanesI32(a, 1)
+}
+
+@inline(never)
 public func portSlide1UpI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
     HighwayInt32.slide1Up(a)
 }
@@ -540,6 +1702,16 @@ public func portSlide1UpI32(_ a: HighwayInt32.Vector) -> HighwayInt32.Vector {
 @inline(never)
 public func highwaySlide1UpI32(_ a: HighwayReference.VectorI32) -> HighwayReference.VectorI32 {
     HighwayReference.slide1UpI32(a)
+}
+
+@inline(never)
+public func portSlide1UpI32ConstantA() -> HighwayInt32.Vector {
+    HighwayInt32.slide1Up(HighwayInt32.repeating(26))
+}
+
+@inline(never)
+public func highwaySlide1UpI32ConstantA() -> HighwayReference.VectorI32 {
+    HighwayReference.slide1UpI32(HighwayReference.repeatingI32(26))
 }
 
 @inline(never)
@@ -621,6 +1793,38 @@ public func highwayStoreInterleaved2I32(
 }
 
 @inline(never)
+public func portStoreInterleaved2I32ConstantA(
+    _ b: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved2(HighwayInt32.repeating(26), b, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved2I32ConstantA(
+    _ b: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved2I32(HighwayReference.repeatingI32(26), b, to)
+}
+
+@inline(never)
+public func portStoreInterleaved2I32ConstantB(
+    _ a: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved2(a, HighwayInt32.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved2I32ConstantB(
+    _ a: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved2I32(a, HighwayReference.repeatingI32(26), to)
+}
+
+@inline(never)
 public func portStoreInterleaved3I32(
     _ a: HighwayInt32.Vector,
     _ b: HighwayInt32.Vector,
@@ -638,6 +1842,60 @@ public func highwayStoreInterleaved3I32(
     to: UnsafeMutablePointer<Int32>
 ) {
     unsafe HighwayReference.storeInterleaved3I32(a, b, c, to)
+}
+
+@inline(never)
+public func portStoreInterleaved3I32ConstantA(
+    _ b: HighwayInt32.Vector,
+    _ c: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved3(HighwayInt32.repeating(26), b, c, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved3I32ConstantA(
+    _ b: HighwayReference.VectorI32,
+    _ c: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved3I32(HighwayReference.repeatingI32(26), b, c, to)
+}
+
+@inline(never)
+public func portStoreInterleaved3I32ConstantB(
+    _ a: HighwayInt32.Vector,
+    _ c: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved3(a, HighwayInt32.repeating(26), c, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved3I32ConstantB(
+    _ a: HighwayReference.VectorI32,
+    _ c: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved3I32(a, HighwayReference.repeatingI32(26), c, to)
+}
+
+@inline(never)
+public func portStoreInterleaved3I32ConstantC(
+    _ a: HighwayInt32.Vector,
+    _ b: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved3(a, b, HighwayInt32.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved3I32ConstantC(
+    _ a: HighwayReference.VectorI32,
+    _ b: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved3I32(a, b, HighwayReference.repeatingI32(26), to)
 }
 
 @inline(never)
@@ -660,6 +1918,86 @@ public func highwayStoreInterleaved4I32(
     to: UnsafeMutablePointer<Int32>
 ) {
     unsafe HighwayReference.storeInterleaved4I32(a, b, c, d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4I32ConstantA(
+    _ b: HighwayInt32.Vector,
+    _ c: HighwayInt32.Vector,
+    _ d: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved4(HighwayInt32.repeating(26), b, c, d, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4I32ConstantA(
+    _ b: HighwayReference.VectorI32,
+    _ c: HighwayReference.VectorI32,
+    _ d: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved4I32(HighwayReference.repeatingI32(26), b, c, d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4I32ConstantB(
+    _ a: HighwayInt32.Vector,
+    _ c: HighwayInt32.Vector,
+    _ d: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved4(a, HighwayInt32.repeating(26), c, d, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4I32ConstantB(
+    _ a: HighwayReference.VectorI32,
+    _ c: HighwayReference.VectorI32,
+    _ d: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved4I32(a, HighwayReference.repeatingI32(26), c, d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4I32ConstantC(
+    _ a: HighwayInt32.Vector,
+    _ b: HighwayInt32.Vector,
+    _ d: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved4(a, b, HighwayInt32.repeating(26), d, to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4I32ConstantC(
+    _ a: HighwayReference.VectorI32,
+    _ b: HighwayReference.VectorI32,
+    _ d: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved4I32(a, b, HighwayReference.repeatingI32(26), d, to)
+}
+
+@inline(never)
+public func portStoreInterleaved4I32ConstantD(
+    _ a: HighwayInt32.Vector,
+    _ b: HighwayInt32.Vector,
+    _ c: HighwayInt32.Vector,
+    to: UnsafeMutablePointer<HighwayInt32.Lane>
+) {
+    unsafe HighwayInt32.storeInterleaved4(a, b, c, HighwayInt32.repeating(26), to: to)
+}
+
+@inline(never)
+public func highwayStoreInterleaved4I32ConstantD(
+    _ a: HighwayReference.VectorI32,
+    _ b: HighwayReference.VectorI32,
+    _ c: HighwayReference.VectorI32,
+    to: UnsafeMutablePointer<Int32>
+) {
+    unsafe HighwayReference.storeInterleaved4I32(a, b, c, HighwayReference.repeatingI32(26), to)
 }
 
 @inline(never)
@@ -699,6 +2037,20 @@ public func highwayLoadFirstWideningI8ToI32(
 }
 
 @inline(never)
+public func portLoadFirstWideningI8ToI32ConstantCount(
+    from: UnsafePointer<Int8>
+) -> HighwayInt32.Vector {
+    unsafe HighwayInt32.loadFirstWidening(from: from, count: 1)
+}
+
+@inline(never)
+public func highwayLoadFirstWideningI8ToI32ConstantCount(
+    from: UnsafePointer<Int8>
+) -> HighwayReference.VectorI32 {
+    unsafe HighwayReference.loadFirstWideningI8ToI32(from, 1)
+}
+
+@inline(never)
 public func portLoadFirstWideningI16ToI32(
     from: UnsafePointer<Int16>,
     count: Int
@@ -712,6 +2064,20 @@ public func highwayLoadFirstWideningI16ToI32(
     count: Int
 ) -> HighwayReference.VectorI32 {
     unsafe HighwayReference.loadFirstWideningI16ToI32(from, count)
+}
+
+@inline(never)
+public func portLoadFirstWideningI16ToI32ConstantCount(
+    from: UnsafePointer<Int16>
+) -> HighwayInt32.Vector {
+    unsafe HighwayInt32.loadFirstWidening(from: from, count: 1)
+}
+
+@inline(never)
+public func highwayLoadFirstWideningI16ToI32ConstantCount(
+    from: UnsafePointer<Int16>
+) -> HighwayReference.VectorI32 {
+    unsafe HighwayReference.loadFirstWideningI16ToI32(from, 1)
 }
 
 @inline(never)
@@ -732,4 +2098,16 @@ public func highwayRepeatingBlockI32(
     _ v3: Int32
 ) -> HighwayReference.VectorI32 {
     HighwayReference.repeatingBlockI32(v0, v1, v2, v3)
+}
+
+@inline(never)
+public func portNoneAboveI32(_ v: HighwayInt32.Vector) -> Bool {
+    HighwayInt32.allFalse(HighwayInt32.greaterThan(v, HighwayInt32.repeating(26)))
+}
+
+@inline(never)
+public func highwayNoneAboveI32(_ v: HighwayReference.VectorI32) -> Bool {
+    HighwayReference.allFalseI32(
+        HighwayReference.greaterThanI32(v, HighwayReference.repeatingI32(26))
+    )
 }

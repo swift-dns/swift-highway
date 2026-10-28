@@ -4,6 +4,8 @@ import CHighwayReference
 import Highway
 import Testing
 
+extension HighwayDouble.Mask: ReferenceMask {}
+
 @Suite("HighwayDouble against Highway")
 struct HighwayDoubleReferenceTests {
     typealias H = HighwayDouble
@@ -17,11 +19,11 @@ struct HighwayDoubleReferenceTests {
     }
 
     func reference(_ mask: H.Mask) -> HighwayReference.MaskF64 {
-        HighwayReference.maskFromPortF64(mask._storage)
+        HighwayReference.maskFromPortF64(mask.simd._storage)
     }
 
     func port(_ mask: HighwayReference.MaskF64) -> H.Mask {
-        H.Mask(HighwayReference.maskToPortF64(mask))
+        H.Mask(SIMDMask<SIMD2<Int64>>(HighwayReference.maskToPortF64(mask)))
     }
 
     @Test func laneCount() {

@@ -25,18 +25,23 @@ jobs:
           - name: NEON
             runner: ubuntu-24.04-arm
             flags: ""
+            compare-codegen: true
           - name: SSE2
             runner: ubuntu-latest
             flags: ""
+            compare-codegen: true
           - name: SSSE3
             runner: ubuntu-latest
             flags: "-Xcc -mssse3 -Xcc -D__MM_MALLOC_H"
+            compare-codegen: true
           - name: SSE4
             runner: ubuntu-latest
             flags: "-Xcc -march=x86-64-v2 -Xcc -maes -Xcc -mpclmul -Xcc -D__MM_MALLOC_H"
+            compare-codegen: true
           - name: EMU128
             runner: ubuntu-latest
             flags: "-Xcc -DCHIGHWAY_OPS_PORTABLE -Xcc -DHWY_COMPILE_ONLY_EMU128"
+            compare-codegen: false
 
     runs-on: ${{ matrix.target.runner }}
 
@@ -56,3 +61,11 @@ jobs:
         run: |
           read -r -a flags <<< "${FLAGS}"
           swift test --package-path HighwayReference "${flags[@]}"
+
+      - name: Compare the codegen of the ops with highway's
+        if: ${{ matrix.target.compare-codegen }}
+        env:
+          FLAGS: ${{ matrix.target.flags }}
+        run: |
+          read -r -a flags <<< "${FLAGS}"
+          scripts/compare-codegen.sh -- "${flags[@]}"

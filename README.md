@@ -75,8 +75,9 @@ out-of-range inputs, so the ops behave like highway's. `HighwayReference/` holds
 and generated tests that compare every op with highway's, lane for lane, on NEON, SSE2, SSSE3, SSE4
 and highway's EMU128.
 
-The one deliberate difference is `firstLanes(count:)`, which selects every lane for any count of at
-least `laneCount`. Highway's NEON and x86 ops wrap counts above the lane type's signed maximum.
+The one deliberate difference is `firstLanes(count:)` on NEON, which selects every lane for any
+count of at least `laneCount`, as highway's x86 and EMU128 ops do. Highway's NEON op wraps counts
+above the lane type's signed maximum.
 
 ## What is not wrapped
 
