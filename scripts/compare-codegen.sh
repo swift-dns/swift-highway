@@ -11,6 +11,9 @@ fatal() { error "$@"; exit 1; }
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly repository_root
 readonly package_root="${repository_root}/HighwayReference"
+readonly allowlist_path="${repository_root}/scripts/codegen-allowlist.txt"
+readonly normalize_script="${repository_root}/scripts/normalize-disassembly.sh"
+readonly allowlist_entry_pattern='^([A-Z][A-Z0-9_]*)[[:space:]]+([A-Za-z0-9_]+)[[:space:]]+[^[:space:]]'
 readonly target_name="HighwayReferenceCodegen"
 
 architecture=""
@@ -69,23 +72,35 @@ parse_arguments() {
   return 0
 }
 
-find_objdump() {
-  local objdump_path
+validate_allowlist() {
+  local allowlist_file="${1:?validate_allowlist requires the allowlist file}"
 
-  case "$(uname -s)" in
-    Darwin)
-      if ! objdump_path="$(xcrun --find objdump)"; then
-        fatal "'xcrun --find objdump' did not find an objdump"
-      fi
-      ;;
-    *)
-      if ! objdump_path="$(command -v llvm-objdump || command -v objdump)"; then
-        fatal "Neither 'llvm-objdump' nor 'objdump' is on the PATH"
-      fi
-      ;;
-  esac
+  if [[ ! -f "${allowlist_file}" ]]; then
+    fatal "There is no '${allowlist_file}' to read the allowlisted functions from" \
+      "Every line of it is '<TARGET> <Function> <reason>'" \
+      "It is empty when nothing is allowlisted"
+  fi
 
-  printf -- '%s\n' "${objdump_path}"
+  local -A line_of_entry=()
+  local line entry_key
+  local line_number=0
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line_number=$(( line_number + 1 ))
+
+    if [[ ! "${line}" =~ ${allowlist_entry_pattern} ]]; then
+      fatal "Line ${line_number} of '${allowlist_file}' is malformed: '${line}'" \
+        "It must be '<TARGET> <Function> <reason>'" \
+        "For example: 'NEON FirstLanesU8 the reason it differs'" \
+        "Blank lines and comments are not allowed"
+    fi
+
+    entry_key="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
+    if [[ -n "${line_of_entry["${entry_key}"]:-}" ]]; then
+      fatal "Line ${line_number} of '${allowlist_file}' repeats '${entry_key}'," \
+        "which line ${line_of_entry["${entry_key}"]} already allowlists"
+    fi
+    line_of_entry["${entry_key}"]="${line_number}"
+  done < "${allowlist_file}"
   return 0
 }
 
@@ -111,6 +126,15 @@ binary_path() {
   return 0
 }
 
+normalize_object_files() {
+  local -n object_files_ref="${1:?normalize_object_files requires the object file array}"
+
+  if ! "${normalize_script}" -- "${object_files_ref[@]}"; then
+    fatal "Failed to normalize the disassembly of the object files of '${target_name}'"
+  fi
+  return 0
+}
+
 remove_object_files() {
   local binary_directory="${1:?remove_object_files requires the binary directory}"
 
@@ -133,25 +157,6 @@ find_object_files() {
   return 0
 }
 
-disassemble() {
-  local objdump_path="${1:?disassemble requires the path of objdump}"
-  local -n object_files_ref="${2:?disassemble requires the name of the object file array}"
-
-  local -a objdump_arguments=(
-    --disassemble
-    --no-show-raw-insn
-    --no-leading-addr
-    --show-all-symbols
-  )
-  local object_file
-  for object_file in "${object_files_ref[@]}"; do
-    if ! "${objdump_path}" "${objdump_arguments[@]}" "${object_file}"; then
-      fatal "Failed to disassemble '${object_file}'"
-    fi
-  done
-  return 0
-}
-
 demangle_symbols() {
   local listing_file="${1:?demangle_symbols requires the disassembly listing}"
   local symbols_file="${2:?demangle_symbols requires the file to write the symbols to}"
@@ -170,9 +175,14 @@ demangle_symbols() {
 compare_functions() {
   local names_file="${1:?compare_functions requires the file of symbols and demangled names}"
   local listing_file="${2:?compare_functions requires the disassembly listing}"
-  local show_listings="${3:?compare_functions requires whether to print the listings}"
+  local allowlist_file="${3:?compare_functions requires the allowlist file}"
+  local show_listings="${4:?compare_functions requires whether to print the listings}"
 
-  if ! awk -F '\t' -v names_file="${names_file}" -v show_listings="${show_listings}" '
+  if ! awk -F '\t' \
+    -v names_file="${names_file}" \
+    -v allowlist_file="${allowlist_file}" \
+    -v allowlist_name="${allowlist_file#"${repository_root}/"}" \
+    -v show_listings="${show_listings}" '
     function trimmed_length(function_name,    length_without_padding) {
       length_without_padding = instruction_count[function_name]
       while (length_without_padding > 0 &&
@@ -192,9 +202,9 @@ compare_functions() {
       return matched
     }
 
-    function same_mnemonics(first, second, total,    position) {
+    function same_instructions(first, second, total,    position) {
       for (position = 1; position <= total; position++) {
-        if (mnemonic[first, position] != mnemonic[second, position]) {
+        if (instruction[first, position] != instruction[second, position]) {
           return 0
         }
       }
@@ -208,13 +218,26 @@ compare_functions() {
       }
     }
 
+    function print_count(label, count) {
+      printf "  %-12s %d\n", label, count
+    }
+
+    FILENAME == allowlist_file {
+      split($0, entry_fields, " ")
+      allowlist_total++
+      allowlist_target[allowlist_total] = entry_fields[1]
+      allowlist_function[allowlist_total] = entry_fields[2]
+      allowlist_line[allowlist_total] = FNR
+      next
+    }
+
     FILENAME == names_file {
       base_name = $2
       sub(/\(.*$/, "", base_name)
       if (base_name ~ /^(port|highway)[A-Z]/) {
         function_of_symbol[$1] = base_name
       }
-      if (highway_target == "" && base_name ~ /^highway/ && match($1, /N_[A-Z0-9]+O[0-9]/)) {
+      if (highway_target == "" && base_name ~ /^highway/ && match($1, /N_[A-Z0-9_]+O[0-9]/)) {
         highway_target = substr($1, RSTART + 2, RLENGTH - 2)
         sub(/O[0-9]+$/, "", highway_target)
       }
@@ -246,7 +269,6 @@ compare_functions() {
       if (current_function != "") {
         text = $0
         sub(/^[[:space:]]+/, "", text)
-        gsub(/ <[^>]*>/, "", text)
         name = text
         sub(/[[:space:]].*$/, "", name)
         position = ++instruction_count[current_function]
@@ -258,6 +280,12 @@ compare_functions() {
     END {
       call_pattern = "^(bl|blr|blraa|blraaz|blrab|blrabz|call|callq|calll)$"
       branch_pattern = "^(b|b\\.[a-z]+|bc\\.[a-z]+|br|braa|braaz|brab|brabz|cbz|cbnz|tbz|tbnz|j[a-z]+)$"
+
+      for (entry = 1; entry <= allowlist_total; entry++) {
+        if (allowlist_target[entry] == highway_target) {
+          allowlisted[allowlist_function[entry]] = 1
+        }
+      }
 
       for (rank = 1; rank <= port_total; rank++) {
         port_name = port_order[rank]
@@ -272,7 +300,8 @@ compare_functions() {
 
         port_length = trimmed_length(port_name)
         highway_length = trimmed_length(highway_name)
-        if (port_length == highway_length && same_mnemonics(port_name, highway_name, port_length)) {
+        if (port_length == highway_length &&
+            same_instructions(port_name, highway_name, port_length)) {
           verdict = "same"
         } else if (port_length < highway_length) {
           verdict = "shorter"
@@ -281,6 +310,7 @@ compare_functions() {
         } else {
           verdict = "different"
         }
+        verdict_of[key] = verdict
 
         port_calls = count_matching(port_name, port_length, call_pattern)
         highway_calls = count_matching(highway_name, highway_length, call_pattern)
@@ -293,12 +323,22 @@ compare_functions() {
         if (port_branches > highway_branches) {
           flags = flags " [branch]"
         }
+        allowlist_mark = ""
+        if (verdict != "same") {
+          if (key in allowlisted) {
+            allowlist_mark = " [allowlisted]"
+            allowlisted_count++
+          } else {
+            unlisted_count++
+          }
+        }
 
         verdict_count[verdict]++
         if (flags != "") {
           flagged++
         }
-        printf "%-40s port=%-4d highway=%-4d %s%s\n", key, port_length, highway_length, verdict, flags
+        printf "%-40s port=%-4d highway=%-4d %s%s%s\n",
+          key, port_length, highway_length, verdict, flags, allowlist_mark
 
         if (show_listings == "true" && verdict != "same") {
           print_listing("port", port_name, port_length)
@@ -317,16 +357,38 @@ compare_functions() {
         failed = 1
       }
 
+      for (entry = 1; entry <= allowlist_total; entry++) {
+        if (allowlist_target[entry] != highway_target) {
+          continue
+        }
+        listed_function = allowlist_function[entry]
+        if (!(listed_function in verdict_of)) {
+          printf "** ERROR: %s:%d: %s %s is allowlisted but has no port and highway pair\n",
+            allowlist_name, allowlist_line[entry], highway_target, listed_function > "/dev/stderr"
+          failed = 1
+        } else if (verdict_of[listed_function] == "same") {
+          printf "** ERROR: %s:%d: %s %s is allowlisted but its pair is the same\n",
+            allowlist_name, allowlist_line[entry], highway_target, listed_function > "/dev/stderr"
+          failed = 1
+        }
+      }
+      if (unlisted_count > 0) {
+        printf "** ERROR: %d functions differ and are not in %s\n",
+          unlisted_count, allowlist_name > "/dev/stderr"
+        failed = 1
+      }
+
       printf "\nSummary of %d functions on %s\n", port_total, highway_target
-      printf "  same       %d\n", verdict_count["same"]
-      printf "  shorter    %d\n", verdict_count["shorter"]
-      printf "  longer     %d\n", verdict_count["longer"]
-      printf "  different  %d\n", verdict_count["different"]
-      printf "  flagged    %d\n", flagged
+      print_count("same", verdict_count["same"])
+      print_count("shorter", verdict_count["shorter"])
+      print_count("longer", verdict_count["longer"])
+      print_count("different", verdict_count["different"])
+      print_count("flagged", flagged)
+      print_count("allowlisted", allowlisted_count)
       exit failed
     }
-  ' "${names_file}" "${listing_file}"; then
-    fatal "Failed to compare the functions of '${target_name}'"
+  ' "${allowlist_file}" "${names_file}" "${listing_file}"; then
+    fatal "The comparison of the functions of '${target_name}' failed"
   fi
   return 0
 }
@@ -336,8 +398,15 @@ main() {
 
   parse_arguments "$@"
 
-  local objdump_path
-  objdump_path="$(find_objdump)"
+  if [[ ! -x "${normalize_script}" ]]; then
+    fatal "There is no executable '${normalize_script#"${repository_root}/"}'" \
+      "to normalize the disassembly of the object files with"
+  fi
+  if ! "${normalize_script}" --check; then
+    fatal "Cannot normalize the disassembly of '${target_name}' without an objdump"
+  fi
+
+  validate_allowlist "${allowlist_path}"
 
   local -a build_arguments=(
     -c release
@@ -374,11 +443,11 @@ main() {
   local -r names_file="${workspace}/names.tsv"
 
   log "Disassembling ${#object_files[@]} object files..."
-  disassemble "${objdump_path}" object_files > "${listing_file}"
+  normalize_object_files object_files > "${listing_file}"
   demangle_symbols "${listing_file}" "${symbols_file}" "${demangled_file}" > "${names_file}"
 
   log "Comparing the functions..."
-  compare_functions "${names_file}" "${listing_file}" "${verbose}"
+  compare_functions "${names_file}" "${listing_file}" "${allowlist_path}" "${verbose}"
   return 0
 }
 

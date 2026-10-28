@@ -74,8 +74,52 @@ print_implementation_changes() {
   return 0
 }
 
+# Every '<TARGET>.txt' is what scripts/compare-codegen.sh printed for a target, next to its status.
+print_codegen_comparisons() {
+  local reports_directory="${1:?print_codegen_comparisons requires the directory of the reports}"
+
+  printf -- '\n### %s\n\n' "Codegen of the ops against highway's"
+
+  local -a report_files=()
+  local report_file
+  while IFS= read -r -d '' report_file; do
+    report_files+=( "${report_file}" )
+  done < <(find "${reports_directory}" -maxdepth 1 -type f -name '*.txt' -print0 | sort -z)
+  if [[ "${#report_files[@]}" -eq 0 ]]; then
+    fatal "Found no codegen comparison reports in '${reports_directory}'"
+  fi
+
+  local target status_file status
+  for report_file in "${report_files[@]}"; do
+    target="$(basename -- "${report_file}" .txt)"
+    status_file="${report_file%.txt}.status"
+    if [[ ! -f "${status_file}" ]]; then
+      fatal "There is no '${status_file}' with the exit status of the ${target} comparison"
+    fi
+    status="$(< "${status_file}")"
+
+    if [[ "${status}" == "0" ]]; then
+      printf -- '%s\n' "- ${target}: every op compiles to the same code as highway's ✅"
+    elif grep -q '^Summary of ' "${report_file}"; then
+      printf -- '%s\n' "- ${target}: some ops no longer compile to the same code as highway's ❌"
+    else
+      printf -- '%s\n' "- ${target}: the comparison failed with status ${status} 🛑"
+      continue
+    fi
+
+    printf -- '%s\n' '```'
+    grep -E '^[A-Za-z0-9_]+ +port=[0-9]+ +highway=[0-9]+ +(shorter|longer|different)' \
+      "${report_file}" || true
+    sed -n '/^Summary of /,$p' "${report_file}"
+    printf -- '%s\n' '```'
+  done
+  return 0
+}
+
 main() {
-  local previous_quick_reference="${1:?Usage: highway-update-report.sh <previous quick_reference.md>}"
+  local -r usage="Usage: highway-update-report.sh <previous quick_reference.md> <codegen reports>"
+  local previous_quick_reference="${1:?${usage}}"
+  local codegen_reports_directory="${2:?${usage}}"
 
   local previous_names current_names
   previous_names="$(documented_names "${previous_quick_reference}")"
@@ -88,6 +132,7 @@ main() {
   print_names "Ops highway added" "${added}"
   print_names "Ops highway removed" "${removed}"
   print_implementation_changes
+  print_codegen_comparisons "${codegen_reports_directory}"
   return 0
 }
 

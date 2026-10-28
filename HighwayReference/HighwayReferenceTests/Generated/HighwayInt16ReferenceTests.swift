@@ -4,24 +4,28 @@ import CHighwayReference
 import Highway
 import Testing
 
+extension HighwayInt16.Vector: ReferenceVector {}
+
+extension HighwayInt16.Mask: ReferenceMask {}
+
 @Suite("HighwayInt16 against Highway")
 struct HighwayInt16ReferenceTests {
     typealias H = HighwayInt16
 
     func reference(_ vector: H.Vector) -> HighwayReference.VectorI16 {
-        HighwayReference.fromPortI16(vector)
+        HighwayReference.fromPortI16(vector.simd)
     }
 
     func port(_ vector: HighwayReference.VectorI16) -> H.Vector {
-        HighwayReference.toPortI16(vector)
+        H.Vector(HighwayReference.toPortI16(vector))
     }
 
     func reference(_ mask: H.Mask) -> HighwayReference.MaskI16 {
-        HighwayReference.maskFromPortI16(mask._storage)
+        HighwayReference.maskFromPortI16(mask.simd._storage)
     }
 
     func port(_ mask: HighwayReference.MaskI16) -> H.Mask {
-        H.Mask(HighwayReference.maskToPortI16(mask))
+        H.Mask(SIMDMask<SIMD8<Int16>>(HighwayReference.maskToPortI16(mask)))
     }
 
     @Test func laneCount() {
@@ -1176,25 +1180,25 @@ struct HighwayInt16ReferenceTests {
         for vector in vectorInputs {
             mismatches.check(
                 H.repeatingBlock(
-                    vector[0],
-                    vector[1],
-                    vector[2],
-                    vector[3],
-                    vector[4],
-                    vector[5],
-                    vector[6],
-                    vector[7]
+                    vector.simd[0],
+                    vector.simd[1],
+                    vector.simd[2],
+                    vector.simd[3],
+                    vector.simd[4],
+                    vector.simd[5],
+                    vector.simd[6],
+                    vector.simd[7]
                 ),
                 port(
                     HighwayReference.repeatingBlockI16(
-                        vector[0],
-                        vector[1],
-                        vector[2],
-                        vector[3],
-                        vector[4],
-                        vector[5],
-                        vector[6],
-                        vector[7]
+                        vector.simd[0],
+                        vector.simd[1],
+                        vector.simd[2],
+                        vector.simd[3],
+                        vector.simd[4],
+                        vector.simd[5],
+                        vector.simd[6],
+                        vector.simd[7]
                     )
                 ),
                 "lanes: \(describe(vector))"

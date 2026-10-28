@@ -73,11 +73,29 @@ jobs:
         if: steps.upstream.outputs.is-outdated == 'true'
         run: swift utils/GenerateHighwayOps.swift
 
+      - name: Compare the codegen of the ops with highway's
+        if: steps.upstream.outputs.is-outdated == 'true'
+        run: |
+          # The x86 targets of reference-tests, with the same flags.
+          declare -A FLAGS=(
+            [SSE2]=""
+            [SSSE3]="-Xcc -mssse3 -Xcc -D__MM_MALLOC_H"
+            [SSE4]="-Xcc -march=x86-64-v2 -Xcc -maes -Xcc -mpclmul -Xcc -D__MM_MALLOC_H"
+          )
+          mkdir -p "${RUNNER_TEMP}/codegen"
+          for TARGET in SSE2 SSSE3 SSE4; do
+            read -r -a TARGET_FLAGS <<< "${FLAGS[${TARGET}]}"
+            EXIT_STATUS=0
+            scripts/compare-codegen.sh -- "${TARGET_FLAGS[@]}" \
+              > "${RUNNER_TEMP}/codegen/${TARGET}.txt" || EXIT_STATUS=$?
+            printf '%s\n' "${EXIT_STATUS}" > "${RUNNER_TEMP}/codegen/${TARGET}.status"
+          done
+
       - name: Report what upstream changed
         if: steps.upstream.outputs.is-outdated == 'true'
         run: |
           .github/scripts/highway-update-report.sh "${RUNNER_TEMP}/previous-quick-reference.md" \
-            > "${RUNNER_TEMP}/upstream-report.md"
+            "${RUNNER_TEMP}/codegen" > "${RUNNER_TEMP}/upstream-report.md"
 
       - name: Commit the update to a new branch
         if: steps.upstream.outputs.is-outdated == 'true'

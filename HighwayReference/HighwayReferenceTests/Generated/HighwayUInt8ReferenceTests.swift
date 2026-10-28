@@ -4,24 +4,28 @@ import CHighwayReference
 import Highway
 import Testing
 
+extension HighwayUInt8.Vector: ReferenceVector {}
+
+extension HighwayUInt8.Mask: ReferenceMask {}
+
 @Suite("HighwayUInt8 against Highway")
 struct HighwayUInt8ReferenceTests {
     typealias H = HighwayUInt8
 
     func reference(_ vector: H.Vector) -> HighwayReference.VectorU8 {
-        HighwayReference.fromPortU8(vector)
+        HighwayReference.fromPortU8(vector.simd)
     }
 
     func port(_ vector: HighwayReference.VectorU8) -> H.Vector {
-        HighwayReference.toPortU8(vector)
+        H.Vector(HighwayReference.toPortU8(vector))
     }
 
     func reference(_ mask: H.Mask) -> HighwayReference.MaskU8 {
-        HighwayReference.maskFromPortU8(mask._storage)
+        HighwayReference.maskFromPortU8(mask.simd._storage)
     }
 
     func port(_ mask: HighwayReference.MaskU8) -> H.Mask {
-        H.Mask(HighwayReference.maskToPortU8(mask))
+        H.Mask(SIMDMask<SIMD16<Int8>>(HighwayReference.maskToPortU8(mask)))
     }
 
     @Test func laneCount() {
@@ -1070,41 +1074,41 @@ struct HighwayUInt8ReferenceTests {
         for vector in vectorInputs {
             mismatches.check(
                 H.repeatingBlock(
-                    vector[0],
-                    vector[1],
-                    vector[2],
-                    vector[3],
-                    vector[4],
-                    vector[5],
-                    vector[6],
-                    vector[7],
-                    vector[8],
-                    vector[9],
-                    vector[10],
-                    vector[11],
-                    vector[12],
-                    vector[13],
-                    vector[14],
-                    vector[15]
+                    vector.simd[0],
+                    vector.simd[1],
+                    vector.simd[2],
+                    vector.simd[3],
+                    vector.simd[4],
+                    vector.simd[5],
+                    vector.simd[6],
+                    vector.simd[7],
+                    vector.simd[8],
+                    vector.simd[9],
+                    vector.simd[10],
+                    vector.simd[11],
+                    vector.simd[12],
+                    vector.simd[13],
+                    vector.simd[14],
+                    vector.simd[15]
                 ),
                 port(
                     HighwayReference.repeatingBlockU8(
-                        vector[0],
-                        vector[1],
-                        vector[2],
-                        vector[3],
-                        vector[4],
-                        vector[5],
-                        vector[6],
-                        vector[7],
-                        vector[8],
-                        vector[9],
-                        vector[10],
-                        vector[11],
-                        vector[12],
-                        vector[13],
-                        vector[14],
-                        vector[15]
+                        vector.simd[0],
+                        vector.simd[1],
+                        vector.simd[2],
+                        vector.simd[3],
+                        vector.simd[4],
+                        vector.simd[5],
+                        vector.simd[6],
+                        vector.simd[7],
+                        vector.simd[8],
+                        vector.simd[9],
+                        vector.simd[10],
+                        vector.simd[11],
+                        vector.simd[12],
+                        vector.simd[13],
+                        vector.simd[14],
+                        vector.simd[15]
                     )
                 ),
                 "lanes: \(describe(vector))"

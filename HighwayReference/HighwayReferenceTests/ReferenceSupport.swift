@@ -96,6 +96,21 @@ extension Double: ReferenceLane {
     }
 }
 
+protocol ReferenceVector {
+    associatedtype Simd: SIMD where Simd.Scalar: ReferenceLane
+
+    init(_ simd: Simd)
+    var simd: Simd { get }
+}
+
+protocol ReferenceMask {
+    associatedtype Storage: SIMD
+    where Storage.Scalar: ReferenceLane & FixedWidthInteger & SignedInteger
+
+    init(_ simd: SIMDMask<Storage>)
+    var simd: SIMDMask<Storage> { get }
+}
+
 enum Inputs {
     static let randomCount = 64
 
@@ -116,6 +131,14 @@ enum Inputs {
             V((0..<V.scalarCount).map { _ in V.Scalar.random(using: &generator) })
         }
         return splats + rotations + random
+    }
+
+    static func vectors<V: ReferenceVector>(_ type: V.Type, seed: UInt64) -> [V] {
+        vectors(V.Simd.self, seed: seed).map(V.init)
+    }
+
+    static func masks<M: ReferenceMask>(_ type: M.Type, seed: UInt64) -> [M] {
+        masks(SIMDMask<M.Storage>.self, seed: seed).map(M.init)
     }
 
     static func masks<Storage>(
@@ -176,6 +199,14 @@ enum Inputs {
             )
         }
         return [identity] + random
+    }
+
+    static func tableIndices<V: ReferenceVector>(
+        _ type: V.Type,
+        seed: UInt64,
+        inContract: Bool
+    ) -> [V] where V.Simd.Scalar: FixedWidthInteger {
+        tableIndices(V.Simd.self, seed: seed, inContract: inContract).map(V.init)
     }
 
     static func shiftAmounts(bits: Int, inContract: Bool) -> [Int] {
@@ -284,6 +315,14 @@ func describe<Storage>(_ mask: SIMDMask<Storage>) -> String where Storage.Scalar
     describe(mask._storage)
 }
 
+func describe<V: ReferenceVector>(_ vector: V) -> String {
+    describe(vector.simd)
+}
+
+func describe<M: ReferenceMask>(_ mask: M) -> String {
+    describe(mask.simd)
+}
+
 func describe<Lane: ReferenceLane>(_ lanes: [Lane]) -> String {
     "[" + lanes.map(hex).joined(separator: ", ") + "]"
 }
@@ -312,6 +351,22 @@ final class Mismatches {
         _ inputs: @autoclosure () -> String
     ) where Storage.Scalar: ReferenceLane {
         check(port._storage, reference._storage, inputs())
+    }
+
+    func check<V: ReferenceVector>(
+        _ port: V,
+        _ reference: V,
+        _ inputs: @autoclosure () -> String
+    ) {
+        check(port.simd, reference.simd, inputs())
+    }
+
+    func check<M: ReferenceMask>(
+        _ port: M,
+        _ reference: M,
+        _ inputs: @autoclosure () -> String
+    ) {
+        check(port.simd, reference.simd, inputs())
     }
 
     func check<Lane: ReferenceLane>(

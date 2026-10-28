@@ -6,7 +6,25 @@ public import CHighwayOps
 public enum HighwayFloat: HighwayElement, HighwayFloatElement, SendableMetatype {
     public typealias Lane = Float
     public typealias Vector = SIMD4<Float>
-    public typealias Mask = SIMDMask<SIMD4<Int32>>
+
+    public struct Mask: Sendable {
+        public var raw: chighway_ops_raw_mask_f32
+
+        @export(implementation) @inline(always)
+        public init(raw: chighway_ops_raw_mask_f32) {
+            self.raw = raw
+        }
+
+        @export(implementation) @inline(always)
+        public init(_ simd: SIMDMask<SIMD4<Int32>>) {
+            raw = chighway_ops_to_raw_mask_f32(simd._storage)
+        }
+
+        @export(implementation) @inline(always)
+        public var simd: SIMDMask<SIMD4<Int32>> {
+            SIMDMask<SIMD4<Int32>>(chighway_ops_from_raw_mask_f32(raw))
+        }
+    }
 
     @export(implementation) @inline(always)
     public static var laneCount: Int { Int(chighway_ops_lane_count_f32()) }
@@ -311,62 +329,62 @@ public enum HighwayFloat: HighwayElement, HighwayFloatElement, SendableMetatype 
 
     @export(implementation) @inline(always)
     public static func equalTo(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_equal_to_f32(a, b))
+        Mask(raw: chighway_ops_equal_to_f32(a, b))
     }
 
     @export(implementation) @inline(always)
     public static func notEqualTo(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_not_equal_to_f32(a, b))
+        Mask(raw: chighway_ops_not_equal_to_f32(a, b))
     }
 
     @export(implementation) @inline(always)
     public static func lessThan(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_less_than_f32(a, b))
+        Mask(raw: chighway_ops_less_than_f32(a, b))
     }
 
     @export(implementation) @inline(always)
     public static func greaterThan(_ a: Vector, _ b: Vector) -> Mask {
-        Mask(chighway_ops_greater_than_f32(a, b))
+        Mask(raw: chighway_ops_greater_than_f32(a, b))
     }
 
     @export(implementation) @inline(always)
     public static func selecting(_ mask: Mask, _ a: Vector, _ b: Vector) -> Vector {
-        chighway_ops_selecting_f32(mask._storage, a, b)
+        chighway_ops_selecting_f32(mask.raw, a, b)
     }
 
     @export(implementation) @inline(always)
     public static func selectingOrZero(_ mask: Mask, _ a: Vector) -> Vector {
-        chighway_ops_selecting_or_zero_f32(mask._storage, a)
+        chighway_ops_selecting_or_zero_f32(mask.raw, a)
     }
 
     @export(implementation) @inline(always)
     public static func zeroingSelected(_ mask: Mask, _ a: Vector) -> Vector {
-        chighway_ops_zeroing_selected_f32(mask._storage, a)
+        chighway_ops_zeroing_selected_f32(mask.raw, a)
     }
 
     @export(implementation) @inline(always)
     public static func firstLanes(count: Int) -> Mask {
-        Mask(chighway_ops_first_lanes_f32(count))
+        Mask(raw: chighway_ops_first_lanes_f32(count))
     }
 
     @export(implementation) @inline(always)
     public static func allTrue(_ mask: Mask) -> Bool {
-        chighway_ops_all_true_f32(mask._storage)
+        chighway_ops_all_true_f32(mask.raw)
     }
 
     @export(implementation) @inline(always)
     public static func allFalse(_ mask: Mask) -> Bool {
-        chighway_ops_all_false_f32(mask._storage)
+        chighway_ops_all_false_f32(mask.raw)
     }
 
     @export(implementation) @inline(always)
     public static func trueCount(_ mask: Mask) -> Int {
-        Int(chighway_ops_true_count_f32(mask._storage))
+        Int(chighway_ops_true_count_f32(mask.raw))
     }
 
     @export(implementation) @inline(always)
     public static func firstTrueIndex(_ mask: Mask) -> Int {
-        Int(chighway_ops_first_true_index_f32(mask._storage))
+        Int(chighway_ops_first_true_index_f32(mask.raw))
     }
 
     @export(implementation) @inline(always)
