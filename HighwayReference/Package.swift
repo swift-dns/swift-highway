@@ -4,23 +4,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "swift-highway",
+    name: "swift-vectorization",
     products: [
-        .library(name: "Highway", targets: ["Highway"])
+        .library(name: "Vectorization", targets: ["Vectorization"])
     ],
     targets: [
         .target(
-            name: "CHighwayOps",
+            name: "CVectorizationOps",
             publicHeadersPath: "include"
         ),
         .target(
-            name: "Highway",
-            dependencies: ["CHighwayOps"],
+            name: "Vectorization",
+            dependencies: ["CVectorizationOps"],
             swiftSettings: settings
         ),
         .testTarget(
-            name: "HighwayTests",
-            dependencies: ["Highway"],
+            name: "VectorizationTests",
+            dependencies: ["Vectorization"],
             swiftSettings: settings
         ),
     ]
@@ -53,20 +53,20 @@ package.targets += [
     ),
     .target(
         name: "CHighwayReference",
-        dependencies: ["CHighway", "CHighwayOps"],
+        dependencies: ["CHighway", "CVectorizationOps"],
         path: "CHighwayReference",
         publicHeadersPath: "include",
         cxxSettings: disabledTargets
     ),
     .testTarget(
         name: "HighwayReferenceTests",
-        dependencies: ["CHighwayReference", "Highway"],
+        dependencies: ["CHighwayReference", "Vectorization"],
         path: "HighwayReferenceTests",
         swiftSettings: settings + [.interoperabilityMode(.Cxx)]
     ),
     .target(
         name: "HighwayReferenceCodegen",
-        dependencies: ["CHighwayReference", "Highway"],
+        dependencies: ["CHighwayReference", "Vectorization"],
         path: "HighwayReferenceCodegen",
         swiftSettings: settings + [.interoperabilityMode(.Cxx)]
     ),

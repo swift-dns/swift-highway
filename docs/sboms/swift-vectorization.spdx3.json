@@ -1,0 +1,131 @@
+{
+  "@context" : "https://spdx.org/rdf/3.0.1/spdx-context.jsonld",
+  "@graph" : [
+    {
+      "creationInfo" : "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c:creationInfo",
+      "from" : "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c",
+      "relationshipType" : "hasDeclaredLicense",
+      "spdxId" : "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c-hasDeclaredLicense-urn:spdx:Apache-2.0",
+      "to" : [
+        "urn:spdx:Apache-2.0"
+      ],
+      "type" : "Relationship"
+    },
+    {
+      "creationInfo" : "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c:creationInfo",
+      "simplelicensing_licenseExpression" : "Apache-2.0",
+      "spdxId" : "urn:spdx:Apache-2.0",
+      "type" : "simplelicensing_LicenseExpression"
+    },
+    {
+      "@id" : "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c:creationInfo",
+      "created" : "2026-10-30T07:40:12Z",
+      "createdBy" : [
+        "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c"
+      ],
+      "specVersion" : "6.4.2",
+      "type" : "CreationInfo"
+    },
+    {
+      "creationInfo" : "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c:creationInfo",
+      "name" : "swift-package-manager",
+      "spdxId" : "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c",
+      "type" : "Agent"
+    },
+    {
+      "@id" : "_:creationInfo",
+      "created" : "2026-10-30T07:40:12Z",
+      "createdBy" : [
+        "urn:uuid:fda0d6fe-f883-456f-9b22-b57b567c2f3c"
+      ],
+      "specVersion" : "3.0.1",
+      "type" : "CreationInfo"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "profileConformance" : [
+        "core",
+        "software"
+      ],
+      "rootElement" : [
+        "urn:spdx:swift-vectorization"
+      ],
+      "spdxId" : "urn:uuid:07025372-406d-4fcd-96b1-1f6322f2f018",
+      "type" : "software_Sbom"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "from" : "urn:uuid:07025372-406d-4fcd-96b1-1f6322f2f018",
+      "relationshipType" : "describes",
+      "spdxId" : "urn:uuid:07025372-406d-4fcd-96b1-1f6322f2f018-describes-urn:spdx:swift-vectorization",
+      "to" : [
+        "urn:spdx:swift-vectorization"
+      ],
+      "type" : "Relationship"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "profileConformance" : [
+        "core",
+        "software"
+      ],
+      "rootElement" : [
+        "urn:uuid:07025372-406d-4fcd-96b1-1f6322f2f018"
+      ],
+      "spdxId" : "urn:uuid:d6cb40e3-0d82-4aee-aa7d-96d909915c88",
+      "type" : "SpdxDocument"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "description" : "<ResolvedPackage: swift-vectorization>",
+      "externalUrl" : "pkg:swift/swift-vectorization",
+      "name" : "swift-vectorization",
+      "software_internalVersion" : "unknown",
+      "software_primaryPurpose" : "library",
+      "spdxId" : "urn:spdx:swift-vectorization",
+      "summary" : "swift-package",
+      "type" : "software_Package"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "externalUrl" : "pkg:swift/swift-vectorization/swift-vectorization:Vectorization",
+      "name" : "Vectorization",
+      "software_internalVersion" : "unknown",
+      "software_primaryPurpose" : "library",
+      "spdxId" : "urn:spdx:swift-vectorization:Vectorization",
+      "summary" : "swift-product",
+      "type" : "software_Package"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "externalUrl" : "pkg:swift/swift-vectorization/swift-vectorization:VectorizationTests",
+      "name" : "VectorizationTests",
+      "software_internalVersion" : "unknown",
+      "software_primaryPurpose" : "library",
+      "spdxId" : "urn:spdx:swift-vectorization:VectorizationTests",
+      "summary" : "swift-product",
+      "type" : "software_Package"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "from" : "urn:spdx:swift-vectorization",
+      "relationshipType" : "dependsOn",
+      "spdxId" : "urn:spdx:swift-vectorization-dependsOn",
+      "to" : [
+        "urn:spdx:swift-vectorization:Vectorization",
+        "urn:spdx:swift-vectorization:VectorizationTests"
+      ],
+      "type" : "Relationship"
+    },
+    {
+      "creationInfo" : "_:creationInfo",
+      "from" : "urn:spdx:swift-vectorization",
+      "relationshipType" : "hasTest",
+      "spdxId" : "urn:spdx:swift-vectorization-hasTest",
+      "to" : [
+        "urn:spdx:swift-vectorization:VectorizationTests"
+      ],
+      "type" : "Relationship"
+    }
+  ]
+}

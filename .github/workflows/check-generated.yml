@@ -38,7 +38,7 @@ jobs:
         run: ./scripts/vendor-highway.sh
 
       - name: Re-generate the ops
-        run: swift utils/GenerateHighwayOps.swift
+        run: swift utils/GenerateVectorizationOps.swift
 
       - name: Check for modifications
         id: check-modifications
@@ -58,7 +58,7 @@ jobs:
             printf '%s\n' ""
             printf '%s\n' "**The vendored highway tree or the generated ops are out of date.**"
             printf '%s\n' "Run \`./scripts/vendor-highway.sh\` and"
-            printf '%s\n' "\`swift utils/GenerateHighwayOps.swift\`, then commit the result."
+            printf '%s\n' "\`swift utils/GenerateVectorizationOps.swift\`, then commit the result."
             printf '%s\n' ""
             printf '%s\n' "### Diff:"
             printf '%s\n' '```diff'
