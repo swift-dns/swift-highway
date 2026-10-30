@@ -62,7 +62,7 @@ jobs:
           COMMIT: ${{ steps.upstream.outputs.commit }}
         run: |
           jq --arg tag "${TAG}" --arg commit "${COMMIT}" \
-            '.tag = $tag | .commit = $commit' highway-version.json > highway-version.json.new
+            '.ref = $tag | .commit = $commit' highway-version.json > highway-version.json.new
           mv highway-version.json.new highway-version.json
 
       - name: Re-vendor highway
@@ -136,5 +136,5 @@ jobs:
             printf '%s\n' "" >> "${GITHUB_STEP_SUMMARY}"
             cat "${RUNNER_TEMP}/upstream-report.md" >> "${GITHUB_STEP_SUMMARY}"
           else
-            printf '%s\n' "## Vendored highway is already at ${TAG} ✅" >> "${GITHUB_STEP_SUMMARY}"
+            printf '%s\n' "## Vendored highway is already at or past ${TAG} ✅" >> "${GITHUB_STEP_SUMMARY}"
           fi

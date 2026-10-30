@@ -100,9 +100,11 @@
 
 #define HWY_FUNCTION __FUNCSIG__  // function name + template args
 #define HWY_RESTRICT __restrict
+#define HWY_INLINE_ATTR
 #define HWY_INLINE __forceinline
 #define HWY_NOINLINE __declspec(noinline)
 #define HWY_FLATTEN
+#define HWY_PRESERVE_MOST
 #define HWY_NORETURN __declspec(noreturn)
 #define HWY_LIKELY(expr) (expr)
 #define HWY_UNLIKELY(expr) (expr)
@@ -125,12 +127,19 @@
 // force inlining without optimization enabled creates very inefficient code
 // that can cause compiler timeout
 #ifdef __OPTIMIZE__
-#define HWY_INLINE inline __attribute__((always_inline))
+#define HWY_INLINE_ATTR __attribute__((always_inline))
 #else
-#define HWY_INLINE inline
+#define HWY_INLINE_ATTR
 #endif
+#define HWY_INLINE inline HWY_INLINE_ATTR
 #define HWY_NOINLINE __attribute__((noinline))
 #define HWY_FLATTEN __attribute__((flatten))
+// Clang currently only supports this on x86 and Arm, but more are expected.
+#if HWY_HAS_ATTRIBUTE(preserve_most) && (HWY_ARCH_X86_64 || HWY_ARCH_ARM_A64)
+#define HWY_PRESERVE_MOST __attribute__((preserve_most))
+#else
+#define HWY_PRESERVE_MOST
+#endif
 #define HWY_NORETURN __attribute__((noreturn))
 #define HWY_LIKELY(expr) __builtin_expect(!!(expr), 1)
 #define HWY_UNLIKELY(expr) __builtin_expect(!!(expr), 0)
@@ -148,6 +157,13 @@
 #define HWY_MUST_USE_RESULT __attribute__((warn_unused_result))
 
 #endif  // !HWY_COMPILER_MSVC
+
+// Reduce inlining in sanitizer builds: shorter compile and less stack space.
+#if HWY_IS_ASAN || HWY_IS_HWASAN || HWY_IS_MSAN || HWY_IS_TSAN
+#define HWY_MAYBE_INLINE inline
+#else
+#define HWY_MAYBE_INLINE HWY_INLINE
+#endif
 
 #if (HWY_COMPILER_GCC_ACTUAL && HWY_COMPILER_GCC_ACTUAL < 1200) || \
     (HWY_COMPILER_ICC && !HWY_COMPILER_ICX)
@@ -218,6 +234,17 @@ namespace hwy {
 //------------------------------------------------------------------------------
 // Macros
 
+// Warns if the return value (or an object of the annotated class) is ignored.
+// C++17 [[nodiscard]] is a warning (clang -Wc++17-extensions, MSVC C5051) in
+// C++14 mode, hence fall back to the older function-only attribute.
+#if (HWY_CXX_LANG >= 201703L) && HWY_HAS_CPP_ATTRIBUTE(nodiscard)
+#define HWY_NODISCARD [[nodiscard]]
+#define HWY_NODISCARD_CLASS [[nodiscard]]
+#else
+#define HWY_NODISCARD HWY_MUST_USE_RESULT
+#define HWY_NODISCARD_CLASS
+#endif
+
 // Note: it is safe to remove `static` for users who want to use modules, but
 // that might be a breaking change for some users, hence we do not by default.
 #define HWY_API static HWY_INLINE HWY_FLATTEN
@@ -238,6 +265,12 @@ namespace hwy {
 #else
 #define HWY_UNROLL(factor)
 #define HWY_DEFAULT_UNROLL
+#endif
+
+#if HWY_COMPILER_CLANG
+#define HWY_DISABLE_AUTOVEC HWY_PRAGMA(clang loop vectorize(disable))
+#else
+#define HWY_DISABLE_AUTOVEC
 #endif
 
 // Tell a compiler that the expression always evaluates to true.
@@ -398,6 +431,40 @@ HWY_DLLEXPORT HWY_NORETURN void HWY_FORMAT(3, 4)
 #define HWY_DASSERT(condition) \
   do {                         \
   } while (0)
+#endif
+
+//------------------------------------------------------------------------------
+// IsConsteval
+
+// HWY_HAVE_IS_CONSTEVAL is 1 if C++23 if consteval support or
+// __builtin_is_constant_evaluated() is available, and 0 otherwise.
+
+// hwy::IsConsteval() returns true if HWY_HAVE_IS_CONSTEVAL is 1 and
+// hwy::IsConsteval() is called from a constant-evaluated context, and
+// hwy::IsConsteval() returns false otherwise.
+
+#if defined(__cpp_if_consteval) && __cpp_if_consteval >= 202106L
+#define HWY_HAVE_IS_CONSTEVAL 1
+
+HWY_API constexpr bool IsConsteval() {
+  if consteval {
+    return true;
+  } else {
+    return false;
+  }
+}
+#elif HWY_HAS_BUILTIN(__builtin_is_constant_evaluated) || \
+    HWY_COMPILER_MSVC >= 1926
+#define HWY_HAVE_IS_CONSTEVAL 1
+
+HWY_API constexpr bool IsConsteval() {
+  return __builtin_is_constant_evaluated();
+}
+
+#else
+#define HWY_HAVE_IS_CONSTEVAL 0
+
+HWY_API constexpr bool IsConsteval() { return false; }
 #endif
 
 //------------------------------------------------------------------------------
@@ -796,9 +863,11 @@ using RemovePtr = typename RemovePtrT<T>::type;
 #define HWY_IF_LANES_PER_BLOCK(T, N, LANES) \
   hwy::EnableIf<HWY_MIN(sizeof(T) * N, 16) / sizeof(T) == (LANES)>* = nullptr
 
-// Empty struct used as a size tag type.
+// Used as an integral constant, often to replace SFINAE.
 template <size_t N>
-struct SizeTag {};
+struct SizeTag {
+  static constexpr size_t value = N;
+};
 
 template <class T>
 class DeclValT {
@@ -930,6 +999,48 @@ static constexpr bool IsAssignable() {
 
 #define HWY_IF_ASSIGNABLE(T, From) \
   hwy::EnableIf<IsAssignable<T, From>()>* = nullptr
+
+template <class T>
+HWY_API constexpr bool IsTriviallyDestructible() {
+#if HWY_HAS_BUILTIN(__is_trivially_destructible) || HWY_COMPILER_MSVC >= 1900
+  return __is_trivially_destructible(T);
+#else
+  return __has_trivial_destructor(T);
+#endif
+}
+
+template <class T>
+HWY_API constexpr bool IsTriviallyCopyable() {
+  return __is_trivially_copyable(T);
+}
+
+template <class T>
+HWY_API constexpr bool IsTrivial() {
+  return __is_trivial(T);
+}
+
+template <class T>
+HWY_API constexpr bool IsEnum() {
+  return __is_enum(RemoveCvRef<T>);
+}
+
+namespace detail {
+template <class T, bool = IsEnum<T>()>
+struct UnderlyingTypeT {
+  using type = void;
+};
+
+template <class T>
+struct UnderlyingTypeT<T, true> {
+  using type = __underlying_type(T);
+};
+}  // namespace detail
+
+// The underlying integer type of an enum (ignoring cv/ref qualifiers). Unlike
+// `std::underlying_type_t`, which is ill-formed for non-enums, this evaluates
+// to `void` for them so that it can be used in SFINAE-free `IsSame` checks.
+template <class T>
+using UnderlyingType = typename detail::UnderlyingTypeT<RemoveCvRef<T>>::type;
 
 // ----------------------------------------------------------------------------
 // IsSpecialFloat
@@ -1149,19 +1260,37 @@ HWY_API HWY_BITCASTSCALAR_CONSTEXPR To BitCastScalar(const From& val) {
 
 #pragma pack(push, 1)
 
-#ifndef HWY_NEON_HAVE_F16C  // allow override
+#ifndef HWY_ARM_HAVE_FLOAT16_TYPE  // allow override
+// Compiler supports _Float16: clang does on armv7 and armv8, GCC requires 13+.
+// Note that the clang intrinsics still use __fp16.
+#if HWY_ARCH_ARM_A64 && (HWY_COMPILER_CLANG || HWY_COMPILER_GCC_ACTUAL >= 1300)
+#define HWY_ARM_HAVE_FLOAT16_TYPE 1
+#else
+#define HWY_ARM_HAVE_FLOAT16_TYPE 0
+#endif
+#endif  // HWY_ARM_HAVE_FLOAT16_TYPE
+
+#ifndef HWY_ARM_HAVE_FP16  // allow override
 // Compiler supports __fp16 and load/store/conversion NEON intrinsics, which are
 // included in Armv8 and VFPv4 (except with MSVC). On Armv7 Clang requires
 // __ARM_FP & 2 whereas Armv7 GCC requires -mfp16-format=ieee.
-#if (HWY_ARCH_ARM_A64 && !HWY_COMPILER_MSVC) ||                    \
+// The CUDA device pass (__CUDA_ARCH__) on an Arm host sees the host macros, but
+// NVPTX does not allow __fp16 parameters and return values. Only NEON/SVE
+// require __fp16, and those targets are disabled in the device pass (see
+// HWY_BROKEN_CUDA_DEVICE_ARM in detect_targets.h). float16_t then wraps
+// _Float16 if HWY_ARM_HAVE_FLOAT16_TYPE, as in the device pass on x86 hosts.
+#if defined(__CUDA_ARCH__)
+#define HWY_ARM_HAVE_FP16 0
+#elif (HWY_ARCH_ARM_A64 && !HWY_COMPILER_MSVC) ||                  \
     (HWY_COMPILER_CLANG && defined(__ARM_FP) && (__ARM_FP & 2)) || \
     (HWY_COMPILER_GCC_ACTUAL && defined(__ARM_FP16_FORMAT_IEEE))
-#define HWY_NEON_HAVE_F16C 1
+#define HWY_ARM_HAVE_FP16 1
 #else
-#define HWY_NEON_HAVE_F16C 0
+#define HWY_ARM_HAVE_FP16 0
 #endif
-#endif  // HWY_NEON_HAVE_F16C
+#endif  // HWY_ARM_HAVE_FP16
 
+#ifndef HWY_RVV_HAVE_F16_VEC  // allow override
 // RVV with f16 extension supports _Float16 and f16 vector ops. If set, implies
 // HWY_HAVE_FLOAT16.
 #if HWY_ARCH_RISCV && defined(__riscv_zvfh) && HWY_COMPILER_CLANG >= 1600
@@ -1169,7 +1298,9 @@ HWY_API HWY_BITCASTSCALAR_CONSTEXPR To BitCastScalar(const From& val) {
 #else
 #define HWY_RVV_HAVE_F16_VEC 0
 #endif
+#endif  // HWY_RVV_HAVE_F16_VEC
 
+#ifndef HWY_SSE2_HAVE_F16_TYPE  // allow override
 // x86 compiler supports _Float16, not necessarily with operators.
 // Avoid clang-cl because it lacks __extendhfsf2.
 #if HWY_ARCH_X86 && defined(__SSE2__) && defined(__FLT16_MAX__) && \
@@ -1179,11 +1310,13 @@ HWY_API HWY_BITCASTSCALAR_CONSTEXPR To BitCastScalar(const From& val) {
 #else
 #define HWY_SSE2_HAVE_F16_TYPE 0
 #endif
+#endif  // HWY_SSE2_HAVE_F16_TYPE
 
 #ifndef HWY_HAVE_SCALAR_F16_TYPE  // allow override
-// Compiler supports _Float16, not necessarily with operators.
-#if HWY_NEON_HAVE_F16C || HWY_RVV_HAVE_F16_VEC || HWY_SSE2_HAVE_F16_TYPE || \
-    __SPIRV_DEVICE__
+// Highway's float16_t is a wrapper around a native type, though operators are
+// not necessarily supported. Otherwise, float16_t wraps uint16_t.
+#if HWY_ARM_HAVE_FLOAT16_TYPE || HWY_ARM_HAVE_FP16 || HWY_RVV_HAVE_F16_VEC || \
+    HWY_SSE2_HAVE_F16_TYPE || __SPIRV_DEVICE__
 #define HWY_HAVE_SCALAR_F16_TYPE 1
 #else
 #define HWY_HAVE_SCALAR_F16_TYPE 0
@@ -1234,20 +1367,14 @@ using NativeSpecialFloatToWrapper =
 // typedef to the native type to ensure that the same symbols, e.g. for VQSort,
 // are generated regardless of F16 support; see #1684.
 struct alignas(2) float16_t {
-#if HWY_HAVE_SCALAR_F16_TYPE
-#if HWY_RVV_HAVE_F16_VEC || HWY_SSE2_HAVE_F16_TYPE || __SPIRV_DEVICE__
-  using Native = _Float16;
-#elif HWY_NEON_HAVE_F16C
+#if HWY_ARM_HAVE_FP16
   using Native = __fp16;
-#else
-#error "Logic error: condition should be 'all but NEON_HAVE_F16C'"
-#endif
-#elif HWY_IDE
-  using Native = uint16_t;
+#elif HWY_HAVE_SCALAR_F16_TYPE
+  using Native = _Float16;
 #endif  // HWY_HAVE_SCALAR_F16_TYPE
 
   union {
-#if HWY_HAVE_SCALAR_F16_TYPE || HWY_IDE
+#if HWY_HAVE_SCALAR_F16_TYPE
     // Accessed via NativeLaneType, and used directly if
     // HWY_HAVE_SCALAR_F16_OPERATORS.
     Native native;
@@ -1268,13 +1395,11 @@ struct alignas(2) float16_t {
   // float16_t(intrinsic()), but user code expects implicit conversions.
   constexpr float16_t(Native arg) noexcept : native(arg) {}
   constexpr operator Native() const noexcept { return native; }
-#endif
 
-#if HWY_HAVE_SCALAR_F16_TYPE
   static HWY_BITCASTSCALAR_CONSTEXPR float16_t FromBits(uint16_t bits) {
     return float16_t(BitCastScalar<Native>(bits));
   }
-#else
+#else   // !HWY_HAVE_SCALAR_F16_TYPE
 
  private:
   struct F16FromU16BitsTag {};
@@ -1285,7 +1410,25 @@ struct alignas(2) float16_t {
   static constexpr float16_t FromBits(uint16_t bits) {
     return float16_t(F16FromU16BitsTag(), bits);
   }
-#endif
+
+  // Emulated scalar operators so generic code (e.g. std::iota, unary minus)
+  // also compiles when there is no native _Float16. Construction and
+  // increment/decrement use ConvertScalarTo, defined after the struct, so they
+  // are declared here and defined out-of-class below.
+  template <typename T, HWY_IF_NOT_F16(T)>
+  explicit constexpr float16_t(T arg);
+
+  // Unary minus is an exact sign-bit flip; no conversion needed.
+  constexpr float16_t operator-() const noexcept {
+    return FromBits(static_cast<uint16_t>(bits ^ uint16_t{0x8000}));
+  }
+  constexpr float16_t operator+() const noexcept { return *this; }
+
+  HWY_CXX14_CONSTEXPR float16_t& operator++() noexcept;
+  HWY_CXX14_CONSTEXPR float16_t operator++(int) noexcept;
+  HWY_CXX14_CONSTEXPR float16_t& operator--() noexcept;
+  HWY_CXX14_CONSTEXPR float16_t operator--(int) noexcept;
+#endif  // HWY_HAVE_SCALAR_F16_TYPE
 
   // When backed by a native type, ensure the wrapper behaves like the native
   // type by forwarding all operators. Unfortunately it seems difficult to reuse
@@ -1452,38 +1595,22 @@ HWY_API HWY_F16_CONSTEXPR float F32FromF16(float16_t f16) {
 
 #if HWY_IS_DEBUG_BUILD && \
     (HWY_HAS_BUILTIN(__builtin_bit_cast) || HWY_COMPILER_MSVC >= 1926)
-#if defined(__cpp_if_consteval) && __cpp_if_consteval >= 202106L
-// If C++23 if !consteval support is available, only execute
-// HWY_DASSERT(condition) if F16FromF32 is not called from a constant-evaluated
-// context to avoid compilation errors.
+#if HWY_HAVE_IS_CONSTEVAL
+// If HWY_HAVE_IS_CONSTEVAL is 1, then the C++ compiler has support for
+// either C++23 if consteval or __builtin_is_constant_evaluated.
 #define HWY_F16_FROM_F32_DASSERT(condition) \
   do {                                      \
-    if !consteval {                         \
+    if (!IsConsteval()) {  \
       HWY_DASSERT(condition);               \
     }                                       \
   } while (0)
-#elif HWY_HAS_BUILTIN(__builtin_is_constant_evaluated) || \
-    HWY_COMPILER_MSVC >= 1926
-// If the __builtin_is_constant_evaluated() intrinsic is available,
-// only do HWY_DASSERT(condition) if __builtin_is_constant_evaluated() returns
-// false to avoid compilation errors if F16FromF32 is called from a
-// constant-evaluated context.
-#define HWY_F16_FROM_F32_DASSERT(condition)   \
-  do {                                        \
-    if (!__builtin_is_constant_evaluated()) { \
-      HWY_DASSERT(condition);                 \
-    }                                         \
-  } while (0)
-#else
-// If C++23 if !consteval support is not available,
-// the __builtin_is_constant_evaluated() intrinsic is not available,
-// HWY_IS_DEBUG_BUILD is 1, and the __builtin_bit_cast intrinsic is available,
-// do not do a HWY_DASSERT to avoid compilation errors if F16FromF32 is
-// called from a constant-evaluated context.
+#else  // !HWY_HAVE_IS_CONSTEVAL
+// If HWY_HAVE_IS_CONSTEVAL is 0, then the C++ compiler does not have
+// support for either C++23 if consteval or __builtin_is_constant_evaluated.
 #define HWY_F16_FROM_F32_DASSERT(condition) \
   do {                                      \
   } while (0)
-#endif  // defined(__cpp_if_consteval) && __cpp_if_consteval >= 202106L
+#endif  // HWY_HAVE_IS_CONSTEVAL
 #else
 // If HWY_IS_DEBUG_BUILD is 0 or the __builtin_bit_cast intrinsic is not
 // available, define HWY_F16_FROM_F32_DASSERT(condition) as
@@ -1694,11 +1821,13 @@ HWY_F16_CONSTEXPR inline std::partial_ordering operator<=>(
 #endif  // HWY_SSE2_HAVE_SCALAR_BF16_TYPE
 
 // Compiler supports __bf16, not necessarily with operators.
+#ifndef HWY_HAVE_SCALAR_BF16_TYPE  // allow override
 #if HWY_ARM_HAVE_SCALAR_BF16_TYPE || HWY_SSE2_HAVE_SCALAR_BF16_TYPE
 #define HWY_HAVE_SCALAR_BF16_TYPE 1
 #else
 #define HWY_HAVE_SCALAR_BF16_TYPE 0
 #endif
+#endif  // HWY_HAVE_SCALAR_BF16_TYPE
 
 #ifndef HWY_HAVE_SCALAR_BF16_OPERATORS
 // Recent enough compiler also has operators. aarch64 clang 18 hits internal
@@ -1765,6 +1894,20 @@ struct alignas(2) bfloat16_t {
   static constexpr bfloat16_t FromBits(uint16_t bits) {
     return bfloat16_t(BF16FromU16BitsTag(), bits);
   }
+
+  // Emulated scalar operators (mirrors float16_t).
+  template <typename T, HWY_IF_NOT_BF16(T)>
+  explicit constexpr bfloat16_t(T arg);
+
+  constexpr bfloat16_t operator-() const noexcept {
+    return FromBits(static_cast<uint16_t>(bits ^ uint16_t{0x8000}));
+  }
+  constexpr bfloat16_t operator+() const noexcept { return *this; }
+
+  HWY_CXX14_CONSTEXPR bfloat16_t& operator++() noexcept;
+  HWY_CXX14_CONSTEXPR bfloat16_t operator++(int) noexcept;
+  HWY_CXX14_CONSTEXPR bfloat16_t& operator--() noexcept;
+  HWY_CXX14_CONSTEXPR bfloat16_t operator--(int) noexcept;
 #endif
 
   // When backed by a native type, ensure the wrapper behaves like the native
@@ -2382,6 +2525,21 @@ HWY_INLINE HWY_BITCASTSCALAR_CONSTEXPR double Epsilon<double>() {
   return 2.2204460492503131e-16;
 }
 
+// Smallest positive normal value. Equal to 2^(1 - bias)
+template <typename T>
+HWY_API HWY_BITCASTSCALAR_CONSTEXPR T SmallestNormal() {
+  static_assert(sizeof(T) == 0, "Only instantiate the specializations");
+  return T{};
+}
+template <>
+HWY_INLINE HWY_BITCASTSCALAR_CONSTEXPR float SmallestNormal<float>() {
+  return 1.175494351e-38f;  // 2^-126
+}
+template <>
+HWY_INLINE HWY_BITCASTSCALAR_CONSTEXPR double SmallestNormal<double>() {
+  return 2.2250738585072014e-308;  // 2^-1022
+}
+
 // Returns width in bits of the mantissa field in IEEE binary16/32/64.
 template <typename T>
 constexpr int MantissaBits() {
@@ -2697,25 +2855,291 @@ HWY_API constexpr TTo ConvertScalarTo(TFrom in) {
           static_cast<TFrom&&>(in)));
 }
 
+#if !HWY_HAVE_SCALAR_F16_TYPE
+// Emulated float16_t operators (declared in the struct). ConvertScalarTo
+// converts any scalar to/from f16 without spelling out the F32/F64 converter.
+template <typename T,
+          hwy::EnableIf<!hwy::IsSame<hwy::RemoveCvRef<T>, hwy::float16_t>()>*>
+constexpr float16_t::float16_t(T arg)
+    : float16_t(ConvertScalarTo<float16_t>(arg)) {}
+
+HWY_CXX14_CONSTEXPR inline float16_t& float16_t::operator++() noexcept {
+  bits = ConvertScalarTo<float16_t>(ConvertScalarTo<float>(*this) + 1.0f).bits;
+  return *this;
+}
+HWY_CXX14_CONSTEXPR inline float16_t float16_t::operator++(int) noexcept {
+  const float16_t result = *this;
+  ++*this;
+  return result;
+}
+HWY_CXX14_CONSTEXPR inline float16_t& float16_t::operator--() noexcept {
+  bits = ConvertScalarTo<float16_t>(ConvertScalarTo<float>(*this) - 1.0f).bits;
+  return *this;
+}
+HWY_CXX14_CONSTEXPR inline float16_t float16_t::operator--(int) noexcept {
+  const float16_t result = *this;
+  --*this;
+  return result;
+}
+#endif  // !HWY_HAVE_SCALAR_F16_TYPE
+
+#if !HWY_HAVE_SCALAR_BF16_TYPE
+// Emulated bfloat16_t operators (mirrors float16_t).
+template <typename T,
+          hwy::EnableIf<!hwy::IsSame<hwy::RemoveCvRef<T>, hwy::bfloat16_t>()>*>
+constexpr bfloat16_t::bfloat16_t(T arg)
+    : bfloat16_t(ConvertScalarTo<bfloat16_t>(arg)) {}
+
+HWY_CXX14_CONSTEXPR inline bfloat16_t& bfloat16_t::operator++() noexcept {
+  bits = ConvertScalarTo<bfloat16_t>(ConvertScalarTo<float>(*this) + 1.0f).bits;
+  return *this;
+}
+HWY_CXX14_CONSTEXPR inline bfloat16_t bfloat16_t::operator++(int) noexcept {
+  const bfloat16_t result = *this;
+  ++*this;
+  return result;
+}
+HWY_CXX14_CONSTEXPR inline bfloat16_t& bfloat16_t::operator--() noexcept {
+  bits = ConvertScalarTo<bfloat16_t>(ConvertScalarTo<float>(*this) - 1.0f).bits;
+  return *this;
+}
+HWY_CXX14_CONSTEXPR inline bfloat16_t bfloat16_t::operator--(int) noexcept {
+  const bfloat16_t result = *this;
+  --*this;
+  return result;
+}
+#endif  // !HWY_HAVE_SCALAR_BF16_TYPE
+
 //------------------------------------------------------------------------------
 // Helper functions
 
+HWY_API uint32_t MulHigh32(uint32_t a, uint32_t b) {
+  return static_cast<uint32_t>((uint64_t{a} * uint64_t{b}) >> 32);
+}
+
+// Returns [0, range). Slight bias but negligible for small ranges.
+HWY_API uint32_t LemireMod(uint32_t in, uint32_t range) {
+  const uint32_t mod = MulHigh32(in, range);
+  HWY_DASSERT(mod < range);
+  return mod;
+}
+
 template <typename T1, typename T2>
-constexpr inline T1 DivCeil(T1 a, T2 b) {
+constexpr T1 DivCeil(T1 a, T2 b) {
 #if HWY_CXX_LANG >= 201703L
-  HWY_DASSERT(b != T2{0});
+  HWY_ASSERT(b != T2{0});
 #endif
-  return (a + b - 1) / b;
+  return a == T1{0} ? T1{0} : T1{1} + (a - T1{1}) / b;
 }
 
 // Works for any non-zero `align`; if a power of two, compiler emits ADD+AND.
-constexpr inline size_t RoundUpTo(size_t what, size_t align) {
+constexpr size_t RoundUpTo(size_t what, size_t align) {
   return DivCeil(what, align) * align;
 }
 
 // Works for any `align`; if a power of two, compiler emits AND.
-constexpr inline size_t RoundDownTo(size_t what, size_t align) {
+constexpr size_t RoundDownTo(size_t what, size_t align) {
   return what - (what % align);
+}
+
+namespace detail {
+// Integer types other than bool, which is excluded because it is not a size
+// nor an offset, and `LimitsMax<bool>` is not defined.
+template <typename T>
+HWY_API constexpr bool IsSizeLike() {
+  return IsInteger<RemoveCvRef<T>>() && !IsSame<RemoveCvRef<T>, bool>();
+}
+// As above, but also unsigned and at most 64 bits.
+template <typename T>
+HWY_API constexpr bool IsUnsignedSize() {
+  return IsSizeLike<T>() && IsUnsigned<RemoveCvRef<T>>() &&
+         sizeof(RemoveCvRef<T>) <= 8;
+}
+}  // namespace detail
+
+// Returns whether `a + b <= max` without unsigned overflow. Useful for
+// bounds-checking `[offset, offset + size)` against a capacity or file size.
+// All arguments must be unsigned (sizes/offsets); signed values would
+// otherwise silently wrap when converted to `uint64_t`.
+template <typename TA, typename TB, typename TMax>
+HWY_NODISCARD HWY_API constexpr bool SumWithin(TA a, TB b, TMax max) {
+  static_assert(detail::IsUnsignedSize<TA>() && detail::IsUnsignedSize<TB>() &&
+                    detail::IsUnsignedSize<TMax>(),
+                "Arguments must be unsigned integers");
+  return static_cast<uint64_t>(a) <= static_cast<uint64_t>(max) &&
+         static_cast<uint64_t>(b) <=
+             static_cast<uint64_t>(max) - static_cast<uint64_t>(a);
+}
+
+// Returns whether `val` is in `[LimitsMin<TTo>(), LimitsMax<TTo>()]`. Both
+// types must be non-bool integers of at most 64 bits.
+template <typename TTo, typename TFrom,
+          EnableIf<detail::IsSizeLike<TFrom>()>* = nullptr>
+HWY_NODISCARD HWY_API constexpr bool ScalarFits(TFrom val) {
+  static_assert(detail::IsSizeLike<TTo>(), "TTo must be a non-bool integer");
+  static_assert(sizeof(TFrom) <= 8 && sizeof(TTo) <= 8, "At most 64 bits");
+  using TSigned = MakeSigned<MakeLaneTypeIfInteger<RemoveCvRef<TFrom>>>;
+  return (IsSigned<RemoveCvRef<TFrom>>() && static_cast<TSigned>(val) < 0)
+             ? (IsSigned<RemoveCvRef<TTo>>() &&
+                static_cast<int64_t>(static_cast<TSigned>(val)) >=
+                    static_cast<int64_t>(LimitsMin<RemoveCvRef<TTo>>()))
+             : static_cast<uint64_t>(val) <=
+                   static_cast<uint64_t>(LimitsMax<RemoveCvRef<TTo>>());
+}
+
+// Returns whether `a + b` is in `[0, LimitsMax<TTo>()]` without overflow.
+// `a` and `b` must be unsigned.
+template <typename TTo, typename TA, typename TB>
+HWY_NODISCARD HWY_API constexpr bool SumFits(TA a, TB b) {
+  static_assert(detail::IsSizeLike<TTo>(), "TTo must be a non-bool integer");
+  return SumWithin(a, b, static_cast<uint64_t>(LimitsMax<RemoveCvRef<TTo>>()));
+}
+
+// Casts `val` to `TTo` after asserting that `ScalarFits<TTo>(val)`.
+template <typename TTo, typename TFrom,
+          EnableIf<detail::IsSizeLike<TFrom>()>* = nullptr>
+HWY_NODISCARD HWY_API HWY_CXX14_CONSTEXPR TTo SafeCast(TFrom val) {
+  HWY_DASSERT(ScalarFits<TTo>(val));
+  return static_cast<TTo>(val);
+}
+
+// Returns `static_cast<TTo>(a + b)` after asserting that `a + b` fits in `TTo`.
+// `a` and `b` must be unsigned.
+template <typename TTo, typename TA, typename TB>
+HWY_NODISCARD HWY_API HWY_CXX14_CONSTEXPR TTo SafeAdd(TA a, TB b) {
+  HWY_DASSERT(SumFits<TTo>(a, b));
+  return static_cast<TTo>(static_cast<uint64_t>(a) + static_cast<uint64_t>(b));
+}
+
+namespace detail {
+
+static HWY_INLINE constexpr uint8_t ScalarByteSwap(hwy::SizeTag<1> /*size_tag*/,
+                                                   uint8_t val) noexcept {
+  return val;
+}
+
+#if HWY_COMPILER_GCC || HWY_COMPILER_CLANG
+static HWY_INLINE constexpr uint16_t ScalarByteSwap(
+    hwy::SizeTag<2> /*size_tag*/, uint16_t val) noexcept {
+  return __builtin_bswap16(val);
+}
+static HWY_INLINE constexpr uint32_t ScalarByteSwap(
+    hwy::SizeTag<4> /*size_tag*/, uint32_t val) noexcept {
+  return __builtin_bswap32(val);
+}
+static HWY_INLINE constexpr uint64_t ScalarByteSwap(
+    hwy::SizeTag<8> /*size_tag*/, uint64_t val) noexcept {
+  return __builtin_bswap64(val);
+}
+#elif HWY_COMPILER_MSVC >= 1926
+static HWY_INLINE constexpr uint16_t ScalarByteSwap(
+    hwy::SizeTag<2> /*size_tag*/, uint16_t val) noexcept {
+  return IsConsteval()
+             ? static_cast<uint16_t>(
+                   ((static_cast<unsigned>(val) & 0xFFu) << 8) |
+                   (static_cast<unsigned>(val) >> 8))
+             : _byteswap_ushort(val);
+}
+static HWY_INLINE constexpr uint32_t ScalarByteSwap(
+    hwy::SizeTag<4> /*size_tag*/, uint32_t val) noexcept {
+  return IsConsteval()
+             ? static_cast<uint32_t>(
+                   static_cast<uint32_t>(ScalarByteSwap(
+                       hwy::SizeTag<2>(), static_cast<uint16_t>(val >> 16))) |
+                   (static_cast<uint32_t>(
+                        ScalarByteSwap(hwy::SizeTag<2>(),
+                                       static_cast<uint16_t>(val & 0xFFFFu)))
+                    << 16))
+             : static_cast<uint32_t>(_byteswap_ulong(val));
+}
+static HWY_INLINE constexpr uint64_t ScalarByteSwap(
+    hwy::SizeTag<8> /*size_tag*/, uint64_t val) noexcept {
+  return IsConsteval()
+             ? static_cast<uint64_t>(
+                   static_cast<uint64_t>(ScalarByteSwap(
+                       hwy::SizeTag<4>(), static_cast<uint32_t>(val >> 32))) |
+                   (static_cast<uint64_t>(ScalarByteSwap(
+                        hwy::SizeTag<4>(),
+                        static_cast<uint32_t>(val & 0xFFFFFFFFULL)))
+                    << 32))
+             : _byteswap_uint64(val);
+}
+#endif
+
+template <size_t kSize, class T>
+static HWY_INLINE constexpr T ScalarByteSwap(hwy::SizeTag<kSize> /*size_tag*/,
+                                             T val) noexcept {
+  using TN = MakeNarrow<MakeUnsigned<T>>;
+  static_assert(sizeof(TN) < sizeof(T), "sizeof(TN) < sizeof(T) must be true");
+  return static_cast<T>(
+      static_cast<T>(ScalarByteSwap(hwy::SizeTag<sizeof(TN)>(),
+                                    static_cast<TN>(val >> (sizeof(TN) * 8)))) |
+      (static_cast<T>(ScalarByteSwap(hwy::SizeTag<sizeof(TN)>(),
+                                     static_cast<TN>(val & LimitsMax<TN>())))
+       << (sizeof(TN) * 8)));
+}
+
+}  // namespace detail
+
+// hwy::ScalarByteSwap is equivalent to C++23 std::byteswap, except that
+// hwy::ScalarByteSwap does not have any dependencies on the <bit> header and
+// hwy::ScalarByteSwap is available in C++11, C++14, C++17, and C++20 modes.
+template <class T, HWY_IF_INTEGER(RemoveCvRef<T>)>
+HWY_API constexpr RemoveCvRef<T> ScalarByteSwap(T val) noexcept {
+  using TU = MakeUnsigned<MakeLaneTypeIfInteger<RemoveCvRef<T>>>;
+  return static_cast<RemoveCvRef<T>>(detail::ScalarByteSwap(
+    hwy::SizeTag<sizeof(TU)>(), static_cast<TU>(val)));
+}
+
+template <class T, HWY_IF_INTEGER(RemoveCvRef<T>)>
+HWY_API constexpr RemoveCvRef<T> NativeFromLittleEndian(T val) noexcept {
+#if HWY_IS_LITTLE_ENDIAN
+  return val;
+#else
+  return ScalarByteSwap(val);
+#endif
+}
+
+// LittleEndianFromNative is the inverse of NativeFromLittleEndian. Byte
+// swapping is an involution, so the two are the same operation; both names
+// exist so call sites can state which direction they mean.
+template <class T, HWY_IF_INTEGER(RemoveCvRef<T>)>
+HWY_API constexpr RemoveCvRef<T> LittleEndianFromNative(T val) noexcept {
+  return NativeFromLittleEndian(val);
+}
+
+HWY_API uint32_t LoadLE16(const uint8_t* p) {
+  return uint32_t{p[0]} | (uint32_t{p[1]} << 8);
+}
+HWY_API uint32_t LoadLE32(const uint8_t* p) {
+  return uint32_t{p[0]} | (uint32_t{p[1]} << 8) | (uint32_t{p[2]} << 16) |
+         (uint32_t{p[3]} << 24);
+}
+HWY_API uint64_t LoadLE64(const uint8_t* p) {
+  return uint64_t{p[0]} | (uint64_t{p[1]} << 8) | (uint64_t{p[2]} << 16) |
+         (uint64_t{p[3]} << 24) | (uint64_t{p[4]} << 32) |
+         (uint64_t{p[5]} << 40) | (uint64_t{p[6]} << 48) |
+         (uint64_t{p[7]} << 56);
+}
+
+// Returns the `T` stored in little-endian byte order at the possibly unaligned
+// `from`. Same result as LoadLE16/32/64 above, but a single unaligned load
+// (plus one byte swap on big-endian targets) rather than assembling the value
+// byte by byte, which compilers do not always recognize and widen. Prefer this
+// in hot loops; `T` must be given explicitly because it cannot be deduced.
+template <class T, HWY_IF_INTEGER(RemoveCvRef<T>)>
+HWY_API RemoveCvRef<T> ScalarLoadULittleEndian(const void* HWY_RESTRICT from) {
+  RemoveCvRef<T> val;
+  CopyBytes<sizeof(val)>(from, &val);
+  return NativeFromLittleEndian(val);
+}
+
+// Stores `val` in little-endian byte order to the possibly unaligned `to`;
+// the inverse of ScalarLoadULittleEndian.
+template <class T, HWY_IF_INTEGER(RemoveCvRef<T>)>
+HWY_API void ScalarStoreULittleEndian(T val, void* HWY_RESTRICT to) {
+  const RemoveCvRef<T> le = LittleEndianFromNative(val);
+  CopyBytes<sizeof(le)>(&le, to);
 }
 
 namespace detail {
@@ -2894,6 +3318,16 @@ template <typename TI>
              : static_cast<size_t>(FloorLog2(static_cast<TI>(x - 1)) + 1);
 }
 
+template <typename TI>
+constexpr TI RoundUpToPow2(TI x) {
+  return (x == 0) ? TI{1} : (TI{1} << CeilLog2(x));
+}
+
+template <typename TI>
+constexpr TI RoundDownToPow2(TI x) {
+  return (x == 0) ? TI{1} : (TI{1} << FloorLog2(x));
+}
+
 template <typename T, typename T2, HWY_IF_FLOAT(T), HWY_IF_NOT_SPECIAL_FLOAT(T)>
 HWY_INLINE constexpr T AddWithWraparound(T t, T2 increment) {
   return t + static_cast<T>(increment);
@@ -2968,7 +3402,8 @@ HWY_API int64_t Mul128(int64_t a, int64_t b, int64_t* HWY_RESTRICT upper) {
 class Divisor {
  public:
   explicit Divisor(uint32_t divisor) : divisor_(divisor) {
-    if (divisor <= 1) return;
+    HWY_ASSERT(divisor != 0);
+    if (divisor == 1) return;
 
     const uint32_t len =
         static_cast<uint32_t>(31 - Num0BitsAboveMS1Bit_Nonzero32(divisor - 1));
@@ -3003,35 +3438,80 @@ class Divisor {
   uint32_t shift2_ = 0;
 };
 
-#ifndef HWY_HAVE_DIV128  // allow override
+#ifndef HWY_HAVE_MULHIGH64  // allow override
+#if (HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64) || defined(__SIZEOF_INT128__)
+#define HWY_HAVE_MULHIGH64 1
+#else
+#define HWY_HAVE_MULHIGH64 0
+#endif
+#endif  // HWY_HAVE_MULHIGH64
+
+#ifndef HWY_HAVE_DIVHIGH64  // allow override
 // Exclude clang-cl because it calls __divti3 from clang_rt.builtins-x86_64,
 // which is not linked in.
 #if (HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64) || \
     (defined(__SIZEOF_INT128__) && !HWY_COMPILER_CLANGCL)
-#define HWY_HAVE_DIV128 1
+#define HWY_HAVE_DIVHIGH64 1
 #else
-#define HWY_HAVE_DIV128 0
+#define HWY_HAVE_DIVHIGH64 0
 #endif
-#endif  // HWY_HAVE_DIV128
+#endif  // HWY_HAVE_DIVHIGH64
 
-// Divisor64 can precompute the multiplicative inverse.
-#if HWY_HAVE_DIV128
+#if HWY_HAVE_MULHIGH64
+
+#if HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64
+#pragma intrinsic(__umulh)
+#endif
+
+// Returns u128(a * b) >> 64.
+HWY_API uint64_t MulHigh64(uint64_t a, uint64_t b) {
+#if HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64
+  return __umulh(a, b);
+#else
+  using u128 = unsigned __int128;
+  const u128 a128 = static_cast<u128>(a);
+  const u128 b128 = static_cast<u128>(b);
+  return static_cast<uint64_t>((a128 * b128) >> 64);
+#endif
+}
+
+#endif  // HWY_HAVE_MULHIGH64
+
+#if HWY_HAVE_DIVHIGH64
 
 #if HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64
 #pragma intrinsic(_udiv128)
-#pragma intrinsic(__umulh)
 #endif
+
+// Returns u128(hi, 0) / div.
+HWY_API uint64_t DivHigh64(uint64_t hi, uint64_t div) {
+  HWY_DASSERT(div != 0);
+#if HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64
+  unsigned __int64 remainder;  // unused
+  return _udiv128(hi, uint64_t{0}, div, &remainder);
+#else
+  using u128 = unsigned __int128;
+  const u128 hi128 = static_cast<u128>(hi) << 64;
+  return static_cast<uint64_t>(hi128 / static_cast<u128>(div));
+#endif
+}
+
+#endif  // HWY_HAVE_DIVHIGH64
+
+// Divisor64 can precompute the multiplicative inverse.
+#if HWY_HAVE_DIVHIGH64 && HWY_HAVE_MULHIGH64
 
 // As above, but for 64-bit divisors: more expensive to compute and initialize.
 class Divisor64 {
  public:
   explicit Divisor64(uint64_t divisor) : divisor_(divisor) {
-    if (divisor <= 1) return;
+    HWY_ASSERT(divisor != 0);
+    if (divisor == 1) return;
 
     const uint64_t len =
         static_cast<uint64_t>(63 - Num0BitsAboveMS1Bit_Nonzero64(divisor - 1));
     const uint64_t u_hi = (2ULL << len) - divisor;
-    const uint64_t q = Div128(u_hi, divisor);
+    const uint64_t q = DivHigh64(u_hi, divisor);
 
     mul_ = q + 1;
     shift1_ = 1;
@@ -3042,7 +3522,7 @@ class Divisor64 {
 
   // Returns n / divisor_.
   uint64_t Divide(uint64_t n) const {
-    const uint64_t t = MulHigh(mul_, n);
+    const uint64_t t = MulHigh64(mul_, n);
     return (t + ((n - t) >> shift1_)) >> shift2_;
   }
 
@@ -3052,37 +3532,17 @@ class Divisor64 {
  private:
   uint64_t divisor_;
 
-  static uint64_t Div128(uint64_t hi, uint64_t div) {
-#if HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64
-    unsigned __int64 remainder;  // unused
-    return _udiv128(hi, uint64_t{0}, div, &remainder);
-#else
-    using u128 = unsigned __int128;
-    const u128 hi128 = static_cast<u128>(hi) << 64;
-    return static_cast<uint64_t>(hi128 / static_cast<u128>(div));
-#endif
-  }
-
-  static uint64_t MulHigh(uint64_t a, uint64_t b) {
-#if HWY_COMPILER_MSVC >= 1920 && HWY_ARCH_X86_64
-    return __umulh(a, b);
-#else
-    using u128 = unsigned __int128;
-    const u128 a128 = static_cast<u128>(a);
-    const u128 b128 = static_cast<u128>(b);
-    return static_cast<uint64_t>((a128 * b128) >> 64);
-#endif
-  }
-
   uint64_t mul_ = 1;
   uint64_t shift1_ = 0;
   uint64_t shift2_ = 0;
 };
 #else
-// No Div128 available, use built-in 64-bit division on each call.
+// No DivHigh64 available, use built-in 64-bit division on each call.
 class Divisor64 {
  public:
-  explicit Divisor64(uint64_t divisor) : divisor_(divisor) {}
+  explicit Divisor64(uint64_t divisor) : divisor_(divisor) {
+    HWY_ASSERT(divisor != 0);
+  }
 
   uint64_t GetDivisor() const { return divisor_; }
 
@@ -3092,7 +3552,7 @@ class Divisor64 {
  private:
   uint64_t divisor_;
 };
-#endif  // HWY_HAVE_DIV128
+#endif  // HWY_HAVE_DIVHIGH64 && HWY_HAVE_MULHIGH64
 
 namespace detail {
 
@@ -3130,6 +3590,25 @@ HWY_API HWY_BITCASTSCALAR_CONSTEXPR RemoveCvRef<T> ScalarAbs(T val) {
   using TVal = MakeLaneTypeIfInteger<
       detail::NativeSpecialFloatToWrapper<RemoveCvRef<T>>>;
   return detail::ScalarAbs(hwy::TypeTag<TVal>(), static_cast<TVal>(val));
+}
+
+// Returns quiet NaN.
+template <typename T, HWY_IF_FLOAT_OR_SPECIAL(T)>
+HWY_API HWY_BITCASTSCALAR_CONSTEXPR T ScalarNaN() {
+  // LimitsMax sets all exponent and mantissa bits to 1. The exponent plus
+  // mantissa MSB (to indicate quiet) would be sufficient.
+  return BitCastScalar<T>(LimitsMax<MakeSigned<T>>());
+}
+
+// Returns positive infinity.
+template <typename T, HWY_IF_FLOAT_OR_SPECIAL(T)>
+HWY_API HWY_BITCASTSCALAR_CONSTEXPR T ScalarInf() {
+  using TF = detail::NativeSpecialFloatToWrapper<RemoveCvRef<T>>;
+  using TU = MakeUnsigned<T>;
+  // Second cast required because f16 (u16) promotes to int, and cannot
+  // BitCast that to f16.
+  return BitCastScalar<T>(
+      static_cast<TU>(static_cast<TU>(MaxExponentTimes2<TF>()) >> 1));
 }
 
 template <typename T>

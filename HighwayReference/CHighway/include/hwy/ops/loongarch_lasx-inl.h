@@ -27,7 +27,9 @@
 // loongarch_lsx-inl.h is used (instead of moving lasxintrin.h after
 // HWY_BEFORE_NAMESPACE).
 HWY_PUSH_ATTRIBUTES("lsx,lasx")
+#ifndef __loongarch_asx
 #define __loongarch_asx
+#endif
 #include <lasxintrin.h>
 #undef __loongarch_asx
 // Prevent "unused push_attribute" warning from Clang.
@@ -429,19 +431,19 @@ HWY_API Vec256<T> operator^(const Vec256<T> a, const Vec256<T> b) {
 namespace detail {
 
 template <typename T>
-HWY_INLINE Vec256<T> PopulationCount(hwy::SizeTag<1> /* tag */, Vec256<T> v) {
+HWY_INLINE Vec256<T> PopulationCountImpl(hwy::SizeTag<1> /* tag */, Vec256<T> v) {
   return Vec256<T>{__lasx_xvpcnt_b(v.raw)};
 }
 template <typename T>
-HWY_INLINE Vec256<T> PopulationCount(hwy::SizeTag<2> /* tag */, Vec256<T> v) {
+HWY_INLINE Vec256<T> PopulationCountImpl(hwy::SizeTag<2> /* tag */, Vec256<T> v) {
   return Vec256<T>{__lasx_xvpcnt_h(v.raw)};
 }
 template <typename T>
-HWY_INLINE Vec256<T> PopulationCount(hwy::SizeTag<4> /* tag */, Vec256<T> v) {
+HWY_INLINE Vec256<T> PopulationCountImpl(hwy::SizeTag<4> /* tag */, Vec256<T> v) {
   return Vec256<T>{__lasx_xvpcnt_w(v.raw)};
 }
 template <typename T>
-HWY_INLINE Vec256<T> PopulationCount(hwy::SizeTag<8> /* tag */, Vec256<T> v) {
+HWY_INLINE Vec256<T> PopulationCountImpl(hwy::SizeTag<8> /* tag */, Vec256<T> v) {
   return Vec256<T>{__lasx_xvpcnt_d(v.raw)};
 }
 
@@ -449,7 +451,7 @@ HWY_INLINE Vec256<T> PopulationCount(hwy::SizeTag<8> /* tag */, Vec256<T> v) {
 
 template <typename T>
 HWY_API Vec256<T> PopulationCount(Vec256<T> v) {
-  return detail::PopulationCount(hwy::SizeTag<sizeof(T)>(), v);
+  return detail::PopulationCountImpl(hwy::SizeTag<sizeof(T)>(), v);
 }
 
 // ------------------------------ Mask
@@ -489,9 +491,8 @@ HWY_API Vec256<T> IfThenZeroElse(Mask256<T> mask, Vec256<T> no) {
   return AndNot(VecFromMask(mask), no);
 }
 
-template <typename T>
+template <typename T, HWY_IF_FLOAT3264(T)>
 HWY_API Vec256<T> ZeroIfNegative(Vec256<T> v) {
-  static_assert(IsSigned<T>(), "Only for float");
   const DFromV<decltype(v)> d;
   const auto zero = Zero(d);
   return IfThenElse(v < zero, zero, v);
@@ -595,59 +596,61 @@ HWY_API Mask256<T> operator!=(Vec256<T> a, Vec256<T> b) {
 HWY_API Mask256<float> operator!=(Vec256<float> a, Vec256<float> b) {
   const DFromV<decltype(a)> d;
   const RebindToSigned<decltype(d)> di;
-  return RebindMask(d, MFromD<decltype(di)>{__lasx_xvfcmp_cne_s(a.raw, b.raw)});
+  return RebindMask(d,
+                    MFromD<decltype(di)>{__lasx_xvfcmp_cune_s(a.raw, b.raw)});
 }
 HWY_API Mask256<double> operator!=(Vec256<double> a, Vec256<double> b) {
   const DFromV<decltype(a)> d;
   const RebindToSigned<decltype(d)> di;
-  return RebindMask(d, MFromD<decltype(di)>{__lasx_xvfcmp_cne_d(a.raw, b.raw)});
+  return RebindMask(d,
+                    MFromD<decltype(di)>{__lasx_xvfcmp_cune_d(a.raw, b.raw)});
 }
 
 // ------------------------------ Strict inequality
 
 namespace detail {
 
-HWY_API Mask256<int8_t> Gt(hwy::SignedTag /*tag*/, Vec256<int8_t> a,
+HWY_API Mask256<int8_t> GtImpl(hwy::SignedTag /*tag*/, Vec256<int8_t> a,
                            Vec256<int8_t> b) {
   return Mask256<int8_t>{__lasx_xvslt_b(b.raw, a.raw)};
 }
-HWY_API Mask256<int16_t> Gt(hwy::SignedTag /*tag*/, Vec256<int16_t> a,
+HWY_API Mask256<int16_t> GtImpl(hwy::SignedTag /*tag*/, Vec256<int16_t> a,
                             Vec256<int16_t> b) {
   return Mask256<int16_t>{__lasx_xvslt_h(b.raw, a.raw)};
 }
-HWY_API Mask256<int32_t> Gt(hwy::SignedTag /*tag*/, Vec256<int32_t> a,
+HWY_API Mask256<int32_t> GtImpl(hwy::SignedTag /*tag*/, Vec256<int32_t> a,
                             Vec256<int32_t> b) {
   return Mask256<int32_t>{__lasx_xvslt_w(b.raw, a.raw)};
 }
-HWY_API Mask256<int64_t> Gt(hwy::SignedTag /*tag*/, Vec256<int64_t> a,
+HWY_API Mask256<int64_t> GtImpl(hwy::SignedTag /*tag*/, Vec256<int64_t> a,
                             Vec256<int64_t> b) {
   return Mask256<int64_t>{__lasx_xvslt_d(b.raw, a.raw)};
 }
 
-HWY_API Mask256<uint8_t> Gt(hwy::UnsignedTag /*tag*/, Vec256<uint8_t> a,
+HWY_API Mask256<uint8_t> GtImpl(hwy::UnsignedTag /*tag*/, Vec256<uint8_t> a,
                             Vec256<uint8_t> b) {
   return Mask256<uint8_t>{__lasx_xvslt_bu(b.raw, a.raw)};
 }
-HWY_API Mask256<uint16_t> Gt(hwy::UnsignedTag /*tag*/, Vec256<uint16_t> a,
+HWY_API Mask256<uint16_t> GtImpl(hwy::UnsignedTag /*tag*/, Vec256<uint16_t> a,
                              Vec256<uint16_t> b) {
   return Mask256<uint16_t>{__lasx_xvslt_hu(b.raw, a.raw)};
 }
-HWY_API Mask256<uint32_t> Gt(hwy::UnsignedTag /*tag*/, Vec256<uint32_t> a,
+HWY_API Mask256<uint32_t> GtImpl(hwy::UnsignedTag /*tag*/, Vec256<uint32_t> a,
                              Vec256<uint32_t> b) {
   return Mask256<uint32_t>{__lasx_xvslt_wu(b.raw, a.raw)};
 }
-HWY_API Mask256<uint64_t> Gt(hwy::UnsignedTag /*tag*/, Vec256<uint64_t> a,
+HWY_API Mask256<uint64_t> GtImpl(hwy::UnsignedTag /*tag*/, Vec256<uint64_t> a,
                              Vec256<uint64_t> b) {
   return Mask256<uint64_t>{__lasx_xvslt_du(b.raw, a.raw)};
 }
 
-HWY_API Mask256<float> Gt(hwy::FloatTag /*tag*/, Vec256<float> a,
+HWY_API Mask256<float> GtImpl(hwy::FloatTag /*tag*/, Vec256<float> a,
                           Vec256<float> b) {
   const DFromV<decltype(a)> d;
   const RebindToSigned<decltype(d)> di;
   return RebindMask(d, MFromD<decltype(di)>{__lasx_xvfcmp_clt_s(b.raw, a.raw)});
 }
-HWY_API Mask256<double> Gt(hwy::FloatTag /*tag*/, Vec256<double> a,
+HWY_API Mask256<double> GtImpl(hwy::FloatTag /*tag*/, Vec256<double> a,
                            Vec256<double> b) {
   const DFromV<decltype(a)> d;
   const RebindToSigned<decltype(d)> di;
@@ -658,7 +661,7 @@ HWY_API Mask256<double> Gt(hwy::FloatTag /*tag*/, Vec256<double> a,
 
 template <typename T>
 HWY_API Mask256<T> operator>(Vec256<T> a, Vec256<T> b) {
-  return detail::Gt(hwy::TypeTag<T>(), a, b);
+  return detail::GtImpl(hwy::TypeTag<T>(), a, b);
 }
 
 // ------------------------------ Weak inequality
@@ -666,22 +669,22 @@ HWY_API Mask256<T> operator>(Vec256<T> a, Vec256<T> b) {
 namespace detail {
 
 template <typename T>
-HWY_INLINE Mask256<T> Ge(hwy::SignedTag /*tag*/, Vec256<T> a, Vec256<T> b) {
+HWY_INLINE Mask256<T> GeImpl(hwy::SignedTag /*tag*/, Vec256<T> a, Vec256<T> b) {
   return Not(b > a);
 }
 
 template <typename T>
-HWY_INLINE Mask256<T> Ge(hwy::UnsignedTag /*tag*/, Vec256<T> a, Vec256<T> b) {
+HWY_INLINE Mask256<T> GeImpl(hwy::UnsignedTag /*tag*/, Vec256<T> a, Vec256<T> b) {
   return Not(b > a);
 }
 
-HWY_INLINE Mask256<float> Ge(hwy::FloatTag /*tag*/, Vec256<float> a,
+HWY_INLINE Mask256<float> GeImpl(hwy::FloatTag /*tag*/, Vec256<float> a,
                              Vec256<float> b) {
   const DFromV<decltype(a)> d;
   const RebindToSigned<decltype(d)> di;
   return RebindMask(d, MFromD<decltype(di)>{__lasx_xvfcmp_cle_s(b.raw, a.raw)});
 }
-HWY_INLINE Mask256<double> Ge(hwy::FloatTag /*tag*/, Vec256<double> a,
+HWY_INLINE Mask256<double> GeImpl(hwy::FloatTag /*tag*/, Vec256<double> a,
                               Vec256<double> b) {
   const DFromV<decltype(a)> d;
   const RebindToSigned<decltype(d)> di;
@@ -692,7 +695,7 @@ HWY_INLINE Mask256<double> Ge(hwy::FloatTag /*tag*/, Vec256<double> a,
 
 template <typename T>
 HWY_API Mask256<T> operator>=(Vec256<T> a, Vec256<T> b) {
-  return detail::Ge(hwy::TypeTag<T>(), a, b);
+  return detail::GeImpl(hwy::TypeTag<T>(), a, b);
 }
 
 // ------------------------------ Reversed comparisons
@@ -1675,35 +1678,35 @@ HWY_API Vec256<int64_t> ShiftRightSame(const Vec256<int64_t> v,
 namespace detail {
 
 template <typename T>
-HWY_INLINE Vec256<T> Neg(hwy::FloatTag /*tag*/, const Vec256<T> v) {
+HWY_INLINE Vec256<T> NegImpl(hwy::FloatTag /*tag*/, const Vec256<T> v) {
   const DFromV<decltype(v)> d;
   return Xor(v, SignBit(d));
 }
 
 template <typename T>
-HWY_INLINE Vec256<T> Neg(hwy::SpecialTag /*tag*/, const Vec256<T> v) {
+HWY_INLINE Vec256<T> NegImpl(hwy::SpecialTag /*tag*/, const Vec256<T> v) {
   const DFromV<decltype(v)> d;
   return Xor(v, SignBit(d));
 }
 
 // Not floating-point
 template <typename T, HWY_IF_UI8(T)>
-HWY_INLINE Vec256<T> Neg(hwy::SignedTag /*tag*/, const Vec256<T> v) {
+HWY_INLINE Vec256<T> NegImpl(hwy::SignedTag /*tag*/, const Vec256<T> v) {
   return Vec256<T>{__lasx_xvneg_b(v.raw)};
 }
 
 template <typename T, HWY_IF_UI16(T)>
-HWY_INLINE Vec256<T> Neg(hwy::SignedTag /*tag*/, const Vec256<T> v) {
+HWY_INLINE Vec256<T> NegImpl(hwy::SignedTag /*tag*/, const Vec256<T> v) {
   return Vec256<T>{__lasx_xvneg_h(v.raw)};
 }
 
 template <typename T, HWY_IF_UI32(T)>
-HWY_INLINE Vec256<T> Neg(hwy::SignedTag /*tag*/, const Vec256<T> v) {
+HWY_INLINE Vec256<T> NegImpl(hwy::SignedTag /*tag*/, const Vec256<T> v) {
   return Vec256<T>{__lasx_xvneg_w(v.raw)};
 }
 
 template <typename T, HWY_IF_UI64(T)>
-HWY_INLINE Vec256<T> Neg(hwy::SignedTag /*tag*/, const Vec256<T> v) {
+HWY_INLINE Vec256<T> NegImpl(hwy::SignedTag /*tag*/, const Vec256<T> v) {
   return Vec256<T>{__lasx_xvneg_d(v.raw)};
 }
 
@@ -1711,7 +1714,7 @@ HWY_INLINE Vec256<T> Neg(hwy::SignedTag /*tag*/, const Vec256<T> v) {
 
 template <typename T>
 HWY_API Vec256<T> Neg(const Vec256<T> v) {
-  return detail::Neg(hwy::TypeTag<T>(), v);
+  return detail::NegImpl(hwy::TypeTag<T>(), v);
 }
 
 // ------------------------------ Floating-point mul / div
@@ -1827,11 +1830,11 @@ HWY_API Vec256<double> MulAdd(Vec256<double> mul, Vec256<double> x,
 
 HWY_API Vec256<float> NegMulAdd(Vec256<float> mul, Vec256<float> x,
                                 Vec256<float> add) {
-  return add - mul * x;
+  return Vec256<float>{__lasx_xvfnmsub_s(mul.raw, x.raw, add.raw)};
 }
 HWY_API Vec256<double> NegMulAdd(Vec256<double> mul, Vec256<double> x,
                                  Vec256<double> add) {
-  return add - mul * x;
+  return Vec256<double>{__lasx_xvfnmsub_d(mul.raw, x.raw, add.raw)};
 }
 
 HWY_API Vec256<float> MulSub(Vec256<float> mul, Vec256<float> x,
@@ -2118,7 +2121,7 @@ HWY_API VFromD<D> ZeroExtendVector(D /* tag */, VFromD<Half<D>> lo) {
 namespace detail {
 
 template <class DTo, class DFrom>
-HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCast(
+HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCastImpl(
     hwy::SizeTag<8> /* from_size_tag */, hwy::SizeTag<32> /* to_size_tag */,
     DTo d_to, DFrom d_from, VFromD<DFrom> v) {
   const Twice<decltype(d_from)> dt_from;
@@ -2239,13 +2242,13 @@ HWY_API Vec256<T> BroadcastBlock(Vec256<T> v) {
 namespace detail {
 
 template <class T, HWY_IF_T_SIZE(T, 1)>
-HWY_INLINE Vec256<T> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
+HWY_INLINE Vec256<T> BroadcastLaneImpl(hwy::SizeTag<0> /* lane_idx_tag */,
                                    Vec256<T> v) {
   return Vec256<T>{__lasx_xvreplve0_b(v.raw)};
 }
 
 template <class T, HWY_IF_T_SIZE(T, 2)>
-HWY_INLINE Vec256<T> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
+HWY_INLINE Vec256<T> BroadcastLaneImpl(hwy::SizeTag<0> /* lane_idx_tag */,
                                    Vec256<T> v) {
   const DFromV<decltype(v)> d;
   const RebindToUnsigned<decltype(d)> du;  // for float16_t
@@ -2254,18 +2257,18 @@ HWY_INLINE Vec256<T> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
 }
 
 template <class T, HWY_IF_UI32(T)>
-HWY_INLINE Vec256<T> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
+HWY_INLINE Vec256<T> BroadcastLaneImpl(hwy::SizeTag<0> /* lane_idx_tag */,
                                    Vec256<T> v) {
   return Vec256<T>{__lasx_xvreplve0_w(v.raw)};
 }
 
 template <class T, HWY_IF_UI64(T)>
-HWY_INLINE Vec256<T> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
+HWY_INLINE Vec256<T> BroadcastLaneImpl(hwy::SizeTag<0> /* lane_idx_tag */,
                                    Vec256<T> v) {
   return Vec256<T>{__lasx_xvreplve0_d(v.raw)};
 }
 
-HWY_INLINE Vec256<float> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
+HWY_INLINE Vec256<float> BroadcastLaneImpl(hwy::SizeTag<0> /* lane_idx_tag */,
                                        Vec256<float> v) {
   const DFromV<decltype(v)> d;
   const RebindToUnsigned<decltype(d)> du;
@@ -2273,7 +2276,7 @@ HWY_INLINE Vec256<float> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
                  VFromD<decltype(du)>{__lasx_xvreplve0_w(BitCast(du, v).raw)});
 }
 
-HWY_INLINE Vec256<double> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
+HWY_INLINE Vec256<double> BroadcastLaneImpl(hwy::SizeTag<0> /* lane_idx_tag */,
                                         Vec256<double> v) {
   const DFromV<decltype(v)> d;
   const RebindToUnsigned<decltype(d)> du;
@@ -2282,7 +2285,7 @@ HWY_INLINE Vec256<double> BroadcastLane(hwy::SizeTag<0> /* lane_idx_tag */,
 }
 
 template <size_t kLaneIdx, class T, hwy::EnableIf<kLaneIdx != 0>* = nullptr>
-HWY_INLINE Vec256<T> BroadcastLane(hwy::SizeTag<kLaneIdx> /* lane_idx_tag */,
+HWY_INLINE Vec256<T> BroadcastLaneImpl(hwy::SizeTag<kLaneIdx> /* lane_idx_tag */,
                                    Vec256<T> v) {
   constexpr size_t kLanesPerBlock = 16 / sizeof(T);
   constexpr int kBlockIdx = static_cast<int>(kLaneIdx / kLanesPerBlock);
@@ -2295,7 +2298,7 @@ HWY_INLINE Vec256<T> BroadcastLane(hwy::SizeTag<kLaneIdx> /* lane_idx_tag */,
 template <int kLaneIdx, class T>
 HWY_API Vec256<T> BroadcastLane(Vec256<T> v) {
   static_assert(kLaneIdx >= 0, "Invalid lane");
-  return detail::BroadcastLane(hwy::SizeTag<static_cast<size_t>(kLaneIdx)>(),
+  return detail::BroadcastLaneImpl(hwy::SizeTag<static_cast<size_t>(kLaneIdx)>(),
                                v);
 }
 
@@ -2891,7 +2894,8 @@ HWY_INLINE Vec256<T> OddEven(Vec256<T> a, Vec256<T> b) {
   return Vec256<T>{__lasx_xvpackev_b(c, b.raw)};
 }
 
-template <typename T, HWY_IF_UI16(T)>
+// Also handles f16/bf16, whose raw type is also __m256i.
+template <typename T, HWY_IF_T_SIZE(T, 2)>
 HWY_INLINE Vec256<T> OddEven(Vec256<T> a, Vec256<T> b) {
   __m256i c = __lasx_xvpackod_h(a.raw, a.raw);
   return Vec256<T>{__lasx_xvpackev_h(c, b.raw)};
@@ -3027,7 +3031,7 @@ HWY_INLINE VFromD<D> Per4LaneBlkShufDupSet4xU32(D d, const uint32_t x3,
 }
 
 template <size_t kIdx3210, class V, HWY_IF_NOT_FLOAT(TFromV<V>)>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
                                   hwy::SizeTag<4> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -3038,7 +3042,7 @@ HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
 }
 
 template <size_t kIdx3210, class V, HWY_IF_FLOAT(TFromV<V>)>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
                                   hwy::SizeTag<4> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -3051,7 +3055,7 @@ HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
 }
 
 template <class V>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<0x44> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<0x44> /*idx_3210_tag*/,
                                   hwy::SizeTag<8> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -3059,7 +3063,7 @@ HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<0x44> /*idx_3210_tag*/,
 }
 
 template <class V>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<0xEE> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<0xEE> /*idx_3210_tag*/,
                                   hwy::SizeTag<8> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -3067,7 +3071,7 @@ HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<0xEE> /*idx_3210_tag*/,
 }
 
 template <size_t kIdx3210, class V, HWY_IF_NOT_FLOAT(TFromV<V>)>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
                                   hwy::SizeTag<8> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -3293,40 +3297,40 @@ HWY_API VFromD<D> Slide1Down(D d, VFromD<D> v) {
 // ------------------------------ Shl (Mul, ZipLower)
 namespace detail {
 
-HWY_INLINE Vec256<uint8_t> Shl(hwy::UnsignedTag /*tag*/, Vec256<uint8_t> v,
+HWY_INLINE Vec256<uint8_t> ShlImpl(hwy::UnsignedTag /*tag*/, Vec256<uint8_t> v,
                                Vec256<uint8_t> bits) {
   return Vec256<uint8_t>{__lasx_xvsll_b(v.raw, bits.raw)};
 }
 
-HWY_INLINE Vec256<uint16_t> Shl(hwy::UnsignedTag /*tag*/, Vec256<uint16_t> v,
+HWY_INLINE Vec256<uint16_t> ShlImpl(hwy::UnsignedTag /*tag*/, Vec256<uint16_t> v,
                                 Vec256<uint16_t> bits) {
   return Vec256<uint16_t>{__lasx_xvsll_h(v.raw, bits.raw)};
 }
 
-HWY_INLINE Vec256<uint32_t> Shl(hwy::UnsignedTag /*tag*/, Vec256<uint32_t> v,
+HWY_INLINE Vec256<uint32_t> ShlImpl(hwy::UnsignedTag /*tag*/, Vec256<uint32_t> v,
                                 Vec256<uint32_t> bits) {
   return Vec256<uint32_t>{__lasx_xvsll_w(v.raw, bits.raw)};
 }
 
-HWY_INLINE Vec256<uint64_t> Shl(hwy::UnsignedTag /*tag*/, Vec256<uint64_t> v,
+HWY_INLINE Vec256<uint64_t> ShlImpl(hwy::UnsignedTag /*tag*/, Vec256<uint64_t> v,
                                 Vec256<uint64_t> bits) {
   return Vec256<uint64_t>{__lasx_xvsll_d(v.raw, bits.raw)};
 }
 
 template <typename T>
-HWY_INLINE Vec256<T> Shl(hwy::SignedTag /*tag*/, Vec256<T> v, Vec256<T> bits) {
+HWY_INLINE Vec256<T> ShlImpl(hwy::SignedTag /*tag*/, Vec256<T> v, Vec256<T> bits) {
   // Signed left shifts are the same as unsigned.
   const Full256<T> di;
   const Full256<MakeUnsigned<T>> du;
   return BitCast(di,
-                 Shl(hwy::UnsignedTag(), BitCast(du, v), BitCast(du, bits)));
+                 ShlImpl(hwy::UnsignedTag(), BitCast(du, v), BitCast(du, bits)));
 }
 
 }  // namespace detail
 
 template <typename T>
 HWY_API Vec256<T> operator<<(Vec256<T> v, Vec256<T> bits) {
-  return detail::Shl(hwy::TypeTag<T>(), v, bits);
+  return detail::ShlImpl(hwy::TypeTag<T>(), v, bits);
 }
 
 // ------------------------------ Shr (MulHigh, IfThenElse, Not)
@@ -3590,7 +3594,7 @@ namespace detail {
 // I32->I64 PromoteEvenTo/PromoteOddTo
 
 template <class D, HWY_IF_LANES_D(D, 4)>
-HWY_INLINE VFromD<D> PromoteEvenTo(hwy::SignedTag /*to_type_tag*/,
+HWY_INLINE VFromD<D> PromoteEvenToImpl(hwy::SignedTag /*to_type_tag*/,
                                    hwy::SizeTag<8> /*to_lane_size_tag*/,
                                    hwy::SignedTag /*from_type_tag*/, D d_to,
                                    Vec256<int32_t> v) {
@@ -3598,7 +3602,7 @@ HWY_INLINE VFromD<D> PromoteEvenTo(hwy::SignedTag /*to_type_tag*/,
 }
 
 template <class D, HWY_IF_LANES_D(D, 4)>
-HWY_INLINE VFromD<D> PromoteOddTo(hwy::SignedTag /*to_type_tag*/,
+HWY_INLINE VFromD<D> PromoteOddToImpl(hwy::SignedTag /*to_type_tag*/,
                                   hwy::SizeTag<8> /*to_lane_size_tag*/,
                                   hwy::SignedTag /*from_type_tag*/, D d_to,
                                   Vec256<int32_t> v) {
@@ -3830,6 +3834,24 @@ HWY_API VFromD<DU> ConvertTo(DU /*du*/, VFromD<RebindToFloat<DU>> v) {
   return VFromD<DU>{__lasx_xvftintrz_lu_d(v.raw)};
 }
 
+// ------------------------------ CeilInt/FloorInt
+
+HWY_API Vec256<int32_t> CeilInt(const Vec256<float> v) {
+  return Vec256<int32_t>{__lasx_xvftintrp_w_s(v.raw)};
+}
+
+HWY_API Vec256<int64_t> CeilInt(const Vec256<double> v) {
+  return Vec256<int64_t>{__lasx_xvftintrp_l_d(v.raw)};
+}
+
+HWY_API Vec256<int32_t> FloorInt(const Vec256<float> v) {
+  return Vec256<int32_t>{__lasx_xvftintrm_w_s(v.raw)};
+}
+
+HWY_API Vec256<int64_t> FloorInt(const Vec256<double> v) {
+  return Vec256<int64_t>{__lasx_xvftintrm_l_d(v.raw)};
+}
+
 template <typename T, HWY_IF_FLOAT3264(T)>
 HWY_API Vec256<MakeSigned<T>> NearestInt(const Vec256<T> v) {
   return ConvertTo(Full256<MakeSigned<T>>(), Round(v));
@@ -4000,330 +4022,6 @@ HWY_API intptr_t FindLastTrue(D d, MFromD<D> mask) {
   const uint32_t mask_bits = static_cast<uint32_t>(BitsFromMask(d, mask));
   return mask_bits ? intptr_t(31 - Num0BitsAboveMS1Bit_Nonzero32(mask_bits))
                    : -1;
-}
-
-// ------------------------------ Compress, CompressBits
-
-namespace detail {
-
-template <typename T, HWY_IF_T_SIZE(T, 4)>
-HWY_INLINE Vec256<uint32_t> IndicesFromBits256(uint64_t mask_bits) {
-  const Full256<uint32_t> d32;
-  // We need a masked Iota(). With 8 lanes, there are 256 combinations and a LUT
-  // of SetTableIndices would require 8 KiB, a large part of L1D. We instead
-  // compress each index into 4 bits, for a total of 1 KiB.
-  alignas(16) static constexpr uint32_t packed_array[256] = {
-      // PrintCompress32x8Tables
-      0x76543210, 0x76543218, 0x76543209, 0x76543298, 0x7654310a, 0x765431a8,
-      0x765430a9, 0x76543a98, 0x7654210b, 0x765421b8, 0x765420b9, 0x76542b98,
-      0x765410ba, 0x76541ba8, 0x76540ba9, 0x7654ba98, 0x7653210c, 0x765321c8,
-      0x765320c9, 0x76532c98, 0x765310ca, 0x76531ca8, 0x76530ca9, 0x7653ca98,
-      0x765210cb, 0x76521cb8, 0x76520cb9, 0x7652cb98, 0x76510cba, 0x7651cba8,
-      0x7650cba9, 0x765cba98, 0x7643210d, 0x764321d8, 0x764320d9, 0x76432d98,
-      0x764310da, 0x76431da8, 0x76430da9, 0x7643da98, 0x764210db, 0x76421db8,
-      0x76420db9, 0x7642db98, 0x76410dba, 0x7641dba8, 0x7640dba9, 0x764dba98,
-      0x763210dc, 0x76321dc8, 0x76320dc9, 0x7632dc98, 0x76310dca, 0x7631dca8,
-      0x7630dca9, 0x763dca98, 0x76210dcb, 0x7621dcb8, 0x7620dcb9, 0x762dcb98,
-      0x7610dcba, 0x761dcba8, 0x760dcba9, 0x76dcba98, 0x7543210e, 0x754321e8,
-      0x754320e9, 0x75432e98, 0x754310ea, 0x75431ea8, 0x75430ea9, 0x7543ea98,
-      0x754210eb, 0x75421eb8, 0x75420eb9, 0x7542eb98, 0x75410eba, 0x7541eba8,
-      0x7540eba9, 0x754eba98, 0x753210ec, 0x75321ec8, 0x75320ec9, 0x7532ec98,
-      0x75310eca, 0x7531eca8, 0x7530eca9, 0x753eca98, 0x75210ecb, 0x7521ecb8,
-      0x7520ecb9, 0x752ecb98, 0x7510ecba, 0x751ecba8, 0x750ecba9, 0x75ecba98,
-      0x743210ed, 0x74321ed8, 0x74320ed9, 0x7432ed98, 0x74310eda, 0x7431eda8,
-      0x7430eda9, 0x743eda98, 0x74210edb, 0x7421edb8, 0x7420edb9, 0x742edb98,
-      0x7410edba, 0x741edba8, 0x740edba9, 0x74edba98, 0x73210edc, 0x7321edc8,
-      0x7320edc9, 0x732edc98, 0x7310edca, 0x731edca8, 0x730edca9, 0x73edca98,
-      0x7210edcb, 0x721edcb8, 0x720edcb9, 0x72edcb98, 0x710edcba, 0x71edcba8,
-      0x70edcba9, 0x7edcba98, 0x6543210f, 0x654321f8, 0x654320f9, 0x65432f98,
-      0x654310fa, 0x65431fa8, 0x65430fa9, 0x6543fa98, 0x654210fb, 0x65421fb8,
-      0x65420fb9, 0x6542fb98, 0x65410fba, 0x6541fba8, 0x6540fba9, 0x654fba98,
-      0x653210fc, 0x65321fc8, 0x65320fc9, 0x6532fc98, 0x65310fca, 0x6531fca8,
-      0x6530fca9, 0x653fca98, 0x65210fcb, 0x6521fcb8, 0x6520fcb9, 0x652fcb98,
-      0x6510fcba, 0x651fcba8, 0x650fcba9, 0x65fcba98, 0x643210fd, 0x64321fd8,
-      0x64320fd9, 0x6432fd98, 0x64310fda, 0x6431fda8, 0x6430fda9, 0x643fda98,
-      0x64210fdb, 0x6421fdb8, 0x6420fdb9, 0x642fdb98, 0x6410fdba, 0x641fdba8,
-      0x640fdba9, 0x64fdba98, 0x63210fdc, 0x6321fdc8, 0x6320fdc9, 0x632fdc98,
-      0x6310fdca, 0x631fdca8, 0x630fdca9, 0x63fdca98, 0x6210fdcb, 0x621fdcb8,
-      0x620fdcb9, 0x62fdcb98, 0x610fdcba, 0x61fdcba8, 0x60fdcba9, 0x6fdcba98,
-      0x543210fe, 0x54321fe8, 0x54320fe9, 0x5432fe98, 0x54310fea, 0x5431fea8,
-      0x5430fea9, 0x543fea98, 0x54210feb, 0x5421feb8, 0x5420feb9, 0x542feb98,
-      0x5410feba, 0x541feba8, 0x540feba9, 0x54feba98, 0x53210fec, 0x5321fec8,
-      0x5320fec9, 0x532fec98, 0x5310feca, 0x531feca8, 0x530feca9, 0x53feca98,
-      0x5210fecb, 0x521fecb8, 0x520fecb9, 0x52fecb98, 0x510fecba, 0x51fecba8,
-      0x50fecba9, 0x5fecba98, 0x43210fed, 0x4321fed8, 0x4320fed9, 0x432fed98,
-      0x4310feda, 0x431feda8, 0x430feda9, 0x43feda98, 0x4210fedb, 0x421fedb8,
-      0x420fedb9, 0x42fedb98, 0x410fedba, 0x41fedba8, 0x40fedba9, 0x4fedba98,
-      0x3210fedc, 0x321fedc8, 0x320fedc9, 0x32fedc98, 0x310fedca, 0x31fedca8,
-      0x30fedca9, 0x3fedca98, 0x210fedcb, 0x21fedcb8, 0x20fedcb9, 0x2fedcb98,
-      0x10fedcba, 0x1fedcba8, 0x0fedcba9, 0xfedcba98};
-
-  // No need to mask because __lasx_xvperm_w ignores bits 3..31.
-  // Just shift each copy of the 32 bit LUT to extract its 4-bit fields.
-  const auto packed = Set(d32, packed_array[mask_bits]);
-  alignas(32) static constexpr uint32_t shifts[8] = {0,  4,  8,  12,
-                                                     16, 20, 24, 28};
-  return packed >> Load(d32, shifts);
-}
-
-template <typename T, HWY_IF_T_SIZE(T, 8)>
-HWY_INLINE Vec256<uint64_t> IndicesFromBits256(uint64_t mask_bits) {
-  const Full256<uint64_t> d64;
-
-  // For 64-bit, there are only 4 lanes, so we can afford to load the
-  // entire index vector directly.
-  alignas(32) static constexpr uint64_t u64_indices[64] = {
-      // PrintCompress64x4PairTables
-      0,  1,  2, 3, 8, 1,  2,  3, 9, 0,  2,  3, 8, 9, 2,  3,
-      10, 0,  1, 3, 8, 10, 1,  3, 9, 10, 0,  3, 8, 9, 10, 3,
-      11, 0,  1, 2, 8, 11, 1,  2, 9, 11, 0,  2, 8, 9, 11, 2,
-      10, 11, 0, 1, 8, 10, 11, 1, 9, 10, 11, 0, 8, 9, 10, 11};
-  return Load(d64, u64_indices + 4 * mask_bits);
-}
-
-template <typename T, HWY_IF_T_SIZE(T, 4)>
-HWY_INLINE Vec256<uint32_t> IndicesFromNotBits256(uint64_t mask_bits) {
-  const Full256<uint32_t> d32;
-  // We need a masked Iota(). With 8 lanes, there are 256 combinations and a LUT
-  // of SetTableIndices would require 8 KiB, a large part of L1D. We instead
-  // compress each index into 4 bits, for a total of 1 KiB.
-  alignas(16) static constexpr uint32_t packed_array[256] = {
-      // PrintCompressNot32x8Tables
-      0xfedcba98, 0x8fedcba9, 0x9fedcba8, 0x98fedcba, 0xafedcb98, 0xa8fedcb9,
-      0xa9fedcb8, 0xa98fedcb, 0xbfedca98, 0xb8fedca9, 0xb9fedca8, 0xb98fedca,
-      0xbafedc98, 0xba8fedc9, 0xba9fedc8, 0xba98fedc, 0xcfedba98, 0xc8fedba9,
-      0xc9fedba8, 0xc98fedba, 0xcafedb98, 0xca8fedb9, 0xca9fedb8, 0xca98fedb,
-      0xcbfeda98, 0xcb8feda9, 0xcb9feda8, 0xcb98feda, 0xcbafed98, 0xcba8fed9,
-      0xcba9fed8, 0xcba98fed, 0xdfecba98, 0xd8fecba9, 0xd9fecba8, 0xd98fecba,
-      0xdafecb98, 0xda8fecb9, 0xda9fecb8, 0xda98fecb, 0xdbfeca98, 0xdb8feca9,
-      0xdb9feca8, 0xdb98feca, 0xdbafec98, 0xdba8fec9, 0xdba9fec8, 0xdba98fec,
-      0xdcfeba98, 0xdc8feba9, 0xdc9feba8, 0xdc98feba, 0xdcafeb98, 0xdca8feb9,
-      0xdca9feb8, 0xdca98feb, 0xdcbfea98, 0xdcb8fea9, 0xdcb9fea8, 0xdcb98fea,
-      0xdcbafe98, 0xdcba8fe9, 0xdcba9fe8, 0xdcba98fe, 0xefdcba98, 0xe8fdcba9,
-      0xe9fdcba8, 0xe98fdcba, 0xeafdcb98, 0xea8fdcb9, 0xea9fdcb8, 0xea98fdcb,
-      0xebfdca98, 0xeb8fdca9, 0xeb9fdca8, 0xeb98fdca, 0xebafdc98, 0xeba8fdc9,
-      0xeba9fdc8, 0xeba98fdc, 0xecfdba98, 0xec8fdba9, 0xec9fdba8, 0xec98fdba,
-      0xecafdb98, 0xeca8fdb9, 0xeca9fdb8, 0xeca98fdb, 0xecbfda98, 0xecb8fda9,
-      0xecb9fda8, 0xecb98fda, 0xecbafd98, 0xecba8fd9, 0xecba9fd8, 0xecba98fd,
-      0xedfcba98, 0xed8fcba9, 0xed9fcba8, 0xed98fcba, 0xedafcb98, 0xeda8fcb9,
-      0xeda9fcb8, 0xeda98fcb, 0xedbfca98, 0xedb8fca9, 0xedb9fca8, 0xedb98fca,
-      0xedbafc98, 0xedba8fc9, 0xedba9fc8, 0xedba98fc, 0xedcfba98, 0xedc8fba9,
-      0xedc9fba8, 0xedc98fba, 0xedcafb98, 0xedca8fb9, 0xedca9fb8, 0xedca98fb,
-      0xedcbfa98, 0xedcb8fa9, 0xedcb9fa8, 0xedcb98fa, 0xedcbaf98, 0xedcba8f9,
-      0xedcba9f8, 0xedcba98f, 0xfedcba98, 0xf8edcba9, 0xf9edcba8, 0xf98edcba,
-      0xfaedcb98, 0xfa8edcb9, 0xfa9edcb8, 0xfa98edcb, 0xfbedca98, 0xfb8edca9,
-      0xfb9edca8, 0xfb98edca, 0xfbaedc98, 0xfba8edc9, 0xfba9edc8, 0xfba98edc,
-      0xfcedba98, 0xfc8edba9, 0xfc9edba8, 0xfc98edba, 0xfcaedb98, 0xfca8edb9,
-      0xfca9edb8, 0xfca98edb, 0xfcbeda98, 0xfcb8eda9, 0xfcb9eda8, 0xfcb98eda,
-      0xfcbaed98, 0xfcba8ed9, 0xfcba9ed8, 0xfcba98ed, 0xfdecba98, 0xfd8ecba9,
-      0xfd9ecba8, 0xfd98ecba, 0xfdaecb98, 0xfda8ecb9, 0xfda9ecb8, 0xfda98ecb,
-      0xfdbeca98, 0xfdb8eca9, 0xfdb9eca8, 0xfdb98eca, 0xfdbaec98, 0xfdba8ec9,
-      0xfdba9ec8, 0xfdba98ec, 0xfdceba98, 0xfdc8eba9, 0xfdc9eba8, 0xfdc98eba,
-      0xfdcaeb98, 0xfdca8eb9, 0xfdca9eb8, 0xfdca98eb, 0xfdcbea98, 0xfdcb8ea9,
-      0xfdcb9ea8, 0xfdcb98ea, 0xfdcbae98, 0xfdcba8e9, 0xfdcba9e8, 0xfdcba98e,
-      0xfedcba98, 0xfe8dcba9, 0xfe9dcba8, 0xfe98dcba, 0xfeadcb98, 0xfea8dcb9,
-      0xfea9dcb8, 0xfea98dcb, 0xfebdca98, 0xfeb8dca9, 0xfeb9dca8, 0xfeb98dca,
-      0xfebadc98, 0xfeba8dc9, 0xfeba9dc8, 0xfeba98dc, 0xfecdba98, 0xfec8dba9,
-      0xfec9dba8, 0xfec98dba, 0xfecadb98, 0xfeca8db9, 0xfeca9db8, 0xfeca98db,
-      0xfecbda98, 0xfecb8da9, 0xfecb9da8, 0xfecb98da, 0xfecbad98, 0xfecba8d9,
-      0xfecba9d8, 0xfecba98d, 0xfedcba98, 0xfed8cba9, 0xfed9cba8, 0xfed98cba,
-      0xfedacb98, 0xfeda8cb9, 0xfeda9cb8, 0xfeda98cb, 0xfedbca98, 0xfedb8ca9,
-      0xfedb9ca8, 0xfedb98ca, 0xfedbac98, 0xfedba8c9, 0xfedba9c8, 0xfedba98c,
-      0xfedcba98, 0xfedc8ba9, 0xfedc9ba8, 0xfedc98ba, 0xfedcab98, 0xfedca8b9,
-      0xfedca9b8, 0xfedca98b, 0xfedcba98, 0xfedcb8a9, 0xfedcb9a8, 0xfedcb98a,
-      0xfedcba98, 0xfedcba89, 0xfedcba98, 0xfedcba98};
-
-  // No need to mask because <__lasx_xvperm_w> ignores bits 3..31.
-  // Just shift each copy of the 32 bit LUT to extract its 4-bit fields.
-  const Vec256<uint32_t> packed = Set(d32, packed_array[mask_bits]);
-  alignas(32) static constexpr uint32_t shifts[8] = {0,  4,  8,  12,
-                                                     16, 20, 24, 28};
-  return packed >> Load(d32, shifts);
-}
-
-template <typename T, HWY_IF_T_SIZE(T, 8)>
-HWY_INLINE Vec256<uint64_t> IndicesFromNotBits256(uint64_t mask_bits) {
-  const Full256<uint64_t> d64;
-
-  // For 64-bit, there are only 4 lanes, so we can afford to load
-  // the entire index vector directly.
-  alignas(32) static constexpr uint64_t u64_indices[64] = {
-      // PrintCompressNot64x4PairTables
-      8, 9, 10, 11, 9, 10, 11, 0, 8, 10, 11, 1, 10, 11, 0, 1,
-      8, 9, 11, 2,  9, 11, 0,  2, 8, 11, 1,  2, 11, 0,  1, 2,
-      8, 9, 10, 3,  9, 10, 0,  3, 8, 10, 1,  3, 10, 0,  1, 3,
-      8, 9, 2,  3,  9, 0,  2,  3, 8, 1,  2,  3, 0,  1,  2, 3};
-  return Load(d64, u64_indices + 4 * mask_bits);
-}
-
-template <typename T, HWY_IF_NOT_T_SIZE(T, 2)>
-HWY_INLINE Vec256<T> Compress(Vec256<T> v, const uint64_t mask_bits) {
-  const DFromV<decltype(v)> d;
-  const RebindToSigned<decltype(d)> di;
-
-  HWY_DASSERT(mask_bits < (1ull << Lanes(d)));
-  const Indices256<TFromD<decltype(di)>> indices{
-      IndicesFromBits256<T>(mask_bits).raw};
-  return BitCast(d, TableLookupLanes(BitCast(di, v), indices));
-}
-
-// LUTs are infeasible for 2^16 possible masks, so splice together two
-// half-vector Compress.
-template <typename T, HWY_IF_T_SIZE(T, 2)>
-HWY_INLINE Vec256<T> Compress(Vec256<T> v, const uint64_t mask_bits) {
-  const DFromV<decltype(v)> d;
-  const RebindToUnsigned<decltype(d)> du;
-  const auto vu16 = BitCast(du, v);  // (required for float16_t inputs)
-  const Half<decltype(du)> duh;
-  const auto half0 = LowerHalf(duh, vu16);
-  const auto half1 = UpperHalf(duh, vu16);
-
-  const uint64_t mask_bits0 = mask_bits & 0xFF;
-  const uint64_t mask_bits1 = mask_bits >> 8;
-  const auto compressed0 = detail::CompressBits(half0, mask_bits0);
-  const auto compressed1 = detail::CompressBits(half1, mask_bits1);
-
-  alignas(32) uint16_t all_true[16] = {};
-  // Store mask=true lanes, left to right.
-  const size_t num_true0 = PopCount(mask_bits0);
-  Store(compressed0, duh, all_true);
-  StoreU(compressed1, duh, all_true + num_true0);
-
-  if (hwy::HWY_NAMESPACE::CompressIsPartition<T>::value) {
-    // Store mask=false lanes, right to left. The second vector fills the upper
-    // half with right-aligned false lanes. The first vector is shifted
-    // rightwards to overwrite the true lanes of the second.
-    alignas(32) uint16_t all_false[16] = {};
-    const size_t num_true1 = PopCount(mask_bits1);
-    Store(compressed1, duh, all_false + 8);
-    StoreU(compressed0, duh, all_false + num_true1);
-
-    const auto mask = FirstN(du, num_true0 + num_true1);
-    return BitCast(d,
-                   IfThenElse(mask, Load(du, all_true), Load(du, all_false)));
-  } else {
-    // Only care about the mask=true lanes.
-    return BitCast(d, Load(du, all_true));
-  }
-}
-
-template <typename T, HWY_IF_T_SIZE_ONE_OF(T, (1 << 4) | (1 << 8))>
-HWY_INLINE Vec256<T> CompressNot(Vec256<T> v, const uint64_t mask_bits) {
-  const DFromV<decltype(v)> d;
-  const RebindToSigned<decltype(d)> di;
-
-  HWY_DASSERT(mask_bits < (1ull << Lanes(d)));
-  const Indices256<TFromD<decltype(di)>> indices{
-      IndicesFromNotBits256<T>(mask_bits).raw};
-  return BitCast(d, TableLookupLanes(BitCast(di, v), indices));
-}
-
-// LUTs are infeasible for 2^16 possible masks, so splice together two
-// half-vector Compress.
-template <typename T, HWY_IF_T_SIZE(T, 2)>
-HWY_INLINE Vec256<T> CompressNot(Vec256<T> v, const uint64_t mask_bits) {
-  // Compress ensures only the lower 16 bits are set, so flip those.
-  return Compress(v, mask_bits ^ 0xFFFF);
-}
-
-}  // namespace detail
-
-template <typename T, HWY_IF_NOT_T_SIZE(T, 1)>
-HWY_API Vec256<T> Compress(Vec256<T> v, Mask256<T> m) {
-  const DFromV<decltype(v)> d;
-  return detail::Compress(v, BitsFromMask(d, m));
-}
-
-template <typename T, HWY_IF_NOT_T_SIZE(T, 1)>
-HWY_API Vec256<T> CompressNot(Vec256<T> v, Mask256<T> m) {
-  const DFromV<decltype(v)> d;
-  return detail::CompressNot(v, BitsFromMask(d, m));
-}
-
-HWY_API Vec256<uint64_t> CompressBlocksNot(Vec256<uint64_t> v,
-                                           Mask256<uint64_t> mask) {
-  return CompressNot(v, mask);
-}
-
-template <typename T, HWY_IF_NOT_T_SIZE(T, 1)>
-HWY_API Vec256<T> CompressBits(Vec256<T> v, const uint8_t* HWY_RESTRICT bits) {
-  constexpr size_t N = 32 / sizeof(T);
-  constexpr size_t kNumBytes = (N + 7) / 8;
-
-  uint64_t mask_bits = 0;
-  CopyBytes<kNumBytes>(bits, &mask_bits);
-
-  if (N < 8) {
-    mask_bits &= (1ull << N) - 1;
-  }
-
-  return detail::Compress(v, mask_bits);
-}
-
-// ------------------------------ CompressStore, CompressBitsStore
-
-template <class D, HWY_IF_V_SIZE_D(D, 32), HWY_IF_NOT_T_SIZE_D(D, 1)>
-HWY_API size_t CompressStore(VFromD<D> v, MFromD<D> m, D d,
-                             TFromD<D>* HWY_RESTRICT unaligned) {
-  const uint64_t mask_bits = BitsFromMask(d, m);
-  const size_t count = PopCount(mask_bits);
-  StoreU(detail::Compress(v, mask_bits), d, unaligned);
-  detail::MaybeUnpoison(unaligned, count);
-  return count;
-}
-
-template <class D, HWY_IF_V_SIZE_D(D, 32),
-          HWY_IF_T_SIZE_ONE_OF_D(D, (1 << 4) | (1 << 8))>
-HWY_API size_t CompressBlendedStore(VFromD<D> v, MFromD<D> m, D d,
-                                    TFromD<D>* HWY_RESTRICT unaligned) {
-  const uint64_t mask_bits = BitsFromMask(d, m);
-  const size_t count = PopCount(mask_bits);
-  using TU = MakeUnsigned<TFromD<D>>;
-
-  const RebindToUnsigned<decltype(d)> du;
-  HWY_DASSERT(mask_bits < (1ull << Lanes(d)));
-  const Vec256<TU> idx_mask = detail::IndicesFromBits256<TFromD<D>>(mask_bits);
-  // Shift nibble MSB into MSB
-  const auto shiftVal = sizeof(TU) == 4 ? 28 : 60;
-  const Mask256<TU> mask32or64 = MaskFromVec(ShiftLeft<shiftVal>(idx_mask));
-  const Mask256<TU> masku{sizeof(TU) == 4 ? __lasx_xvslti_w(mask32or64.raw, 0)
-                                          : __lasx_xvslti_d(mask32or64.raw, 0)};
-  const MFromD<D> mask = RebindMask(d, masku);
-  const VFromD<D> compressed = BitCast(
-      d, TableLookupLanes(BitCast(du, v), Indices256<TU>{idx_mask.raw}));
-
-  BlendedStore(compressed, mask, d, unaligned);
-  detail::MaybeUnpoison(unaligned, count);
-  return count;
-}
-
-template <class D, HWY_IF_V_SIZE_D(D, 32), HWY_IF_T_SIZE_D(D, 2)>
-HWY_API size_t CompressBlendedStore(VFromD<D> v, MFromD<D> m, D d,
-                                    TFromD<D>* HWY_RESTRICT unaligned) {
-  const uint64_t mask_bits = BitsFromMask(d, m);
-  const size_t count = PopCount(mask_bits);
-  const VFromD<D> compressed = detail::Compress(v, mask_bits);
-  BlendedStore(compressed, FirstN(d, count), d, unaligned);
-  return count;
-}
-
-template <class D, HWY_IF_V_SIZE_D(D, 32), HWY_IF_NOT_T_SIZE_D(D, 1)>
-HWY_API size_t CompressBitsStore(VFromD<D> v, const uint8_t* HWY_RESTRICT bits,
-                                 D d, TFromD<D>* HWY_RESTRICT unaligned) {
-  constexpr size_t N = MaxLanes(d);
-  constexpr size_t kNumBytes = (N + 7) / 8;
-
-  uint64_t mask_bits = 0;
-  CopyBytes<kNumBytes>(bits, &mask_bits);
-
-  if (N < 8) {
-    mask_bits &= (1ull << N) - 1;
-  }
-  const size_t count = PopCount(mask_bits);
-
-  StoreU(detail::Compress(v, mask_bits), d, unaligned);
-  detail::MaybeUnpoison(unaligned, count);
-  return count;
 }
 
 // ------------------------------ Dup128MaskFromMaskBits

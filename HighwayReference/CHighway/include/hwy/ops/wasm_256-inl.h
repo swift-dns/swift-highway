@@ -1278,7 +1278,7 @@ namespace detail {
 
 template <size_t kFromVectSize, class DTo, class DFrom,
           HWY_IF_LANES_LE(kFromVectSize, 8)>
-HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCast(
+HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCastImpl(
     hwy::SizeTag<kFromVectSize> /* from_size_tag */,
     hwy::SizeTag<32> /* to_size_tag */, DTo d_to, DFrom d_from,
     VFromD<DFrom> v) {
@@ -1440,7 +1440,7 @@ HWY_API Vec256<T> ReverseBlocks(D /* tag */, const Vec256<T> v) {
 namespace detail {
 
 template <size_t kIdx3210, class V>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
                                   hwy::SizeTag<1> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -1465,7 +1465,7 @@ HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
 }
 
 template <size_t kIdx3210, class V>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
                                   hwy::SizeTag<2> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -1486,7 +1486,7 @@ HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
 }
 
 template <size_t kIdx3210, class V>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
                                   hwy::SizeTag<4> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -1507,7 +1507,7 @@ HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
 }
 
 template <size_t kIdx3210, class V>
-HWY_INLINE V Per4LaneBlockShuffle(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
+HWY_INLINE V Per4LaneBlockShuffleImpl(hwy::SizeTag<kIdx3210> /*idx_3210_tag*/,
                                   hwy::SizeTag<8> /*lane_size_tag*/,
                                   hwy::SizeTag<32> /*vect_size_tag*/, V v) {
   const DFromV<decltype(v)> d;
@@ -2132,66 +2132,6 @@ HWY_API intptr_t FindLastTrue(D d, const Mask256<T> mask) {
   constexpr int kLanesPerHalf = 16 / sizeof(T);
   const intptr_t hi = FindLastTrue(dh, mask.m1);
   return hi >= 0 ? kLanesPerHalf + hi : FindLastTrue(dh, mask.m0);
-}
-
-// ------------------------------ CompressStore
-template <class D, typename T = TFromD<D>>
-HWY_API size_t CompressStore(Vec256<T> v, const Mask256<T> mask, D d,
-                             T* HWY_RESTRICT unaligned) {
-  const Half<decltype(d)> dh;
-  const size_t count = CompressStore(v.v0, mask.m0, dh, unaligned);
-  const size_t count2 = CompressStore(v.v1, mask.m1, dh, unaligned + count);
-  return count + count2;
-}
-
-// ------------------------------ CompressBlendedStore
-template <class D, typename T = TFromD<D>>
-HWY_API size_t CompressBlendedStore(Vec256<T> v, const Mask256<T> m, D d,
-                                    T* HWY_RESTRICT unaligned) {
-  const Half<decltype(d)> dh;
-  const size_t count = CompressBlendedStore(v.v0, m.m0, dh, unaligned);
-  const size_t count2 = CompressBlendedStore(v.v1, m.m1, dh, unaligned + count);
-  return count + count2;
-}
-
-// ------------------------------ CompressBitsStore
-
-template <class D, typename T = TFromD<D>>
-HWY_API size_t CompressBitsStore(Vec256<T> v, const uint8_t* HWY_RESTRICT bits,
-                                 D d, T* HWY_RESTRICT unaligned) {
-  const Mask256<T> m = LoadMaskBits(d, bits);
-  return CompressStore(v, m, d, unaligned);
-}
-
-// ------------------------------ Compress
-template <typename T>
-HWY_API Vec256<T> Compress(const Vec256<T> v, const Mask256<T> mask) {
-  const DFromV<decltype(v)> d;
-  alignas(32) T lanes[32 / sizeof(T)] = {};
-  (void)CompressStore(v, mask, d, lanes);
-  return Load(d, lanes);
-}
-
-// ------------------------------ CompressNot
-template <typename T>
-HWY_API Vec256<T> CompressNot(Vec256<T> v, const Mask256<T> mask) {
-  return Compress(v, Not(mask));
-}
-
-// ------------------------------ CompressBlocksNot
-HWY_API Vec256<uint64_t> CompressBlocksNot(Vec256<uint64_t> v,
-                                           Mask256<uint64_t> mask) {
-  const Full128<uint64_t> dh;
-  // Because the non-selected (mask=1) blocks are undefined, we can return the
-  // input unless mask = 01, in which case we must bring down the upper block.
-  return AllTrue(dh, AndNot(mask.m1, mask.m0)) ? SwapAdjacentBlocks(v) : v;
-}
-
-// ------------------------------ CompressBits
-template <typename T>
-HWY_API Vec256<T> CompressBits(Vec256<T> v, const uint8_t* HWY_RESTRICT bits) {
-  const Mask256<T> m = LoadMaskBits(DFromV<decltype(v)>(), bits);
-  return Compress(v, m);
 }
 
 // ------------------------------ Expand

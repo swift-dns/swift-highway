@@ -18,14 +18,13 @@
 
 // Memory allocator with support for alignment and offsets.
 
-#include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
 #include <memory>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -169,7 +168,7 @@ struct AlignedAllocator {
 
   template <class V>
   value_type* allocate(V n) {
-    static_assert(std::is_integral<V>::value,
+    static_assert(IsInteger<V>(),
                   "AlignedAllocator only supports integer types");
     static_assert(sizeof(V) <= sizeof(std::size_t),
                   "V n must be smaller or equal size_t to avoid overflow");
@@ -207,7 +206,7 @@ using AlignedVector = std::vector<T, AlignedAllocator<T>>;
 namespace detail {
 
 // Returns x such that 1u << x == n (if n is a power of two).
-static inline constexpr size_t ShiftCount(size_t n) {
+static constexpr size_t ShiftCount(size_t n) {
   return (n <= 1) ? 0 : 1 + ShiftCount(n / 2);
 }
 
@@ -273,75 +272,441 @@ class AlignedFreer {
 };
 
 // Unique pointer to single POD, or (if T is U[]) an array of POD. For non POD
-// data use AlignedUniquePtr.
+// data use AlignedUniquePtr. Prefer AlignedPtr<T> for new code.
 template <typename T>
 using AlignedFreeUniquePtr = std::unique_ptr<T, AlignedFreer>;
 
-// Allocate an aligned and uninitialized array of POD values as a unique_ptr.
-// Upon destruction of the unique_ptr the aligned array will be freed.
+namespace detail {
+
+// Default deleter for AlignedPtr allocated via AllocateAlignedBytes.
+// `free_fn` holds the custom `FreePtr` (or nullptr for default free), while
+// the user's `opaque_ptr` is stored in AllocationHeader.
+static inline void FreeAlignedMemory(void* free_fn, void* memory) {
+  FreeAlignedBytes(
+      memory, reinterpret_cast<FreePtr>(reinterpret_cast<uintptr_t>(free_fn)),
+      nullptr);
+}
+
+}  // namespace detail
+
 template <typename T>
-AlignedFreeUniquePtr<T[]> AllocateAligned(const size_t items, AllocPtr alloc,
-                                          FreePtr free, void* opaque) {
-  static_assert(std::is_trivially_copyable<T>::value,
+class Span;
+
+// Owning smart pointer to a contiguous array of `size()` trivially destructible
+// elements of type `T`, with bounds-checked indexing and support for custom
+// deleters (e.g. `FreeAlignedMemory` or `munmap`).
+template <typename T>
+class AlignedPtr {
+  static_assert(IsTriviallyDestructible<T>(),
+                "AlignedPtr requires trivially destructible T");
+
+ public:
+  using value_type = T;
+  using pointer = T*;
+
+  constexpr AlignedPtr() noexcept = default;
+  constexpr AlignedPtr(std::nullptr_t) noexcept {}
+
+  // Takes ownership of `[ptr, ptr + size)`. When destroyed, if `ptr != nullptr`
+  // and `free_fn != nullptr`, calls `free_fn(opaque, const_cast<...>(ptr))`.
+  // Passing `free_fn = nullptr` wraps externally-owned memory without freeing.
+  explicit AlignedPtr(T* ptr, size_t size,
+                      FreePtr free_fn = &detail::FreeAlignedMemory,
+                      void* opaque = nullptr) noexcept
+      : ptr_(ptr), size_(ptr ? size : 0), free_(free_fn), opaque_(opaque) {}
+
+  AlignedPtr(const AlignedPtr&) = delete;
+  AlignedPtr& operator=(const AlignedPtr&) = delete;
+
+  AlignedPtr(AlignedPtr&& other) noexcept
+      : ptr_(other.ptr_),
+        size_(other.size_),
+        free_(other.free_),
+        opaque_(other.opaque_) {
+    other.ptr_ = nullptr;
+    other.size_ = 0;
+    other.free_ = nullptr;
+    other.opaque_ = nullptr;
+  }
+
+  AlignedPtr& operator=(AlignedPtr&& other) noexcept {
+    if (this != &other) {
+      reset();
+      ptr_ = other.ptr_;
+      size_ = other.size_;
+      free_ = other.free_;
+      opaque_ = other.opaque_;
+      other.ptr_ = nullptr;
+      other.size_ = 0;
+      other.free_ = nullptr;
+      other.opaque_ = nullptr;
+    }
+    return *this;
+  }
+
+  // Converting move from `AlignedPtr<U>` to `AlignedPtr<const U>`.
+  template <typename U,
+            EnableIf<!IsConst<U>() && IsSame<const U, T>()>* = nullptr>
+  AlignedPtr(AlignedPtr<U>&& other) noexcept
+      : ptr_(other.ptr_),
+        size_(other.size_),
+        free_(other.free_),
+        opaque_(other.opaque_) {
+    other.ptr_ = nullptr;
+    other.size_ = 0;
+    other.free_ = nullptr;
+    other.opaque_ = nullptr;
+  }
+
+  template <typename U,
+            EnableIf<!IsConst<U>() && IsSame<const U, T>()>* = nullptr>
+  AlignedPtr& operator=(AlignedPtr<U>&& other) noexcept {
+    reset();
+    ptr_ = other.ptr_;
+    size_ = other.size_;
+    free_ = other.free_;
+    opaque_ = other.opaque_;
+    other.ptr_ = nullptr;
+    other.size_ = 0;
+    other.free_ = nullptr;
+    other.opaque_ = nullptr;
+    return *this;
+  }
+
+  AlignedPtr& operator=(std::nullptr_t) noexcept {
+    reset();
+    return *this;
+  }
+
+  ~AlignedPtr() { reset(); }
+
+  void reset(std::nullptr_t = nullptr) noexcept {
+    T* ptr = ptr_;
+    FreePtr free_fn = free_;
+    void* opaque = opaque_;
+    ptr_ = nullptr;
+    size_ = 0;
+    free_ = nullptr;
+    opaque_ = nullptr;
+    if (ptr != nullptr && free_fn != nullptr) {
+      void* mutable_ptr = const_cast<RemoveConst<T>*>(ptr);
+      free_fn(opaque, mutable_ptr);
+    }
+  }
+
+  // Releases ownership and returns the raw pointer, resetting `size()` to 0.
+  T* release() noexcept {
+    T* p = ptr_;
+    ptr_ = nullptr;
+    size_ = 0;
+    free_ = nullptr;
+    opaque_ = nullptr;
+    return p;
+  }
+
+  void swap(AlignedPtr& other) noexcept {
+    std::swap(ptr_, other.ptr_);
+    std::swap(size_, other.size_);
+    std::swap(free_, other.free_);
+    std::swap(opaque_, other.opaque_);
+  }
+
+  friend void swap(AlignedPtr& a, AlignedPtr& b) noexcept { a.swap(b); }
+
+  T* get() const noexcept { return ptr_; }
+  T* data() const noexcept { return ptr_; }
+  size_t size() const noexcept { return size_; }
+  size_t size_bytes() const noexcept { return size_ * sizeof(T); }
+  bool empty() const noexcept { return size_ == 0; }
+  explicit operator bool() const noexcept { return ptr_ != nullptr; }
+
+  // Bounds-checked element access.
+  T& operator[](size_t i) const {
+    HWY_DASSERT(i < size_);
+    return ptr_[i];
+  }
+
+  T* begin() const noexcept { return ptr_; }
+  T* end() const noexcept { return ptr_ + size_; }
+  const T* cbegin() const noexcept { return ptr_; }
+  const T* cend() const noexcept { return ptr_ + size_; }
+
+  Span<T> span() const& noexcept;
+  void span() && = delete;
+
+  // Backward-compatible rvalue conversion for callers still using
+  // `AlignedFreeUniquePtr<T[]>`.
+  operator AlignedFreeUniquePtr<RemoveConst<T>[]>() && noexcept {
+    using NonConstT = RemoveConst<T>;
+    FreePtr freer_fn = nullptr;
+    if (free_ == &detail::FreeAlignedMemory) {
+      freer_fn =
+          reinterpret_cast<FreePtr>(reinterpret_cast<uintptr_t>(opaque_));
+    } else if (free_ == nullptr || free_ == &AlignedFreer::DoNothing) {
+      freer_fn = &AlignedFreer::DoNothing;
+    } else {
+      HWY_DASSERT(false &&
+                  "AlignedFreeUniquePtr only supports AllocateAligned memory");
+    }
+    return AlignedFreeUniquePtr<NonConstT[]>(const_cast<NonConstT*>(release()),
+                                             AlignedFreer(freer_fn, nullptr));
+  }
+
+  friend bool operator==(const AlignedPtr& p, std::nullptr_t) noexcept {
+    return p.ptr_ == nullptr;
+  }
+  friend bool operator==(std::nullptr_t, const AlignedPtr& p) noexcept {
+    return p.ptr_ == nullptr;
+  }
+  friend bool operator!=(const AlignedPtr& p, std::nullptr_t) noexcept {
+    return p.ptr_ != nullptr;
+  }
+  friend bool operator!=(std::nullptr_t, const AlignedPtr& p) noexcept {
+    return p.ptr_ != nullptr;
+  }
+
+ private:
+  template <typename U>
+  friend class AlignedPtr;
+
+  T* ptr_ = nullptr;
+  size_t size_ = 0;
+  FreePtr free_ = nullptr;
+  void* opaque_ = nullptr;
+};
+
+// Allocate an aligned and uninitialized array of POD values as an AlignedPtr.
+// Upon destruction of the AlignedPtr the aligned array will be freed.
+template <typename T>
+AlignedPtr<T> AllocateAligned(const size_t items, AllocPtr alloc, FreePtr free,
+                              void* opaque) {
+  static_assert(IsTriviallyCopyable<T>(),
                 "AllocateAligned: requires trivially copyable T");
-  static_assert(std::is_trivially_destructible<T>::value,
+  static_assert(IsTriviallyDestructible<T>(),
                 "AllocateAligned: requires trivially destructible T");
-  return AlignedFreeUniquePtr<T[]>(
-      detail::AllocateAlignedItems<T>(items, alloc, opaque),
-      AlignedFreer(free, opaque));
+  return AlignedPtr<T>(
+      detail::AllocateAlignedItems<T>(items, alloc, opaque), items,
+      &detail::FreeAlignedMemory,
+      reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(free)));
 }
 
 // Same as previous AllocateAligned(), using default allocate/free functions.
 template <typename T>
-AlignedFreeUniquePtr<T[]> AllocateAligned(const size_t items) {
+AlignedPtr<T> AllocateAligned(const size_t items) {
   return AllocateAligned<T>(items, nullptr, nullptr, nullptr);
 }
 
+namespace detail {
+
+template <typename T>
+struct IsSpanT {
+  enum { value = 0 };
+};
+
+template <typename T>
+struct IsSpanT<Span<T>> {
+  enum { value = 1 };
+};
+
+template <typename T>
+static constexpr bool IsSpan() {
+  return IsSpanT<RemoveCvRef<T>>::value;
+}
+
+template <typename T, typename Ptr, typename = void>
+struct HasDataT {
+  enum { value = 0 };
+};
+template <typename T, typename Ptr>
+struct HasDataT<
+    T, Ptr, EnableIf<IsConvertible<decltype(DeclVal<T&>().data()), Ptr>()>> {
+  enum { value = 1 };
+};
+template <typename T, typename = void>
+struct HasSizeT {
+  enum { value = 0 };
+};
+template <typename T>
+struct HasSizeT<
+    T, EnableIf<IsConvertible<decltype(DeclVal<T&>().size()), size_t>()>> {
+  enum { value = 1 };
+};
+
+template <typename T, typename C>
+static constexpr bool IsCompatibleContainer() {
+  // Exclude Span because those are always safe to copy (view types).
+  return !IsSpan<C>() && HasDataT<C, T*>::value && HasSizeT<C>::value;
+}
+
+}  // namespace detail
+
 // A simple span containing data and size of data.
+
 template <typename T>
 class Span {
  public:
-  Span() = default;
-  Span(T* data, size_t size) : size_(size), data_(data) {}
-  template <typename U>
-  Span(U u) : Span(u.data(), u.size()) {}
-  Span(std::initializer_list<const T> v) : Span(v.begin(), v.size()) {}
+  using value_type = T;
 
-  // Copies the contents of the initializer list to the span.
-  Span<T>& operator=(std::initializer_list<const T> v) {
+  constexpr Span() noexcept = default;
+  constexpr Span(T* data, size_t size) noexcept : size_(size), data_(data) {}
+
+  // Construct from pointers.
+  template <typename Begin, typename End,
+            EnableIf<!IsInteger<Begin>() && !IsInteger<End>() &&
+                     IsConvertible<Begin, T*>() && IsConvertible<End, T*>()>* =
+                nullptr>
+  constexpr Span(Begin begin, End end) noexcept
+      : size_(
+            static_cast<size_t>(static_cast<T*>(end) - static_cast<T*>(begin))),
+        data_(static_cast<T*>(begin)) {
+    HWY_DASSERT(static_cast<T*>(end) >= static_cast<T*>(begin));
+  }
+
+  // Construct from C-style fixed-size array.
+  template <typename U, size_t N, EnableIf<IsConvertible<U*, T*>()>* = nullptr>
+  constexpr Span(U (&arr)[N]) noexcept : size_(N), data_(arr) {}
+
+  // Construct from compatible Span (e.g. Span<T> to Span<const T>).
+  template <typename U, EnableIf<IsConvertible<U*, T*>()>* = nullptr>
+  constexpr Span(const Span<U>& other) noexcept
+      : size_(other.size()), data_(other.data()) {}
+
+  // Construct from mutable lvalue container.
+  template <typename C,
+            EnableIf<detail::IsCompatibleContainer<T, C&>()>* = nullptr>
+  constexpr Span(C& c) : size_(c.size()), data_(c.data()) {}
+
+  // Construct from const lvalue container.
+  template <typename C,
+            EnableIf<detail::IsCompatibleContainer<T, const C&>()>* = nullptr>
+  constexpr Span(const C& c) : size_(c.size()), data_(c.data()) {}
+
+  // Delete rvalue container construction to prevent dangling pointers.
+  template <typename C,
+            EnableIf<detail::IsCompatibleContainer<T, const C&>()>* = nullptr>
+  Span(const C&&) = delete;
+
+  // Copies the contents of the non-const initializer lists to the span.
+  template <typename T2 = T, EnableIf<!IsConst<T2>()>* = nullptr>
+  Span<T>& operator=(std::initializer_list<const T2> v) {
     HWY_DASSERT(size_ == v.size());
-    CopyBytes(v.begin(), data_, sizeof(T) * std::min(size_, v.size()));
+    CopyBytes(v.begin(), data_, HWY_MIN(size_, v.size()) * sizeof(T));
     return *this;
   }
 
-  // Returns the size of the contained data.
-  size_t size() const { return size_; }
+  // Returns the number of elements in the span.
+  constexpr size_t size() const noexcept { return size_; }
+
+  // Returns the size of the contained data in bytes.
+  constexpr size_t size_bytes() const noexcept { return size_ * sizeof(T); }
+
+  constexpr bool empty() const noexcept { return size_ == 0; }
 
   // Returns a pointer to the contained data.
-  T* data() { return data_; }
-  T* data() const { return data_; }
+  constexpr T* data() const noexcept { return data_; }
 
   // Returns the element at index.
-  T& operator[](size_t index) const { return data_[index]; }
+  constexpr T& operator[](size_t index) const {
+    HWY_DASSERT(index < size_);
+    return data_[index];
+  }
+
+  // Returns reference to the first element.
+  constexpr T& front() const {
+    HWY_DASSERT(!empty());
+    return data_[0];
+  }
+
+  // Returns reference to the last element.
+  constexpr T& back() const {
+    HWY_DASSERT(!empty());
+    return data_[size_ - 1];
+  }
 
   // Returns an iterator pointing to the first element of this span.
-  T* begin() { return data_; }
+  constexpr T* begin() const noexcept { return data_; }
 
   // Returns a const iterator pointing to the first element of this span.
-  constexpr const T* cbegin() const { return data_; }
+  constexpr const T* cbegin() const noexcept { return data_; }
 
   // Returns an iterator pointing just beyond the last element at the
   // end of this span.
-  T* end() { return data_ + size_; }
+  constexpr T* end() const noexcept { return data_ + size_; }
 
   // Returns a const iterator pointing just beyond the last element at the
   // end of this span.
-  constexpr const T* cend() const { return data_ + size_; }
+  constexpr const T* cend() const noexcept { return data_ + size_; }
+
+  // Returns a subspan starting at offset with count elements.
+  constexpr Span<T> subspan(size_t offset, size_t count = ~size_t{0}) const {
+    HWY_DASSERT(offset <= size_);
+    HWY_DASSERT(count == ~size_t{0} || count <= size_ - offset);
+    return Span<T>(data_ + offset,
+                   count == ~size_t{0} ? size_ - offset : count);
+  }
+
+  // Returns a subspan of the first count elements.
+  constexpr Span<T> first(size_t count) const {
+    HWY_DASSERT(count <= size_);
+    return Span<T>(data_, count);
+  }
+
+  // Returns a subspan of the last count elements.
+  constexpr Span<T> last(size_t count) const {
+    HWY_DASSERT(count <= size_);
+    return Span<T>(data_ + (size_ - count), count);
+  }
+
+  // Shrinks the span by removing the first count elements.
+  void remove_prefix(size_t count) {
+    HWY_DASSERT(count <= size_);
+    data_ += count;
+    size_ -= count;
+  }
+
+  // Shrinks the span by removing the last count elements.
+  void remove_suffix(size_t count) {
+    HWY_DASSERT(count <= size_);
+    size_ -= count;
+  }
 
  private:
   size_t size_ = 0;
   T* data_ = nullptr;
 };
+
+template <typename T>
+Span<T> AlignedPtr<T>::span() const& noexcept {
+  return Span<T>(ptr_, size_);
+}
+
+// Returns a read-only view of the bytes in the span.
+template <typename T>
+Span<const uint8_t> as_bytes(Span<T> s) noexcept {
+  return Span<const uint8_t>(reinterpret_cast<const uint8_t*>(s.data()),
+                             s.size_bytes());
+}
+
+// Returns a writable view of the bytes in the span.
+template <typename T, EnableIf<!IsConst<T>()>* = nullptr>
+Span<uint8_t> as_writable_bytes(Span<T> s) noexcept {
+  return Span<uint8_t>(reinterpret_cast<uint8_t*>(s.data()), s.size_bytes());
+}
+
+// Deduction guides to infer the constness of T from the constness of U
+// (requires C++17)
+#if HWY_CXX_LANG >= 201703L
+template <typename T>
+Span(T*, size_t) -> Span<T>;
+template <typename T>
+Span(T*, T*) -> Span<T>;
+template <typename T, size_t N>
+Span(T (&)[N]) -> Span<T>;
+template <typename U>
+Span(U&) -> Span<RemoveRef<decltype(*DeclVal<U&>().data())>>;
+template <typename U>
+Span(const U&) -> Span<const RemoveRef<decltype(*DeclVal<const U&>().data())>>;
+#endif  // HWY_CXX_LANG >= 201703L
 
 // A multi dimensional array containing an aligned buffer.
 //
@@ -349,7 +714,7 @@ class Span {
 // innermost arrays are aligned.
 template <typename T, size_t axes>
 class AlignedNDArray {
-  static_assert(std::is_trivial<T>::value,
+  static_assert(IsTrivial<T>(),
                 "AlignedNDArray can only contain trivial types");
 
  public:
@@ -366,6 +731,14 @@ class AlignedNDArray {
     memory_shape_[axes - 1] = RoundUpTo(memory_shape_[axes - 1], VectorBytes());
     memory_sizes_ = ComputeSizes(memory_shape_);
     buffer_ = hwy::AllocateAligned<T>(memory_size());
+    // AllocateAligned returns nullptr if the allocation failed or the byte
+    // count (memory_size() * sizeof(T)) overflowed size_t. ZeroBytes is memset,
+    // so zeroing a null buffer is a null-pointer write (UB); abort with a clear
+    // message instead, mirroring the overflow check in ComputeSizes().
+    if (HWY_UNLIKELY(buffer_.get() == nullptr)) {
+      HWY_ABORT("AlignedNDArray: failed to allocate %zu elements",
+                memory_size());
+    }
     hwy::ZeroBytes(buffer_.get(), memory_size() * sizeof(T));
   }
 
@@ -423,7 +796,7 @@ class AlignedNDArray {
   std::array<size_t, axes> memory_shape_;
   std::array<size_t, axes + 1> sizes_;
   std::array<size_t, axes + 1> memory_sizes_;
-  hwy::AlignedFreeUniquePtr<T[]> buffer_;
+  hwy::AlignedPtr<T> buffer_;
 
   // Computes offset in the buffer based on the provided indices.
   size_t Offset(std::array<const size_t, axes - 1> indices) const {
