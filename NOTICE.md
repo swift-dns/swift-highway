@@ -1,6 +1,6 @@
 # Notice
 
-## swift-highway
+## swift-vectorization
 
 This product implements the SIMD ops of [highway](https://github.com/google/highway), Google's
 portable SIMD library, for Swift. Its C code follows highway's implementation of each op on each

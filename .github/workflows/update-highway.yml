@@ -71,7 +71,7 @@ jobs:
 
       - name: Re-generate the ops
         if: steps.upstream.outputs.is-outdated == 'true'
-        run: swift utils/GenerateHighwayOps.swift
+        run: swift utils/GenerateVectorizationOps.swift
 
       - name: Compare the codegen of the ops with highway's
         if: steps.upstream.outputs.is-outdated == 'true'

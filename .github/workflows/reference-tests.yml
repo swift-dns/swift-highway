@@ -40,7 +40,7 @@ jobs:
             compare-codegen: true
           - name: EMU128
             runner: ubuntu-latest
-            flags: "-Xcc -DCHIGHWAY_OPS_PORTABLE -Xcc -DHWY_COMPILE_ONLY_EMU128"
+            flags: "-Xcc -DCVECTORIZATION_OPS_PORTABLE -Xcc -DHWY_COMPILE_ONLY_EMU128"
             compare-codegen: false
 
     runs-on: ${{ matrix.target.runner }}
