@@ -48,6 +48,24 @@
 #undef HWY_NATIVE_DOT_BF16
 #undef HWY_NATIVE_MASK
 #undef HWY_NATIVE_INTERLEAVE_WHOLE
+#undef HWY_NATIVE_MULADD52
+#undef HWY_NATIVE_STORE_N
+#undef HWY_NATIVE_MUL64
+
+#undef HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8
+#undef HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8 0
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16 0
+
+#undef HWY_NATIVE_TILE_64B_MATMUL_BF16
+#define HWY_NATIVE_TILE_64B_MATMUL_BF16 0
+#undef HWY_NATIVE_TILE_64B_MATMUL_I8
+#define HWY_NATIVE_TILE_64B_MATMUL_I8 0
+
+#undef HWY_NATIVE_GET_MANTISSA
+#define HWY_NATIVE_GET_MANTISSA 0
+#undef HWY_NATIVE_MUL_BY_POW2
+#define HWY_NATIVE_MUL_BY_POW2 0
 
 #ifndef HWY_CAP_GE256
 #define HWY_CAP_GE256 (HWY_MIN_BYTES >= 32)
@@ -63,7 +81,9 @@
 // If 1, both __bf16 and a limited set of *_bf16 SVE intrinsics are available:
 // create/get/set/dup, ld/st, sel, rev, trn, uzp, zip.
 // Consulted below, hence define here rather than in arm_sve-inl.h.
-#if HWY_ARM_HAVE_SCALAR_BF16_TYPE && defined(__ARM_FEATURE_SVE_BF16)
+#undef HWY_SVE_HAVE_BF16_FEATURE
+#if HWY_ARM_HAVE_SCALAR_BF16_TYPE && \
+    (defined(__ARM_FEATURE_SVE_BF16) || HWY_TARGET == HWY_SVE2_128)
 #define HWY_SVE_HAVE_BF16_FEATURE 1
 #else
 #define HWY_SVE_HAVE_BF16_FEATURE 0
@@ -194,7 +214,7 @@
 #define HWY_TARGET_STR_AVX3_DL                                       \
   HWY_TARGET_STR_AVX3                                                \
   ",vpclmulqdq,avx512vbmi,avx512vbmi2,vaes,avx512vnni,avx512bitalg," \
-  "avx512vpopcntdq,gfni"
+  "avx512vpopcntdq,gfni,avx512ifma"
 
 // Opt-out for compilers that do not properly support avx512bf16.
 #ifndef HWY_AVX3_ENABLE_AVX512BF16  // allow override
@@ -217,18 +237,32 @@
 #endif
 
 #if HWY_COMPILER_GCC_ACTUAL >= 1200 || HWY_COMPILER_CLANG >= 1400
+#if HWY_ARCH_X86_64 && (HWY_COMPILER_GCC_ACTUAL || HWY_COMPILER_CLANG >= 1600)
+#define HWY_TARGET_STR_AVX3_SPR \
+  HWY_TARGET_STR_AVX3_ZEN4 ",avx512fp16,amx-tile,amx-bf16,amx-int8"
+#else
 #define HWY_TARGET_STR_AVX3_SPR HWY_TARGET_STR_AVX3_ZEN4 ",avx512fp16"
+#endif
 #else
 #define HWY_TARGET_STR_AVX3_SPR HWY_TARGET_STR_AVX3_ZEN4
+#endif
+
+  // APX requires Clang 23 and opt-in, see #3114.
+#if defined(HWY_ENABLE_APX) && HWY_COMPILER_CLANG >= 2300
+#define HWY_TARGET_STR_APX ",apxf"
+#else
+#define HWY_TARGET_STR_APX ""
 #endif
 
 // Support for avx10.2-512 was removed between clang 22 and 23 without a
 // feature test macro.
 #if HWY_COMPILER_CLANG >= 2200 && HWY_HAVE_EVEX512
 #define HWY_TARGET_STR_AVX10_2 HWY_TARGET_STR_AVX3_SPR ",avx10.2-512"
-// Recent compilers drop the -512 suffix because 512 bits are always available.
+  // Recent compilers drop the -512 suffix because 512 bits are always
+  // available.
 #elif HWY_COMPILER_GCC_ACTUAL >= 1500 || HWY_COMPILER_CLANG >= 2200
-#define HWY_TARGET_STR_AVX10_2 HWY_TARGET_STR_AVX3_SPR ",avx10.2"
+#define HWY_TARGET_STR_AVX10_2 \
+    HWY_TARGET_STR_AVX3_SPR ",avx10.2" HWY_TARGET_STR_APX
 #else
 #define HWY_TARGET_STR_AVX10_2 HWY_TARGET_STR_AVX3_SPR
 #endif
@@ -240,7 +274,7 @@
 #endif
 
 #define HWY_TARGET_STR_PPC8 \
-  "altivec,vsx,power8-vector" HWY_TARGET_STR_PPC8_CRYPTO
+    "altivec,vsx,power8-vector" HWY_TARGET_STR_PPC8_CRYPTO
 #define HWY_TARGET_STR_PPC9 HWY_TARGET_STR_PPC8 ",power9-vector"
 
 #if HWY_COMPILER_CLANG
@@ -281,6 +315,8 @@
 #define HWY_NATIVE_FMA 0
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0  // a few actually are
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 0
 
 #define HWY_TARGET_STR HWY_TARGET_STR_SSE2
 //-----------------------------------------------------------------------------
@@ -300,6 +336,8 @@
 #define HWY_NATIVE_FMA 0
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0  // a few actually are
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 0
 
 #define HWY_TARGET_STR HWY_TARGET_STR_SSSE3
 
@@ -320,6 +358,8 @@
 #define HWY_NATIVE_FMA 0
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0  // a few actually are
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 0
 
 #define HWY_TARGET_STR HWY_TARGET_STR_SSE4
 
@@ -337,6 +377,8 @@
 #define HWY_HAVE_FLOAT16 0
 #define HWY_HAVE_FLOAT64 1
 #define HWY_MEM_OPS_MIGHT_FAULT 1
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 0
 
 #ifdef HWY_DISABLE_BMI2_FMA
 #define HWY_NATIVE_FMA 0
@@ -359,8 +401,8 @@
 #define HWY_HAVE_SCALABLE 0
 #define HWY_HAVE_INTEGER64 1
 #if HWY_TARGET <= HWY_AVX3_SPR &&                              \
-    (HWY_COMPILER_GCC_ACTUAL || HWY_COMPILER_CLANG >= 2200) && \
-    HWY_HAVE_SCALAR_F16_TYPE
+      (HWY_COMPILER_GCC_ACTUAL || HWY_COMPILER_CLANG >= 2200) && \
+      HWY_HAVE_SCALAR_F16_TYPE
 #define HWY_HAVE_FLOAT16 1
 #else
 #define HWY_HAVE_FLOAT16 0
@@ -374,6 +416,18 @@
 #define HWY_NATIVE_DOT_BF16 0
 #endif
 #define HWY_NATIVE_MASK 1
+#define HWY_NATIVE_STORE_N 1
+#define HWY_NATIVE_MUL64 0
+#undef HWY_NATIVE_GET_MANTISSA
+#define HWY_NATIVE_GET_MANTISSA 1
+#undef HWY_NATIVE_MUL_BY_POW2
+#define HWY_NATIVE_MUL_BY_POW2 1
+#if HWY_TARGET <= HWY_AVX3_SPR && HWY_ARCH_X86_64 && HWY_COMPILER_CLANG >= 1600
+#undef HWY_NATIVE_TILE_64B_MATMUL_BF16
+#define HWY_NATIVE_TILE_64B_MATMUL_BF16 1
+#undef HWY_NATIVE_TILE_64B_MATMUL_I8
+#define HWY_NATIVE_TILE_64B_MATMUL_I8 1
+#endif
 
 #if HWY_TARGET == HWY_AVX3
 
@@ -382,21 +436,25 @@
 
 #elif HWY_TARGET == HWY_AVX3_DL
 
+#define HWY_NATIVE_MULADD52 1
 #define HWY_NAMESPACE N_AVX3_DL
 #define HWY_TARGET_STR HWY_TARGET_STR_AVX3_DL
 
 #elif HWY_TARGET == HWY_AVX3_ZEN4
 
+#define HWY_NATIVE_MULADD52 1
 #define HWY_NAMESPACE N_AVX3_ZEN4
 #define HWY_TARGET_STR HWY_TARGET_STR_AVX3_ZEN4
 
 #elif HWY_TARGET == HWY_AVX3_SPR
 
+#define HWY_NATIVE_MULADD52 1
 #define HWY_NAMESPACE N_AVX3_SPR
 #define HWY_TARGET_STR HWY_TARGET_STR_AVX3_SPR
 
 #elif HWY_TARGET == HWY_AVX10_2
 
+#define HWY_NATIVE_MULADD52 1
 #define HWY_NAMESPACE N_AVX10_2
 #define HWY_TARGET_STR HWY_TARGET_STR_AVX10_2
 
@@ -420,6 +478,21 @@
 #define HWY_NATIVE_FMA 1
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0
+
+#if (HWY_ARCH_PPC_64 && HWY_TARGET <= HWY_PPC9 &&          \
+     (defined(_ARCH_PWR9) || defined(__POWER9_VECTOR__) || \
+      defined(_ARCH_PWR10) || defined(__POWER10_VECTOR__)))
+#define HWY_NATIVE_STORE_N 1
+#else
+#define HWY_NATIVE_STORE_N 0
+#endif
+
+#if (HWY_TARGET == HWY_PPC10) || defined(_ARCH_PWR10) || \
+    defined(__POWER10_VECTOR__)
+#define HWY_NATIVE_MUL64 1
+#else
+#define HWY_NATIVE_MUL64 0
+#endif
 
 #if HWY_TARGET == HWY_PPC8
 
@@ -456,6 +529,8 @@
 #define HWY_NATIVE_FMA 1
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0
+#define HWY_NATIVE_STORE_N 1
+#define HWY_NATIVE_MUL64 0
 
 #if HWY_TARGET == HWY_Z14
 
@@ -478,9 +553,9 @@
 // Clang 17 crashes with bf16, see github.com/llvm/llvm-project/issues/64179.
 #undef HWY_NEON_HAVE_BFLOAT16
 #if HWY_HAVE_SCALAR_BF16_TYPE &&                              \
-    ((HWY_TARGET == HWY_NEON_BF16 &&                          \
-      (!HWY_COMPILER_CLANG || HWY_COMPILER_CLANG >= 1800)) || \
-     defined(__ARM_FEATURE_BF16_VECTOR_ARITHMETIC))
+      ((HWY_TARGET == HWY_NEON_BF16 &&                          \
+        (!HWY_COMPILER_CLANG || HWY_COMPILER_CLANG >= 1800)) || \
+       defined(__ARM_FEATURE_BF16_VECTOR_ARITHMETIC))
 #define HWY_NEON_HAVE_BFLOAT16 1
 #else
 #define HWY_NEON_HAVE_BFLOAT16 0
@@ -491,8 +566,8 @@
 // GCC/Clang bugs.
 #undef HWY_NEON_HAVE_F32_TO_BF16C
 #if HWY_NEON_HAVE_BFLOAT16 || HWY_TARGET == HWY_NEON_BF16 || \
-    (defined(__ARM_FEATURE_BF16_VECTOR_ARITHMETIC) &&        \
-     (HWY_COMPILER_GCC_ACTUAL >= 1000 || HWY_COMPILER_CLANG >= 1100))
+      (defined(__ARM_FEATURE_BF16_VECTOR_ARITHMETIC) &&        \
+       (HWY_COMPILER_GCC_ACTUAL >= 1000 || HWY_COMPILER_CLANG >= 1100))
 #define HWY_NEON_HAVE_F32_TO_BF16C 1
 #else
 #define HWY_NEON_HAVE_F32_TO_BF16C 0
@@ -504,7 +579,8 @@
 
 #define HWY_HAVE_SCALABLE 0
 #define HWY_HAVE_INTEGER64 1
-#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC) || HWY_TARGET == HWY_NEON_BF16
+#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC) || \
+      HWY_TARGET == HWY_NEON_BF16
 #define HWY_HAVE_FLOAT16 1
 #else
 #define HWY_HAVE_FLOAT16 0
@@ -517,6 +593,8 @@
 #endif
 
 #define HWY_MEM_OPS_MIGHT_FAULT 1
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 0
 
 #if defined(__ARM_FEATURE_FMA) || defined(__ARM_VFPV4__) || HWY_ARCH_ARM_A64
 #define HWY_NATIVE_FMA 1
@@ -528,6 +606,23 @@
 #define HWY_NATIVE_DOT_BF16 1
 #else
 #define HWY_NATIVE_DOT_BF16 0
+#endif
+
+#undef HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8
+#if defined(__ARM_FEATURE_MATMUL_INT8) ||           \
+      (HWY_TARGET == HWY_NEON_BF16 && HWY_OS_APPLE && \
+       HWY_HAVE_RUNTIME_DISPATCH)
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8 1
+#else
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8 0
+#endif
+
+#undef HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16
+#if defined(__ARM_FEATURE_BF16_VECTOR_ARITHMETIC) || \
+      HWY_TARGET == HWY_NEON_BF16
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16 1
+#else
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16 0
 #endif
 
 #define HWY_NATIVE_MASK 0
@@ -556,7 +651,7 @@
 #else  // !HWY_ARCH_ARM_V7
 
 #if (HWY_COMPILER_GCC_ACTUAL && HWY_COMPILER_GCC_ACTUAL < 1300) || \
-    (HWY_COMPILER_CLANG && HWY_COMPILER_CLANG < 1300)
+      (HWY_COMPILER_CLANG && HWY_COMPILER_CLANG < 1300)
 // GCC 12 or earlier and Clang 12 or earlier require +crypto be added to the
 // target string to enable AArch64 AES intrinsics
 #define HWY_TARGET_STR_NEON "+crypto"
@@ -593,8 +688,8 @@
 #define HWY_TARGET_STR HWY_TARGET_STR_NEON
 #elif HWY_TARGET == HWY_NEON_BF16
 #define HWY_TARGET_STR \
-  HWY_TARGET_STR_FP16  \
-      "+bf16+dotprod" HWY_TARGET_STR_NEON_BF16_EXTRA HWY_TARGET_STR_NEON
+    HWY_TARGET_STR_FP16  \
+    "+bf16+dotprod" HWY_TARGET_STR_NEON_BF16_EXTRA HWY_TARGET_STR_NEON
 #else
 #error "Logic error, missing case"
 #endif  // HWY_TARGET
@@ -615,11 +710,26 @@
 #define HWY_HAVE_FLOAT16 1
 #define HWY_HAVE_FLOAT64 1
 #define HWY_MEM_OPS_MIGHT_FAULT 0
+#define HWY_NATIVE_STORE_N 1
+#define HWY_NATIVE_MUL64 1
 #define HWY_NATIVE_FMA 1
-#if HWY_SVE_HAVE_BF16_FEATURE || HWY_TARGET == HWY_SVE2_128
+#if HWY_SVE_HAVE_BF16_FEATURE
 #define HWY_NATIVE_DOT_BF16 1
 #else
 #define HWY_NATIVE_DOT_BF16 0
+#endif
+#undef HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8
+#if defined(__ARM_FEATURE_SVE_MATMUL_INT8) || HWY_TARGET == HWY_SVE2_128
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8 1
+#else
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_INT8 0
+#endif
+
+#undef HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16
+#if defined(__ARM_FEATURE_SVE_BF16) || HWY_TARGET == HWY_SVE2_128
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16 1
+#else
+#define HWY_NATIVE_PER_BLOCK_2X2_MATMUL_BF16 0
 #endif
 #define HWY_NATIVE_MASK 1
 
@@ -669,7 +779,7 @@
 #if HWY_HAVE_RUNTIME_DISPATCH
 #if HWY_TARGET == HWY_SVE2 || HWY_TARGET == HWY_SVE2_128
 #define HWY_TARGET_STR \
-  "+sve,+sve2" HWY_TARGET_STR_SVE2_AES HWY_TARGET_STR_SVE2_128
+    "+sve,+sve2" HWY_TARGET_STR_SVE2_AES HWY_TARGET_STR_SVE2_128
 #else  // not SVE2 target
 #define HWY_TARGET_STR "+sve"
 #endif
@@ -693,6 +803,8 @@
 #define HWY_NATIVE_FMA 0
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 0
 
 #define HWY_NAMESPACE N_WASM
 
@@ -714,6 +826,8 @@
 #define HWY_NATIVE_FMA 0
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 0
 
 #define HWY_NAMESPACE N_WASM_EMU256
 
@@ -743,6 +857,8 @@
 #define HWY_NATIVE_FMA 1
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 1
+#define HWY_NATIVE_STORE_N 1
+#define HWY_NATIVE_MUL64 1
 
 #if HWY_RVV_HAVE_F16_VEC
 #define HWY_HAVE_FLOAT16 1
@@ -752,7 +868,7 @@
 
 #define HWY_NAMESPACE N_RVV
 
-#if HWY_COMPILER_CLANG >= 1900
+#if HWY_COMPILER_CLANG >= 1900 || HWY_COMPILER_GCC_ACTUAL >= 1500
 // https://github.com/riscv/riscv-v-spec/blob/master/v-spec.adoc#181-zvl-minimum-vector-length-standard-extensions
 #define HWY_TARGET_STR "arch=+v"
 #else
@@ -787,6 +903,8 @@
 #define HWY_NATIVE_FMA 1
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0
+#define HWY_NATIVE_STORE_N 0
+#define HWY_NATIVE_MUL64 1
 
 #if HWY_TARGET == HWY_LSX
 #define HWY_NAMESPACE N_LSX
@@ -812,6 +930,8 @@
 #define HWY_NATIVE_FMA 0
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0
+#define HWY_NATIVE_STORE_N 1
+#define HWY_NATIVE_MUL64 1
 
 #define HWY_NAMESPACE N_EMU128
 
@@ -835,6 +955,8 @@
 #define HWY_NATIVE_FMA 0
 #define HWY_NATIVE_DOT_BF16 0
 #define HWY_NATIVE_MASK 0
+#define HWY_NATIVE_STORE_N 1
+#define HWY_NATIVE_MUL64 1
 
 #define HWY_NAMESPACE N_SCALAR
 
@@ -852,6 +974,13 @@
 #error "Logic error: f16 vectors but no scalars"
 #endif
 
+// Sanity check: if we have the SVE bf16 intrinsics, then base.h should also
+// be using a built-in type for bf16 scalars, because those intrinsics take
+// __bf16 pointers.
+#if HWY_SVE_HAVE_BF16_FEATURE && !HWY_HAVE_SCALAR_BF16_TYPE
+#error "Logic error: bf16 intrinsics but no scalar bf16 type"
+#endif
+
 // Override this to 1 in asan/msan builds, which will still fault.
 #if HWY_IS_ASAN || HWY_IS_MSAN
 #undef HWY_MEM_OPS_MIGHT_FAULT
@@ -862,36 +991,36 @@
 #undef HWY_BEFORE_NAMESPACE
 #if defined(HWY_TARGET_STR) && !defined(HWY_DISABLE_ATTR)
 #define HWY_BEFORE_NAMESPACE()        \
-  HWY_PUSH_ATTRIBUTES(HWY_TARGET_STR) \
-  static_assert(true, "For requiring trailing semicolon")
+    HWY_PUSH_ATTRIBUTES(HWY_TARGET_STR) \
+    static_assert(true, "For requiring trailing semicolon")
 #else
 // avoids compiler warning if no HWY_TARGET_STR
 #define HWY_BEFORE_NAMESPACE() \
-  static_assert(true, "For requiring trailing semicolon")
+    static_assert(true, "For requiring trailing semicolon")
 #endif
 
-// Clang <9 requires any namespaces be closed before this macro.
+  // Clang <9 requires any namespaces be closed before this macro.
 #undef HWY_AFTER_NAMESPACE
 #if defined(HWY_TARGET_STR) && !defined(HWY_DISABLE_ATTR)
 #define HWY_AFTER_NAMESPACE() \
-  HWY_POP_ATTRIBUTES          \
-  static_assert(true, "For requiring trailing semicolon")
+    HWY_POP_ATTRIBUTES          \
+    static_assert(true, "For requiring trailing semicolon")
 #else
 // avoids compiler warning if no HWY_TARGET_STR
 #define HWY_AFTER_NAMESPACE() \
-  static_assert(true, "For requiring trailing semicolon")
+    static_assert(true, "For requiring trailing semicolon")
 #endif
 
 #undef HWY_ATTR
 #if defined(HWY_TARGET_STR) && HWY_HAS_ATTRIBUTE(target) && \
-    !defined(HWY_DISABLE_ATTR)
+      !defined(HWY_DISABLE_ATTR)
 #define HWY_ATTR __attribute__((target(HWY_TARGET_STR)))
 #else
 #define HWY_ATTR
 #endif
 
 #if (HWY_MAX_BYTES <= 16) || HWY_TARGET_IS_SVE || (HWY_TARGET == HWY_RVV) || \
-    (HWY_TARGET == HWY_WASM_EMU256)
+      (HWY_TARGET == HWY_WASM_EMU256)
 #define HWY_NATIVE_INTERLEAVE_WHOLE 1
 #else
 #define HWY_NATIVE_INTERLEAVE_WHOLE 0

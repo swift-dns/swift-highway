@@ -1167,7 +1167,7 @@ func x86AllTrue(for element: Element) -> String {
 func x86FirstTrueIndex(for element: Element) -> String {
     """
     const unsigned bits = (unsigned)\(x86MaskBits(for: element));
-    return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+    return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
     """
 }
 
@@ -2920,10 +2920,34 @@ let ops: [Op] = [
             sse2: { element in vectorResult("a / b", for: element) }
         )
     ) { element in
-        let zero = compoundLiteral(element.cVector, ["0"])
-        let nonZero = "(\(element.cUnsignedVector))(b != \(zero))"
-        let quotient = unsignedBits("(a / b)", of: element)
-        return vectorResult(fromUnsignedBits("\(nonZero) & \(quotient)", of: element), for: element)
+        let vector = element.cVector
+        let unsigned = element.cUnsignedVector
+        let lanes = element.laneCount
+        let signBit = "0x\(String(UInt64(1) << UInt64(element.bits - 1), radix: 16))"
+        let infinityBits = unsignedBits("infinity", of: element)
+        let divisor = bitSelect("zeroDenominator", "ones", "b", of: element)
+        let signedInfinity = fromUnsignedBits("\(infinityBits) | signs", of: element)
+        let zeroQuotient = bitSelect(
+            "zeroOrNaNNumerator",
+            "indeterminate",
+            "signedInfinity",
+            of: element
+        )
+        let result = bitSelect("zeroDenominator", "zeroQuotient", "quotient", of: element)
+        return """
+            const \(vector) zero = \(compoundLiteral(vector, ["0"]));
+            const \(vector) ones = \(splat("1", as: vector, lanes: lanes));
+            const \(vector) infinity = \(splat(infinity(of: element), as: vector, lanes: lanes));
+            const \(unsigned) signBits = \(splat(signBit, as: unsigned, lanes: lanes));
+            const \(unsigned) zeroDenominator = (\(unsigned))(b == zero);
+            const \(unsigned) zeroOrNaNNumerator = (\(unsigned))((a == zero) | (a != a));
+            const \(vector) quotient = a / \(divisor);
+            const \(vector) indeterminate = a + (infinity * zero);
+            const \(unsigned) signs = ((\(unsigned))a ^ (\(unsigned))b) & signBits;
+            const \(vector) signedInfinity = \(signedInfinity);
+            const \(vector) zeroQuotient = \(zeroQuotient);
+            \(vectorResult(result, for: element))
+            """
     },
     Op(
         "minimum",
@@ -3212,7 +3236,13 @@ let ops: [Op] = [
         .count,
         .all,
         targets: TargetBodies(
-            neon: { _ in "return (size_t)__builtin_reduce_add(-mask);" },
+            neon: { element in
+                """
+                \(element.cMask) raw = mask;
+                __asm__("" : "+w"(raw));
+                return (size_t)-(int64_t)__builtin_reduce_add(raw);
+                """
+            },
             sse2: { element in
                 "return (size_t)__builtin_popcountll((uint64_t)(unsigned)\(x86MaskBits(for: element)));"
             }

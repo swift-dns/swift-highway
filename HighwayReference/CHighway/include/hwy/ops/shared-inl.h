@@ -76,13 +76,16 @@ using VecArg = V;
 
 namespace detail {
 
+// Native := whatever the intrinsics expect for the given lane type.
 template <typename T>
 struct NativeLaneTypeT {
   using type = T;
 };
 template <>
 struct NativeLaneTypeT<hwy::float16_t> {
-#if HWY_HAVE_SCALAR_F16_TYPE
+#if HWY_ARM_HAVE_FP16
+  using type = __fp16;
+#elif HWY_HAVE_SCALAR_F16_TYPE
   using type = hwy::float16_t::Native;
 #else
   using type = uint16_t;
@@ -117,9 +120,11 @@ HWY_INLINE T* NativeLanePointer(T* p) {
   return p;
 }
 template <typename T, typename NT = NativeLaneType<RemoveConst<T>>,
-          HWY_IF_F16(T)>
-HWY_INLINE constexpr If<IsConst<T>(), const NT*, NT*> NativeLanePointer(T* p) {
-#if HWY_HAVE_SCALAR_F16_TYPE
+          typename Ret = If<IsConst<T>(), const NT*, NT*>, HWY_IF_F16(T)>
+HWY_INLINE Ret NativeLanePointer(T* p) {
+#if HWY_ARM_HAVE_FP16
+  return reinterpret_cast<Ret>(&p->native);
+#elif HWY_HAVE_SCALAR_F16_TYPE
   return &p->native;
 #else
   return &p->bits;
@@ -558,6 +563,45 @@ template <class D, typename T>
 HWY_API bool IsAligned(D d, T* ptr) {
   const size_t N = Lanes(d);
   return reinterpret_cast<uintptr_t>(ptr) % (N * sizeof(T)) == 0;
+}
+
+// Returns whether `Lookup8` can definitely be used for vectors created from
+// tag `d`. May return a false negative for large scalable vectors.
+template <class D, typename T = TFromD<D>>
+HWY_API constexpr bool CanLookup8(D d) {
+  // `Lookup8` can use two-register tables, so it is sufficient to ensure
+  // vectors have at least four lanes (8/2). For fixed-length vectors: check
+  // `MaxLanes` directly. For scalable vectors, first require full
+  // (non-partial) vectors, which implies they are at least 128 bits. Then also
+  // require 16 or 32-bit elements, which implies at least 128/{16,32} =
+  // {8,4} lanes per vector. For 8-bit T, `TableLookupBytes` is more efficient.
+  return (!HWY_HAVE_SCALABLE && MaxLanes(d) >= 4) ||
+         (HWY_HAVE_SCALABLE && detail::IsFull(d) &&
+          (sizeof(T) == 2 || sizeof(T) == 4));
+}
+
+// Returns whether `Lookup16` can definitely be used for vectors created from
+// tag `d`. May return a false negative for large scalable vectors.
+template <class D, typename T = TFromD<D>>
+HWY_API constexpr bool CanLookup16(D d) {
+  return (!HWY_HAVE_SCALABLE && MaxLanes(d) >= 8) ||
+         (HWY_HAVE_SCALABLE && detail::IsFull(d) && (sizeof(T) == 2));
+}
+
+// Returns whether `Lookup32` can definitely be used for vectors created from
+// tag `d`. May return a false negative for large scalable vectors.
+template <class D, typename T = TFromD<D>>
+HWY_API constexpr bool CanLookup32(D d) {
+  return (!HWY_HAVE_SCALABLE && MaxLanes(d) >= 16) ||
+         (HWY_HAVE_SCALABLE && detail::IsFull(d) && (sizeof(T) == 1));
+}
+
+// Returns whether `Lookup64` can definitely be used for vectors created from
+// tag `d`. May return a false negative for large scalable vectors.
+template <class D, typename T = TFromD<D>>
+HWY_API constexpr bool CanLookup64(D d) {
+  return (!HWY_HAVE_SCALABLE && MaxLanes(d) >= 32) ||
+         (HWY_ARCH_ARM_A64 && HWY_TARGET_IS_NEON && (sizeof(T) == 1));
 }
 
 // ------------------------------ Choosing overloads (SFINAE)

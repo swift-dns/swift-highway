@@ -23,10 +23,14 @@ readonly -a module_seed_headers=(
 )
 
 clone_dir=""
+history_dir=""
 
 cleanup() {
   if [[ -n "${clone_dir}" && -d "${clone_dir}" ]]; then
     rm -rf -- "${clone_dir}"
+  fi
+  if [[ -n "${history_dir}" && -d "${history_dir}" ]]; then
+    rm -rf -- "${history_dir}"
   fi
   return 0
 }
@@ -52,18 +56,104 @@ version_field() {
   return 0
 }
 
-clone_upstream() {
-  local repository="${1:?clone_upstream requires the upstream repository url}"
-  local tag="${2:?clone_upstream requires the tag to check out}"
-  local destination="${3:?clone_upstream requires the destination directory}"
+clone_history() {
+  local repository="${1:?clone_history requires the upstream repository url}"
+  local destination="${2:?clone_history requires the destination directory}"
 
-  log "Cloning ${repository} at ${tag}..."
+  log "Cloning the history of ${repository}..."
   local -a clone_arguments=(
-    -c advice.detachedHead=false
-    clone --quiet --depth 1 --branch "${tag}"
+    clone --quiet --bare --filter=tree:0
   )
   if ! git "${clone_arguments[@]}" "${repository}" "${destination}"; then
-    fatal "Failed to clone '${repository}' at tag '${tag}'"
+    fatal "Failed to clone the history of '${repository}'"
+  fi
+  return 0
+}
+
+verify_tag_commit() {
+  local history_dir="${1:?verify_tag_commit requires the history clone directory}"
+  local tag="${2:?verify_tag_commit requires the tag to check}"
+  local expected_commit="${3:?verify_tag_commit requires the expected commit sha}"
+
+  local tag_commit_reference="refs/tags/${tag}^{commit}"
+  local actual_commit
+  if ! actual_commit="$(git -C "${history_dir}" rev-parse --verify "${tag_commit_reference}")"; then
+    fatal "Failed to resolve the tag '${tag}' of '${version_file}' to a commit"
+  fi
+
+  if [[ "${actual_commit}" != "${expected_commit}" ]]; then
+    fatal "The tag '${tag}' in '${version_file}' does not point at the commit it records." \
+      "Expected: ${expected_commit}" \
+      "Actual:   ${actual_commit}"
+  fi
+
+  log "Verified that tag ${tag} points at ${expected_commit}."
+  return 0
+}
+
+verify_branch_contains_commit() {
+  local history_dir="${1:?verify_branch_contains_commit requires the history clone directory}"
+  local branch="${2:?verify_branch_contains_commit requires the branch to check}"
+  local expected_commit="${3:?verify_branch_contains_commit requires the expected commit sha}"
+
+  local -a ancestor_arguments=(
+    merge-base --is-ancestor "${expected_commit}" "refs/heads/${branch}"
+  )
+  local exit_status=0
+  git -C "${history_dir}" "${ancestor_arguments[@]}" || exit_status=$?
+
+  case "${exit_status}" in
+    0) ;;
+    1)
+      fatal "The commit in '${version_file}' is not in the history of the branch '${branch}'." \
+        "Commit: ${expected_commit}"
+      ;;
+    *)
+      fatal "Failed to check whether the commit in '${version_file}' is in the history of" \
+        "the branch '${branch}' (git merge-base exited with ${exit_status})." \
+        "Commit: ${expected_commit}"
+      ;;
+  esac
+
+  log "Verified that branch ${branch} contains ${expected_commit}."
+  return 0
+}
+
+verify_ref_contains_commit() {
+  local history_dir="${1:?verify_ref_contains_commit requires the history clone directory}"
+  local ref="${2:?verify_ref_contains_commit requires the tag or branch to check}"
+  local expected_commit="${3:?verify_ref_contains_commit requires the expected commit sha}"
+
+  if git -C "${history_dir}" show-ref --verify --quiet "refs/tags/${ref}"; then
+    verify_tag_commit "${history_dir}" "${ref}" "${expected_commit}"
+  elif git -C "${history_dir}" show-ref --verify --quiet "refs/heads/${ref}"; then
+    verify_branch_contains_commit "${history_dir}" "${ref}" "${expected_commit}"
+  else
+    fatal "The ref '${ref}' in '${version_file}' is neither a tag nor a branch of the repository"
+  fi
+  return 0
+}
+
+fetch_commit() {
+  local repository="${1:?fetch_commit requires the upstream repository url}"
+  local commit="${2:?fetch_commit requires the commit to fetch}"
+  local destination="${3:?fetch_commit requires the destination directory}"
+
+  log "Fetching ${commit} from ${repository}..."
+  if ! git init --quiet "${destination}"; then
+    fatal "Failed to initialize a repository at '${destination}'"
+  fi
+
+  if ! git -C "${destination}" fetch --quiet --depth 1 "${repository}" "${commit}"; then
+    fatal "Failed to fetch the commit '${commit}' of '${repository}'"
+  fi
+
+  local -a checkout_arguments=(
+    -c advice.detachedHead=false
+    checkout --quiet FETCH_HEAD
+  )
+  if ! git -C "${destination}" "${checkout_arguments[@]}"; then
+    fatal "Failed to check out the commit '${commit}' in '${destination}'"
   fi
   return 0
 }
@@ -78,7 +168,7 @@ verify_commit() {
   fi
 
   if [[ "${actual_commit}" != "${expected_commit}" ]]; then
-    fatal "The tag in '${version_file}' does not point at the commit it records." \
+    fatal "The clone is not at the commit that '${version_file}' records." \
       "Expected: ${expected_commit}" \
       "Actual:   ${actual_commit}"
   fi
@@ -172,7 +262,8 @@ copy_quick_reference() {
 # Patches are written against the upstream tree rather than this one, so that the very same file
 # can go upstream unchanged.
 apply_patches() {
-  local tag="${1:?apply_patches requires the tag the patches are written against}"
+  local ref="${1:?apply_patches requires the ref the patches are written against}"
+  local commit="${2:?apply_patches requires the commit the patches are written against}"
 
   if [[ ! -d "${patch_root}" ]]; then
     return 0
@@ -195,7 +286,7 @@ apply_patches() {
   for patch_path in "${patch_paths[@]}"; do
     if ! git -C "${repository_root}" "${apply_arguments[@]}" -- "${patch_path}"; then
       fatal "Failed to apply '${patch_path#"${repository_root}/"}' to the vendored tree." \
-        "Rebase it onto highway ${tag}, or drop it if upstream has taken it."
+        "Rebase it onto highway ${ref} (${commit:0:7}), or drop it if upstream has taken it."
     fi
   done
   return 0
@@ -299,15 +390,18 @@ main() {
     fatal "There is no '${version_file}' to read the pinned upstream version from"
   fi
 
-  local repository tag commit
+  local repository ref commit
   repository="$(version_field repository)"
-  tag="$(version_field tag)"
+  ref="$(version_field ref)"
   commit="$(version_field commit)"
 
-  clone_dir="$(mktemp -d)" || fatal "Failed to create a temporary directory for the clone"
   trap cleanup EXIT
+  clone_dir="$(mktemp -d)" || fatal "Failed to create a temporary directory for the clone"
+  history_dir="$(mktemp -d)" || fatal "Failed to create a temporary directory for the history"
 
-  clone_upstream "${repository}" "${tag}" "${clone_dir}"
+  clone_history "${repository}" "${history_dir}"
+  verify_ref_contains_commit "${history_dir}" "${ref}" "${commit}"
+  fetch_commit "${repository}" "${commit}" "${clone_dir}"
   verify_commit "${clone_dir}" "${commit}"
 
   local -a source_paths=()
@@ -327,10 +421,10 @@ main() {
   copy_sources "${clone_dir}" source_paths
   copy_license "${clone_dir}"
   copy_quick_reference "${clone_dir}"
-  apply_patches "${tag}"
+  apply_patches "${ref}" "${commit}"
   generate_module_map
 
-  log "✅ Vendored highway ${tag} (${commit:0:7})."
+  log "✅ Vendored highway ${ref} (${commit:0:7})."
   return 0
 }
 

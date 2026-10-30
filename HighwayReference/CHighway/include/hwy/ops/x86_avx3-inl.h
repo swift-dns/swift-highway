@@ -37,6 +37,44 @@ namespace HWY_NAMESPACE {
 
 #if HWY_TARGET <= HWY_AVX3_DL
 
+// ------------------------------ MulAdd52
+
+#ifdef HWY_NATIVE_MULADD52_IMPL
+#undef HWY_NATIVE_MULADD52_IMPL
+#else
+#define HWY_NATIVE_MULADD52_IMPL
+#endif
+
+template <size_t N>
+HWY_API Vec128<uint64_t, N> MulAdd52Lo(Vec128<uint64_t, N> a,
+                                       Vec128<uint64_t, N> b,
+                                       Vec128<uint64_t, N> c) {
+  return Vec128<uint64_t, N>{_mm_madd52lo_epu64(c.raw, a.raw, b.raw)};
+}
+HWY_API Vec256<uint64_t> MulAdd52Lo(Vec256<uint64_t> a, Vec256<uint64_t> b,
+                                    Vec256<uint64_t> c) {
+  return Vec256<uint64_t>{_mm256_madd52lo_epu64(c.raw, a.raw, b.raw)};
+}
+HWY_API Vec512<uint64_t> MulAdd52Lo(Vec512<uint64_t> a, Vec512<uint64_t> b,
+                                    Vec512<uint64_t> c) {
+  return Vec512<uint64_t>{_mm512_madd52lo_epu64(c.raw, a.raw, b.raw)};
+}
+
+template <size_t N>
+HWY_API Vec128<uint64_t, N> MulAdd52Hi(Vec128<uint64_t, N> a,
+                                       Vec128<uint64_t, N> b,
+                                       Vec128<uint64_t, N> c) {
+  return Vec128<uint64_t, N>{_mm_madd52hi_epu64(c.raw, a.raw, b.raw)};
+}
+HWY_API Vec256<uint64_t> MulAdd52Hi(Vec256<uint64_t> a, Vec256<uint64_t> b,
+                                    Vec256<uint64_t> c) {
+  return Vec256<uint64_t>{_mm256_madd52hi_epu64(c.raw, a.raw, b.raw)};
+}
+HWY_API Vec512<uint64_t> MulAdd52Hi(Vec512<uint64_t> a, Vec512<uint64_t> b,
+                                    Vec512<uint64_t> c) {
+  return Vec512<uint64_t>{_mm512_madd52hi_epu64(c.raw, a.raw, b.raw)};
+}
+
 // ------------------------------ ShiftLeft
 
 // Generic for all vector lengths. Must be defined after all GaloisAffine.
@@ -118,6 +156,12 @@ HWY_API V RotateRight(V v) {
 #undef HWY_NATIVE_COMPRESS8
 #else
 #define HWY_NATIVE_COMPRESS8
+#endif
+
+#ifdef HWY_NATIVE_COMPRESS16_32_64
+#undef HWY_NATIVE_COMPRESS16_32_64
+#else
+#define HWY_NATIVE_COMPRESS16_32_64
 #endif
 
 namespace detail {
@@ -380,6 +424,11 @@ HWY_API V Compress(V v, const M mask) {
   return BitCast(d, detail::NativeCompress(BitCast(du, v), mu));
 }
 
+template <class D>
+HWY_API VFromD<D> Compress(D /*d*/, VFromD<D> v, MFromD<D> m) {
+  return Compress(v, m);
+}
+
 // ------------------------------ CompressNot
 
 template <class V, class M, HWY_IF_NOT_T_SIZE_V(V, 8)>
@@ -387,17 +436,21 @@ HWY_API V CompressNot(V v, const M mask) {
   return Compress(v, Not(mask));
 }
 
-// uint64_t lanes. Only implement for 256 and 512-bit vectors because this is a
-// no-op for 128-bit.
-template <class V, class M, HWY_IF_V_SIZE_GT_D(DFromV<V>, 16)>
-HWY_API V CompressBlocksNot(V v, M mask) {
-  return CompressNot(v, mask);
+template <class D>
+HWY_API VFromD<D> CompressNot(D /*d*/, VFromD<D> v, MFromD<D> m) {
+  return CompressNot(v, m);
 }
 
 // ------------------------------ CompressBits
 template <class V>
 HWY_API V CompressBits(V v, const uint8_t* HWY_RESTRICT bits) {
   return Compress(v, LoadMaskBits(DFromV<V>(), bits));
+}
+
+template <class D>
+HWY_API VFromD<D> CompressBits(D /*d*/, VFromD<D> v,
+                               const uint8_t* HWY_RESTRICT bits) {
+  return CompressBits(v, bits);
 }
 
 // ------------------------------ CompressStore
@@ -407,6 +460,9 @@ HWY_API V CompressBits(V v, const uint8_t* HWY_RESTRICT bits) {
 template <class D, HWY_IF_T_SIZE_ONE_OF_D(D, (1 << 1) | (1 << 2))>
 HWY_API size_t CompressStore(VFromD<D> v, MFromD<D> mask, D d,
                              TFromD<D>* HWY_RESTRICT unaligned) {
+  HWY_IF_CONSTEXPR(HWY_MAX_LANES_D(D) < (16 / sizeof(TFromD<D>))) {
+    mask = And(mask, FirstN(d, HWY_MAX_LANES_D(D)));
+  }
 #if HWY_X86_SLOW_COMPRESS_STORE
   StoreU(Compress(v, mask), d, unaligned);
 #else
@@ -429,6 +485,9 @@ template <class D, HWY_IF_NOT_FLOAT_D(D),
           HWY_IF_T_SIZE_ONE_OF_D(D, (1 << 4) | (1 << 8))>
 HWY_API size_t CompressStore(VFromD<D> v, MFromD<D> mask, D d,
                              TFromD<D>* HWY_RESTRICT unaligned) {
+  HWY_IF_CONSTEXPR(HWY_MAX_LANES_D(D) < (16 / sizeof(TFromD<D>))) {
+    mask = And(mask, FirstN(d, HWY_MAX_LANES_D(D)));
+  }
 #if HWY_X86_SLOW_COMPRESS_STORE
   StoreU(Compress(v, mask), d, unaligned);
 #else
@@ -447,6 +506,9 @@ HWY_API size_t CompressStore(VFromD<D> v, MFromD<D> mask, D d,
 template <class D, HWY_IF_FLOAT3264_D(D)>
 HWY_API size_t CompressStore(VFromD<D> v, MFromD<D> mask, D d,
                              TFromD<D>* HWY_RESTRICT unaligned) {
+  HWY_IF_CONSTEXPR(HWY_MAX_LANES_D(D) < (16 / sizeof(TFromD<D>))) {
+    mask = And(mask, FirstN(d, HWY_MAX_LANES_D(D)));
+  }
 #if HWY_X86_SLOW_COMPRESS_STORE
   StoreU(Compress(v, mask), d, unaligned);
 #else

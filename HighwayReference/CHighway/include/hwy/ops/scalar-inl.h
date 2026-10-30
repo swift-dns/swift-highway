@@ -151,7 +151,7 @@ namespace detail {
 // ResizeBitCast on the HWY_SCALAR target has zero-extending semantics if
 // sizeof(TFromD<DTo>) is greater than sizeof(TFromV<FromV>)
 template <class FromSizeTag, class ToSizeTag, class DTo, class DFrom>
-HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCast(FromSizeTag /* from_size_tag */,
+HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCastImpl(FromSizeTag /* from_size_tag */,
                                                ToSizeTag /* to_size_tag */,
                                                DTo d_to, DFrom /*d_from*/,
                                                VFromD<DFrom> v) {
@@ -707,7 +707,18 @@ HWY_API Vec1<T> operator*(const Vec1<T> a, const Vec1<T> b) {
 
 template <typename T, HWY_IF_FLOAT(T)>
 HWY_API Vec1<T> operator/(const Vec1<T> a, const Vec1<T> b) {
-  return Vec1<T>(a.raw / b.raw);
+  const T den = b.raw;
+  if (den == T{0}) {
+    // 0 / +-0 and NaN / +-0 are NaN; x / +-0 is +-Inf with sign(x) ^ sign(den).
+    // Neither divides by zero, which sanitizers flag.
+    const T inf = PositiveInfOrHighestValue<T>();
+    if (ScalarIsNaN(a.raw) || a.raw == T{0}) {
+      return Vec1<T>(a.raw + (inf * T{0}));
+    }
+    const bool sign = ScalarSignBit(a.raw) ^ ScalarSignBit(den);
+    return Vec1<T>(sign ? -inf : inf);
+  }
+  return Vec1<T>(a.raw / den);
 }
 
 // Returns the upper sizeof(T)*8 bits of a * b in each lane.
@@ -849,7 +860,9 @@ HWY_API Vec1<T> Round(const Vec1<T> v) {
                            ConvertScalarTo<T>(0.5)) {
     offset = v.raw < k0 ? -1 : 1;
   }
-  return Vec1<T>(ConvertScalarTo<T>(rounded - offset));
+  // Ties away from an odd +-1 reach zero (-0.5 -> -0), and the integer
+  // subtraction loses the sign; the rounded magnitude never changes sign.
+  return CopySignToAbs(Vec1<T>(ConvertScalarTo<T>(rounded - offset)), v);
 }
 
 // Round-to-nearest even.
@@ -862,7 +875,7 @@ HWY_API Vec1<MakeSigned<T>> NearestInt(const Vec1<T> v) {
 
   if (!(abs < MantissaEnd<T>())) {  // Huge or NaN
     // Check if too large to cast or NaN
-    if (!(abs <= ConvertScalarTo<T>(LimitsMax<TI>()))) {
+    if (!(abs < -ConvertScalarTo<T>(LimitsMin<TI>()))) {
       return Vec1<TI>(is_sign ? LimitsMin<TI>() : LimitsMax<TI>());
     }
     return Vec1<TI>(ConvertScalarTo<TI>(v.raw));
@@ -889,18 +902,23 @@ HWY_API VFromD<DI32> DemoteToNearestInt(DI32 /*di32*/, const Vec1<double> v) {
   const T abs = Abs(v).raw;
   const bool is_sign = ScalarSignBit(v.raw);
 
-  // Check if too large to cast or NaN
-  if (!(abs <= ConvertScalarTo<T>(LimitsMax<TI>()))) {
+  // Out of range if |v| >= 2^31, or NaN. Compare against the exact power of
+  // two: values between LimitsMax and 2^31 still round to an int32.
+  if (!(abs < -ConvertScalarTo<T>(LimitsMin<TI>()))) {
     return Vec1<TI>(is_sign ? LimitsMin<TI>() : LimitsMax<TI>());
   }
 
+  // Clamp so that adding the bias below stays within the int32 range.
+  const T clamped = v.raw < ConvertScalarTo<T>(LimitsMax<TI>())
+                        ? v.raw
+                        : ConvertScalarTo<T>(LimitsMax<TI>());
   const T bias =
       ConvertScalarTo<T>(v.raw < ConvertScalarTo<T>(0.0) ? -0.5 : 0.5);
-  const TI rounded = ConvertScalarTo<TI>(v.raw + bias);
+  const TI rounded = ConvertScalarTo<TI>(clamped + bias);
   if (rounded == 0) return Vec1<TI>(0);
   TI offset = 0;
   // Round to even
-  if ((rounded & 1) && ScalarAbs(ConvertScalarTo<T>(rounded) - v.raw) ==
+  if ((rounded & 1) && ScalarAbs(ConvertScalarTo<T>(rounded) - clamped) ==
                            ConvertScalarTo<T>(0.5)) {
     offset = is_sign ? -1 : 1;
   }
@@ -935,8 +953,11 @@ V Ceiling(const V v) {
       static_cast<int>(((bits >> kMantissaBits) & kExponentMask) - kBias);
   // Already an integer.
   if (exponent >= kMantissaBits) return v;
-  // |v| <= 1 => 0 or 1.
-  if (exponent < 0) return positive ? V(1) : V(-0.0);
+  // |v| <= 1 => 0 or 1. `positive` is false for +0, so return a zero with
+  // the sign of v rather than always -0.
+  if (exponent < 0) {
+    return positive ? V(1) : CopySignToAbs(V(ConvertScalarTo<Float>(0)), v);
+  }
 
   const Bits mantissa_mask = kMantissaMask >> exponent;
   // Already an integer
@@ -967,8 +988,12 @@ V Floor(const V v) {
       static_cast<int>(((bits >> kMantissaBits) & kExponentMask) - kBias);
   // Already an integer.
   if (exponent >= kMantissaBits) return v;
-  // |v| <= 1 => -1 or 0.
-  if (exponent < 0) return V(negative ? Float(-1.0) : Float(0.0));
+  // |v| <= 1 => -1 or 0. -0 is not `negative`, so return a zero with the
+  // sign of v rather than always +0.
+  if (exponent < 0) {
+    return negative ? V(Float(-1.0))
+                    : CopySignToAbs(V(ConvertScalarTo<Float>(0)), v);
+  }
 
   const Bits mantissa_mask = kMantissaMask >> exponent;
   // Already an integer
@@ -1144,10 +1169,10 @@ HWY_API void BlendedStore(const Vec1<T> v, Mask1<T> m, D d, T* HWY_RESTRICT p) {
   StoreU(v, d, p);
 }
 
-#ifdef HWY_NATIVE_STORE_N
-#undef HWY_NATIVE_STORE_N
+#ifdef HWY_NATIVE_STORE_N_IMPL
+#undef HWY_NATIVE_STORE_N_IMPL
 #else
-#define HWY_NATIVE_STORE_N
+#define HWY_NATIVE_STORE_N_IMPL
 #endif
 
 template <class D, typename T = TFromD<D>>
@@ -1434,12 +1459,9 @@ HWY_API VFromD<DTo> PromoteInRangeTo(DTo /* tag */, Vec1<float> from) {
 // so we overload for TFrom=double and TTo={float,int32_t}.
 template <class D, HWY_IF_F32_D(D)>
 HWY_API Vec1<float> DemoteTo(D /* tag */, Vec1<double> from) {
-  // Prevent ubsan errors when converting float to narrower integer/float
-  if (IsInf(from).bits ||
-      Abs(from).raw > static_cast<double>(HighestValue<float>())) {
-    return Vec1<float>(ScalarSignBit(from.raw) ? LowestValue<float>()
-                                               : HighestValue<float>());
-  }
+  // IEEE-754 conversion, same as other targets: values that overflow, and
+  // infinities, become +/-inf. This is not UB because infinity is
+  // representable (UBSan only flags this in Clang < 9).
   return Vec1<float>(static_cast<float>(from.raw));
 }
 template <class D, HWY_IF_UI32_D(D)>
@@ -1765,36 +1787,9 @@ HWY_API Vec1<T> Reverse8(D /* tag */, const Vec1<T> v) {
 #define HWY_NATIVE_REVERSE_LANE_BYTES
 #endif
 
-HWY_API Vec1<uint16_t> ReverseLaneBytes(Vec1<uint16_t> v) {
-  const uint32_t val{v.raw};
-  return Vec1<uint16_t>(
-      static_cast<uint16_t>(((val << 8) & 0xFF00u) | ((val >> 8) & 0x00FFu)));
-}
-
-HWY_API Vec1<uint32_t> ReverseLaneBytes(Vec1<uint32_t> v) {
-  const uint32_t val = v.raw;
-  return Vec1<uint32_t>(static_cast<uint32_t>(
-      ((val << 24) & 0xFF000000u) | ((val << 8) & 0x00FF0000u) |
-      ((val >> 8) & 0x0000FF00u) | ((val >> 24) & 0x000000FFu)));
-}
-
-HWY_API Vec1<uint64_t> ReverseLaneBytes(Vec1<uint64_t> v) {
-  const uint64_t val = v.raw;
-  return Vec1<uint64_t>(static_cast<uint64_t>(
-      ((val << 56) & 0xFF00000000000000u) |
-      ((val << 40) & 0x00FF000000000000u) |
-      ((val << 24) & 0x0000FF0000000000u) | ((val << 8) & 0x000000FF00000000u) |
-      ((val >> 8) & 0x00000000FF000000u) | ((val >> 24) & 0x0000000000FF0000u) |
-      ((val >> 40) & 0x000000000000FF00u) |
-      ((val >> 56) & 0x00000000000000FFu)));
-}
-
-template <class V, HWY_IF_SIGNED_V(V),
-          HWY_IF_T_SIZE_ONE_OF_V(V, (1 << 2) | (1 << 4) | (1 << 8))>
-HWY_API V ReverseLaneBytes(V v) {
-  const DFromV<decltype(v)> d;
-  const RebindToUnsigned<decltype(d)> du;
-  return BitCast(d, ReverseLaneBytes(BitCast(du, v)));
+template <class T, HWY_IF_NOT_FLOAT_NOR_SPECIAL(T), HWY_IF_NOT_T_SIZE(T, 1)>
+HWY_API Vec1<T> ReverseLaneBytes(Vec1<T> v) {
+  return Vec1<T>(ScalarByteSwap(v.raw));
 }
 
 // ------------------------------ ReverseBits
@@ -1997,6 +1992,18 @@ HWY_API size_t FindKnownLastTrue(D /* tag */, const Mask1<T> /* m */) {
 
 // ------------------------------ Compress, CompressBits
 
+#ifdef HWY_NATIVE_COMPRESS8
+#undef HWY_NATIVE_COMPRESS8
+#else
+#define HWY_NATIVE_COMPRESS8
+#endif
+
+#ifdef HWY_NATIVE_COMPRESS16_32_64
+#undef HWY_NATIVE_COMPRESS16_32_64
+#else
+#define HWY_NATIVE_COMPRESS16_32_64
+#endif
+
 template <typename T>
 struct CompressIsPartition {
   enum { value = 1 };
@@ -2008,9 +2015,19 @@ HWY_API Vec1<T> Compress(Vec1<T> v, const Mask1<T> /* mask */) {
   return v;
 }
 
+template <class D>
+HWY_API VFromD<D> Compress(D /*d*/, VFromD<D> v, MFromD<D> /*m*/) {
+  return v;
+}
+
 template <typename T>
 HWY_API Vec1<T> CompressNot(Vec1<T> v, const Mask1<T> /* mask */) {
   // A single lane is already partitioned by definition.
+  return v;
+}
+
+template <class D>
+HWY_API VFromD<D> CompressNot(D /*d*/, VFromD<D> v, MFromD<D> /*m*/) {
   return v;
 }
 
@@ -2034,6 +2051,12 @@ HWY_API size_t CompressBlendedStore(Vec1<T> v, const Mask1<T> mask, D d,
 // ------------------------------ CompressBits
 template <typename T>
 HWY_API Vec1<T> CompressBits(Vec1<T> v, const uint8_t* HWY_RESTRICT /*bits*/) {
+  return v;
+}
+
+template <class D>
+HWY_API VFromD<D> CompressBits(D /*d*/, VFromD<D> v,
+                               const uint8_t* HWY_RESTRICT /*bits*/) {
   return v;
 }
 
@@ -2157,7 +2180,11 @@ HWY_API Vec1<int32_t> ReorderWidenMulAccumulate(D32 /* tag */, Vec1<int16_t> a,
                                                 Vec1<int16_t> b,
                                                 const Vec1<int32_t> sum0,
                                                 Vec1<int32_t>& /* sum1 */) {
-  return Vec1<int32_t>(a.raw * b.raw + sum0.raw);
+  // Accumulate via unsigned to avoid signed-overflow UB when sum0 is near
+  // the int32 limits (the product a*b always fits in int32). This matches the
+  // uint16 overload below and the defined wraparound of the SIMD targets.
+  return Vec1<int32_t>(static_cast<int32_t>(
+      static_cast<uint32_t>(a.raw * b.raw) + static_cast<uint32_t>(sum0.raw)));
 }
 
 template <class DU32, HWY_IF_U32_D(DU32)>

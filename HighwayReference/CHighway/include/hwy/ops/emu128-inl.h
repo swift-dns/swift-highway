@@ -142,7 +142,7 @@ namespace detail {
 // ResizeBitCast on the HWY_EMU128 target has zero-extending semantics if
 // VFromD<DTo> is a larger vector than FromV
 template <class FromSizeTag, class ToSizeTag, class DTo, class DFrom>
-HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCast(FromSizeTag /* from_size_tag */,
+HWY_INLINE VFromD<DTo> ZeroExtendResizeBitCastImpl(FromSizeTag /* from_size_tag */,
                                                ToSizeTag /* to_size_tag */,
                                                DTo d_to, DFrom /* d_from */,
                                                VFromD<DFrom> v) {
@@ -565,7 +565,7 @@ HWY_API Vec128<T, N> operator>>(Vec128<T, N> v, Vec128<T, N> bits) {
 namespace detail {
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Add(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> AddImpl(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     const uint64_t a64 = static_cast<uint64_t>(a.raw[i]);
@@ -575,7 +575,7 @@ HWY_INLINE Vec128<T, N> Add(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
   return a;
 }
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Sub(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> SubImpl(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     const uint64_t a64 = static_cast<uint64_t>(a.raw[i]);
@@ -586,7 +586,7 @@ HWY_INLINE Vec128<T, N> Sub(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
 }
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Add(hwy::FloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> AddImpl(hwy::FloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     a.raw[i] += b.raw[i];
@@ -595,7 +595,7 @@ HWY_INLINE Vec128<T, N> Add(hwy::FloatTag /*tag*/, Vec128<T, N> a,
 }
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Sub(hwy::FloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> SubImpl(hwy::FloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     a.raw[i] -= b.raw[i];
@@ -607,11 +607,11 @@ HWY_INLINE Vec128<T, N> Sub(hwy::FloatTag /*tag*/, Vec128<T, N> a,
 
 template <typename T, size_t N>
 HWY_API Vec128<T, N> operator-(Vec128<T, N> a, Vec128<T, N> b) {
-  return detail::Sub(hwy::IsFloatTag<T>(), a, b);
+  return detail::SubImpl(hwy::IsFloatTag<T>(), a, b);
 }
 template <typename T, size_t N>
 HWY_API Vec128<T, N> operator+(Vec128<T, N> a, Vec128<T, N> b) {
-  return detail::Add(hwy::IsFloatTag<T>(), a, b);
+  return detail::AddImpl(hwy::IsFloatTag<T>(), a, b);
 }
 
 // ------------------------------ SumsOf8
@@ -700,7 +700,7 @@ HWY_API Vec128<T, N> Abs(Vec128<T, N> a) {
 namespace detail {
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Min(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> MinImpl(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     a.raw[i] = HWY_MIN(a.raw[i], b.raw[i]);
@@ -708,7 +708,7 @@ HWY_INLINE Vec128<T, N> Min(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
   return a;
 }
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Max(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> MaxImpl(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     a.raw[i] = HWY_MAX(a.raw[i], b.raw[i]);
@@ -717,7 +717,7 @@ HWY_INLINE Vec128<T, N> Max(hwy::NonFloatTag /*tag*/, Vec128<T, N> a,
 }
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Min(hwy::FloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> MinImpl(hwy::FloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     if (ScalarIsNaN(a.raw[i])) {
@@ -731,7 +731,7 @@ HWY_INLINE Vec128<T, N> Min(hwy::FloatTag /*tag*/, Vec128<T, N> a,
   return a;
 }
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Max(hwy::FloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> MaxImpl(hwy::FloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     if (ScalarIsNaN(a.raw[i])) {
@@ -749,12 +749,12 @@ HWY_INLINE Vec128<T, N> Max(hwy::FloatTag /*tag*/, Vec128<T, N> a,
 
 template <typename T, size_t N>
 HWY_API Vec128<T, N> Min(Vec128<T, N> a, Vec128<T, N> b) {
-  return detail::Min(hwy::IsFloatTag<T>(), a, b);
+  return detail::MinImpl(hwy::IsFloatTag<T>(), a, b);
 }
 
 template <typename T, size_t N>
 HWY_API Vec128<T, N> Max(Vec128<T, N> a, Vec128<T, N> b) {
-  return detail::Max(hwy::IsFloatTag<T>(), a, b);
+  return detail::MaxImpl(hwy::IsFloatTag<T>(), a, b);
 }
 
 // ------------------------------ Neg
@@ -763,19 +763,19 @@ HWY_API Vec128<T, N> Max(Vec128<T, N> a, Vec128<T, N> b) {
 namespace detail {
 
 template <typename T, size_t N>
-HWY_API Vec128<T, N> Neg(hwy::NonFloatTag /*tag*/, Vec128<T, N> v) {
+HWY_API Vec128<T, N> NegImpl(hwy::NonFloatTag /*tag*/, Vec128<T, N> v) {
   const DFromV<decltype(v)> d;
   return Zero(d) - v;
 }
 
 template <typename T, size_t N>
-HWY_API Vec128<T, N> Neg(hwy::FloatTag /*tag*/, Vec128<T, N> v) {
+HWY_API Vec128<T, N> NegImpl(hwy::FloatTag /*tag*/, Vec128<T, N> v) {
   const DFromV<decltype(v)> d;
   return Xor(v, SignBit(d));
 }
 
 template <typename T, size_t N>
-HWY_API Vec128<T, N> Neg(hwy::SpecialTag /*tag*/, Vec128<T, N> v) {
+HWY_API Vec128<T, N> NegImpl(hwy::SpecialTag /*tag*/, Vec128<T, N> v) {
   const DFromV<decltype(v)> d;
   return Xor(v, SignBit(d));
 }
@@ -784,7 +784,7 @@ HWY_API Vec128<T, N> Neg(hwy::SpecialTag /*tag*/, Vec128<T, N> v) {
 
 template <typename T, size_t N>
 HWY_API Vec128<T, N> Neg(Vec128<T, N> v) {
-  return detail::Neg(hwy::IsFloatTag<T>(), v);
+  return detail::NegImpl(hwy::IsFloatTag<T>(), v);
 }
 
 // ------------------------------ Mul/Div
@@ -793,7 +793,7 @@ HWY_API Vec128<T, N> Neg(Vec128<T, N> v) {
 namespace detail {
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Mul(hwy::FloatTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> MulImpl(hwy::FloatTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     a.raw[i] *= b.raw[i];
@@ -802,7 +802,7 @@ HWY_INLINE Vec128<T, N> Mul(hwy::FloatTag /*tag*/, Vec128<T, N> a,
 }
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Mul(SignedTag /*tag*/, Vec128<T, N> a, Vec128<T, N> b) {
+HWY_INLINE Vec128<T, N> MulImpl(SignedTag /*tag*/, Vec128<T, N> a, Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     a.raw[i] = static_cast<T>(static_cast<uint64_t>(a.raw[i]) *
                               static_cast<uint64_t>(b.raw[i]));
@@ -811,7 +811,7 @@ HWY_INLINE Vec128<T, N> Mul(SignedTag /*tag*/, Vec128<T, N> a, Vec128<T, N> b) {
 }
 
 template <typename T, size_t N>
-HWY_INLINE Vec128<T, N> Mul(UnsignedTag /*tag*/, Vec128<T, N> a,
+HWY_INLINE Vec128<T, N> MulImpl(UnsignedTag /*tag*/, Vec128<T, N> a,
                             Vec128<T, N> b) {
   for (size_t i = 0; i < N; ++i) {
     a.raw[i] = static_cast<T>(static_cast<uint64_t>(a.raw[i]) *
@@ -836,13 +836,26 @@ HWY_INLINE Vec128<T, N> Mul(UnsignedTag /*tag*/, Vec128<T, N> a,
 
 template <typename T, size_t N>
 HWY_API Vec128<T, N> operator*(Vec128<T, N> a, Vec128<T, N> b) {
-  return detail::Mul(hwy::TypeTag<T>(), a, b);
+  return detail::MulImpl(hwy::TypeTag<T>(), a, b);
 }
 
 template <typename T, size_t N, HWY_IF_FLOAT(T)>
 HWY_API Vec128<T, N> operator/(Vec128<T, N> a, Vec128<T, N> b) {
+  const T inf = PositiveInfOrHighestValue<T>();
   for (size_t i = 0; i < N; ++i) {
-    a.raw[i] = (b.raw[i] == T{0}) ? 0 : a.raw[i] / b.raw[i];
+    const T den = b.raw[i];
+    if (den == T{0}) {
+      // 0 / +-0 and NaN / +-0 are NaN; x / +-0 is +-Inf with sign(x) ^ sign(den).
+      // Neither divides by zero, which sanitizers flag.
+      if (ScalarIsNaN(a.raw[i]) || a.raw[i] == T{0}) {
+        a.raw[i] = a.raw[i] + (inf * T{0});
+      } else {
+        const bool sign = ScalarSignBit(a.raw[i]) ^ ScalarSignBit(den);
+        a.raw[i] = sign ? -inf : inf;
+      }
+    } else {
+      a.raw[i] = a.raw[i] / den;
+    }
   }
   return a;
 }
@@ -1031,14 +1044,21 @@ HWY_API Vec128<T, N> Round(Vec128<T, N> v) {
     const T bias = ConvertScalarTo<T>(v.raw[i] < k0 ? -0.5 : 0.5);
     const TI rounded = ConvertScalarTo<TI>(v.raw[i] + bias);
     if (rounded == 0) {
-      v.raw[i] = v.raw[i] < 0 ? ConvertScalarTo<T>(-0) : k0;
+      // Not `v.raw[i] < 0`: that is false for -0, and `-0` is an integer
+      // literal, hence +0.
+      v.raw[i] = ScalarSignBit(v.raw[i]) ? ConvertScalarTo<T>(-0.0) : k0;
       continue;
     }
     const T rounded_f = ConvertScalarTo<T>(rounded);
     // Round to even
     if ((rounded & 1) &&
         ScalarAbs(rounded_f - v.raw[i]) == ConvertScalarTo<T>(0.5)) {
-      v.raw[i] = ConvertScalarTo<T>(rounded - (v.raw[i] < k0 ? -1 : 1));
+      const T even = ConvertScalarTo<T>(rounded - (v.raw[i] < k0 ? -1 : 1));
+      // Ties away from an odd +-1 reach zero (-0.5 -> -0), which the
+      // integer subtraction above loses the sign of.
+      v.raw[i] = (even == k0 && ScalarSignBit(v.raw[i]))
+                     ? ConvertScalarTo<T>(-0.0)
+                     : even;
       continue;
     }
     v.raw[i] = rounded_f;
@@ -1059,7 +1079,7 @@ HWY_API Vec128<MakeSigned<T>, N> NearestInt(Vec128<T, N> v) {
 
     if (!(abs.raw[i] < MantissaEnd<T>())) {  // Huge or NaN
       // Check if too large to cast or NaN
-      if (!(abs.raw[i] <= ConvertScalarTo<T>(LimitsMax<TI>()))) {
+      if (!(abs.raw[i] < -ConvertScalarTo<T>(LimitsMin<TI>()))) {
         ret.raw[i] = signbit ? LimitsMin<TI>() : LimitsMax<TI>();
         continue;
       }
@@ -1098,14 +1118,19 @@ HWY_API VFromD<DI32> DemoteToNearestInt(DI32 /*di32*/,
   for (size_t i = 0; i < N; ++i) {
     const bool signbit = ScalarSignBit(v.raw[i]);
 
-    // Check if too large to cast or NaN
-    if (!(abs.raw[i] <= ConvertScalarTo<T>(LimitsMax<TI>()))) {
+    // Out of range if |v| >= 2^31, or NaN. Compare against the exact power of
+    // two: values between LimitsMax and 2^31 still round to an int32.
+    if (!(abs.raw[i] < -ConvertScalarTo<T>(LimitsMin<TI>()))) {
       ret.raw[i] = signbit ? LimitsMin<TI>() : LimitsMax<TI>();
       continue;
     }
 
+    // Clamp so that adding the bias below stays within the int32 range.
+    const T clamped = v.raw[i] < ConvertScalarTo<T>(LimitsMax<TI>())
+                          ? v.raw[i]
+                          : ConvertScalarTo<T>(LimitsMax<TI>());
     const T bias = ConvertScalarTo<T>(v.raw[i] < k0 ? -0.5 : 0.5);
-    const TI rounded = ConvertScalarTo<TI>(v.raw[i] + bias);
+    const TI rounded = ConvertScalarTo<TI>(clamped + bias);
     if (rounded == 0) {
       ret.raw[i] = 0;
       continue;
@@ -1113,7 +1138,7 @@ HWY_API VFromD<DI32> DemoteToNearestInt(DI32 /*di32*/,
     const T rounded_f = ConvertScalarTo<T>(rounded);
     // Round to even
     if ((rounded & 1) &&
-        ScalarAbs(rounded_f - v.raw[i]) == ConvertScalarTo<T>(0.5)) {
+        ScalarAbs(rounded_f - clamped) == ConvertScalarTo<T>(0.5)) {
       ret.raw[i] = rounded - (signbit ? -1 : 1);
       continue;
     }
@@ -1132,7 +1157,8 @@ HWY_API Vec128<T, N> Trunc(Vec128<T, N> v) {
     }
     const TI truncated = static_cast<TI>(v.raw[i]);
     if (truncated == 0) {
-      v.raw[i] = v.raw[i] < 0 ? -T{0} : T{0};
+      // Not `v.raw[i] < 0`: that is false for -0.
+      v.raw[i] = ScalarSignBit(v.raw[i]) ? -T{0} : T{0};
       continue;
     }
     v.raw[i] = static_cast<T>(truncated);
@@ -1160,7 +1186,13 @@ Vec128<Float, N> Ceil(Vec128<Float, N> v) {
     if (exponent >= kMantissaBits) continue;
     // |v| <= 1 => 0 or 1.
     if (exponent < 0) {
-      v.raw[i] = positive ? Float{1} : Float{-0.0};
+      // Both zeros already carry the right sign; only a negative fraction
+      // becomes -0. `positive` is false for +0, so do not write -0 here.
+      if (positive) {
+        v.raw[i] = Float{1};
+      } else if (v.raw[i] != Float{0}) {
+        v.raw[i] = Float{-0.0};
+      }
       continue;
     }
 
@@ -1197,7 +1229,12 @@ Vec128<Float, N> Floor(Vec128<Float, N> v) {
     if (exponent >= kMantissaBits) continue;
     // |v| <= 1 => -1 or 0.
     if (exponent < 0) {
-      v.raw[i] = negative ? Float(-1.0) : Float(0.0);
+      // -0 is not `negative`, and both zeros already carry the right sign.
+      if (negative) {
+        v.raw[i] = Float(-1.0);
+      } else if (v.raw[i] != Float{0}) {
+        v.raw[i] = Float(0.0);
+      }
       continue;
     }
 
@@ -1447,10 +1484,10 @@ HWY_API void BlendedStore(VFromD<D> v, MFromD<D> m, D d,
   }
 }
 
-#ifdef HWY_NATIVE_STORE_N
-#undef HWY_NATIVE_STORE_N
+#ifdef HWY_NATIVE_STORE_N_IMPL
+#undef HWY_NATIVE_STORE_N_IMPL
 #else
-#define HWY_NATIVE_STORE_N
+#define HWY_NATIVE_STORE_N_IMPL
 #endif
 
 template <class D>
@@ -1886,13 +1923,9 @@ template <class D, HWY_IF_F32_D(D)>
 HWY_API VFromD<D> DemoteTo(D d, VFromD<Rebind<double, D>> from) {
   VFromD<D> ret;
   for (size_t i = 0; i < MaxLanes(d); ++i) {
-    // Prevent ubsan errors when converting float to narrower integer/float
-    if (ScalarIsInf(from.raw[i]) ||
-        ScalarAbs(from.raw[i]) > static_cast<double>(HighestValue<float>())) {
-      ret.raw[i] = ScalarSignBit(from.raw[i]) ? LowestValue<float>()
-                                              : HighestValue<float>();
-      continue;
-    }
+    // IEEE-754 conversion, same as other targets: values that overflow, and
+    // infinities, become +/-inf. This is not UB because infinity is
+    // representable (UBSan only flags this in Clang < 9).
     ret.raw[i] = static_cast<float>(from.raw[i]);
   }
   return ret;
@@ -2097,7 +2130,7 @@ HWY_API VFromD<D32> DemoteInRangeTo(D32 d32, VFromD<Rebind<double, D32>> v) {
 namespace detail {
 
 template <typename TFrom, typename DTo>
-HWY_API VFromD<DTo> ConvertTo(hwy::FloatTag /*tag*/, DTo /*tag*/,
+HWY_API VFromD<DTo> ConvertToImpl(hwy::FloatTag /*tag*/, DTo /*tag*/,
                               Vec128<TFrom, HWY_MAX_LANES_D(DTo)> from) {
   using ToT = TFromD<DTo>;
   static_assert(sizeof(ToT) == sizeof(TFrom), "Should have same size");
@@ -2112,7 +2145,7 @@ HWY_API VFromD<DTo> ConvertTo(hwy::FloatTag /*tag*/, DTo /*tag*/,
 }
 
 template <typename TFrom, typename DTo>
-HWY_API VFromD<DTo> ConvertTo(hwy::NonFloatTag /*tag*/, DTo /* tag */,
+HWY_API VFromD<DTo> ConvertToImpl(hwy::NonFloatTag /*tag*/, DTo /* tag */,
                               Vec128<TFrom, HWY_MAX_LANES_D(DTo)> from) {
   using ToT = TFromD<DTo>;
   static_assert(sizeof(ToT) == sizeof(TFrom), "Should have same size");
@@ -2129,7 +2162,7 @@ HWY_API VFromD<DTo> ConvertTo(hwy::NonFloatTag /*tag*/, DTo /* tag */,
 
 template <class DTo, typename TFrom>
 HWY_API VFromD<DTo> ConvertTo(DTo d, Vec128<TFrom, HWY_MAX_LANES_D(DTo)> from) {
-  return detail::ConvertTo(hwy::IsFloatTag<TFrom>(), d, from);
+  return detail::ConvertToImpl(hwy::IsFloatTag<TFrom>(), d, from);
 }
 
 #ifdef HWY_NATIVE_F2I_CONVERT_IN_RANGE_TO
@@ -2701,9 +2734,21 @@ HWY_API intptr_t FindLastTrue(D d, MFromD<D> mask) {
 
 // ------------------------------ Compress
 
+#ifdef HWY_NATIVE_COMPRESS8
+#undef HWY_NATIVE_COMPRESS8
+#else
+#define HWY_NATIVE_COMPRESS8
+#endif
+
+#ifdef HWY_NATIVE_COMPRESS16_32_64
+#undef HWY_NATIVE_COMPRESS16_32_64
+#else
+#define HWY_NATIVE_COMPRESS16_32_64
+#endif
+
 template <typename T>
 struct CompressIsPartition {
-  enum { value = (sizeof(T) != 1) };
+  enum { value = 1 };
 };
 
 template <typename T, size_t N>
@@ -2722,6 +2767,11 @@ HWY_API Vec128<T, N> Compress(Vec128<T, N> v, Mask128<T, N> mask) {
   }
   HWY_DASSERT(count == N);
   return ret;
+}
+
+template <class D>
+HWY_API VFromD<D> Compress(D /*d*/, VFromD<D> v, MFromD<D> m) {
+  return Compress(v, m);
 }
 
 // ------------------------------ Expand
@@ -2784,10 +2834,9 @@ HWY_API Vec128<T, N> CompressNot(Vec128<T, N> v, Mask128<T, N> mask) {
   return ret;
 }
 
-// ------------------------------ CompressBlocksNot
-HWY_API Vec128<uint64_t> CompressBlocksNot(Vec128<uint64_t> v,
-                                           Mask128<uint64_t> /* m */) {
-  return v;
+template <class D>
+HWY_API VFromD<D> CompressNot(D /*d*/, VFromD<D> v, MFromD<D> m) {
+  return CompressNot(v, m);
 }
 
 // ------------------------------ CompressBits
@@ -2797,10 +2846,15 @@ HWY_API Vec128<T, N> CompressBits(Vec128<T, N> v,
   return Compress(v, LoadMaskBits(Simd<T, N, 0>(), bits));
 }
 
+template <class D>
+HWY_API VFromD<D> CompressBits(D /*d*/, VFromD<D> v,
+                               const uint8_t* HWY_RESTRICT bits) {
+  return CompressBits(v, bits);
+}
+
 // ------------------------------ CompressStore
 
-// generic_ops-inl defines the 8-bit versions.
-template <class D, HWY_IF_NOT_T_SIZE_D(D, 1)>
+template <class D>
 HWY_API size_t CompressStore(VFromD<D> v, MFromD<D> mask, D d,
                              TFromD<D>* HWY_RESTRICT unaligned) {
   size_t count = 0;
@@ -2813,14 +2867,14 @@ HWY_API size_t CompressStore(VFromD<D> v, MFromD<D> mask, D d,
 }
 
 // ------------------------------ CompressBlendedStore
-template <class D, HWY_IF_NOT_T_SIZE_D(D, 1)>
+template <class D>
 HWY_API size_t CompressBlendedStore(VFromD<D> v, MFromD<D> mask, D d,
                                     TFromD<D>* HWY_RESTRICT unaligned) {
   return CompressStore(v, mask, d, unaligned);
 }
 
 // ------------------------------ CompressBitsStore
-template <class D, HWY_IF_NOT_T_SIZE_D(D, 1)>
+template <class D>
 HWY_API size_t CompressBitsStore(VFromD<D> v, const uint8_t* HWY_RESTRICT bits,
                                  D d, TFromD<D>* HWY_RESTRICT unaligned) {
   const MFromD<D> mask = LoadMaskBits(d, bits);
@@ -2927,7 +2981,7 @@ template <class D, typename T = TFromD<D>, HWY_IF_REDUCE_D(D)>
 HWY_API T ReduceSum(D d, VFromD<D> v) {
   T sum = T{0};
   for (size_t i = 0; i < MaxLanes(d); ++i) {
-    sum += v.raw[i];
+    sum = AddWithWraparound(sum, v.raw[i]);
   }
   return sum;
 }

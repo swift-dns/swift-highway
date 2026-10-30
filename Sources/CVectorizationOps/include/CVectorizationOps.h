@@ -719,7 +719,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_u8(cvectorization_op
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_u8(cvectorization_ops_raw_mask_u8 rawMask) {
   const cvectorization_ops_mask_u8 mask = (cvectorization_ops_mask_u8)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_u8 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)mask));
 #else
@@ -736,7 +738,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_u8(cvecto
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 4);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 16; ++i) {
     if (mask[i]) {
@@ -1872,7 +1874,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_u16(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_u16(cvectorization_ops_raw_mask_u16 rawMask) {
   const cvectorization_ops_mask_u16 mask = (cvectorization_ops_mask_u16)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_u16 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)(cvectorization_ops_x86_i8)__builtin_ia32_packsswb128((cvectorization_ops_x86_i16)mask, (cvectorization_ops_x86_i16)(cvectorization_ops_x86_i16){0})));
 #else
@@ -1889,7 +1893,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_u16(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 8);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)(cvectorization_ops_x86_i8)__builtin_ia32_packsswb128((cvectorization_ops_x86_i16)mask, (cvectorization_ops_x86_i16)(cvectorization_ops_x86_i16){0}));
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 8; ++i) {
     if (mask[i]) {
@@ -3068,7 +3072,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_u32(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_u32(cvectorization_ops_raw_mask_u32 rawMask) {
   const cvectorization_ops_mask_u32 mask = (cvectorization_ops_mask_u32)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_u32 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskps((cvectorization_ops_x86_f32)mask));
 #else
@@ -3085,7 +3091,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_u32(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 16);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_movmskps((cvectorization_ops_x86_f32)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 4; ++i) {
     if (mask[i]) {
@@ -3937,7 +3943,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_u64(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_u64(cvectorization_ops_raw_mask_u64 rawMask) {
   const cvectorization_ops_mask_u64 mask = (cvectorization_ops_mask_u64)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_u64 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskpd((cvectorization_ops_x86_f64)mask));
 #else
@@ -3954,7 +3962,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_u64(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 32);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_movmskpd((cvectorization_ops_x86_f64)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 2; ++i) {
     if (mask[i]) {
@@ -4973,7 +4981,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_i8(cvectorization_op
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_i8(cvectorization_ops_raw_mask_i8 rawMask) {
   const cvectorization_ops_mask_i8 mask = (cvectorization_ops_mask_i8)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_i8 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)mask));
 #else
@@ -4990,7 +5000,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_i8(cvecto
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 4);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 16; ++i) {
     if (mask[i]) {
@@ -6107,7 +6117,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_i16(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_i16(cvectorization_ops_raw_mask_i16 rawMask) {
   const cvectorization_ops_mask_i16 mask = (cvectorization_ops_mask_i16)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_i16 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)(cvectorization_ops_x86_i8)__builtin_ia32_packsswb128((cvectorization_ops_x86_i16)mask, (cvectorization_ops_x86_i16)(cvectorization_ops_x86_i16){0})));
 #else
@@ -6124,7 +6136,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_i16(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 8);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_pmovmskb128((cvectorization_ops_x86_i8)(cvectorization_ops_x86_i8)__builtin_ia32_packsswb128((cvectorization_ops_x86_i16)mask, (cvectorization_ops_x86_i16)(cvectorization_ops_x86_i16){0}));
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 8; ++i) {
     if (mask[i]) {
@@ -7300,7 +7312,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_i32(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_i32(cvectorization_ops_raw_mask_i32 rawMask) {
   const cvectorization_ops_mask_i32 mask = (cvectorization_ops_mask_i32)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_i32 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskps((cvectorization_ops_x86_f32)mask));
 #else
@@ -7317,7 +7331,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_i32(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 16);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_movmskps((cvectorization_ops_x86_f32)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 4; ++i) {
     if (mask[i]) {
@@ -8207,7 +8221,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_i64(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_i64(cvectorization_ops_raw_mask_i64 rawMask) {
   const cvectorization_ops_mask_i64 mask = (cvectorization_ops_mask_i64)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_i64 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskpd((cvectorization_ops_x86_f64)mask));
 #else
@@ -8224,7 +8240,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_i64(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 32);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_movmskpd((cvectorization_ops_x86_f64)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 2; ++i) {
     if (mask[i]) {
@@ -8885,7 +8901,18 @@ CVECTORIZATION_OPS_INLINE cvectorization_ops_raw_vector_f32 cvectorization_ops_d
 #if CVECTORIZATION_OPS_NEON || CVECTORIZATION_OPS_X86 >= 1
   return (cvectorization_ops_raw_vector_f32)(a / b);
 #else
-  return (cvectorization_ops_raw_vector_f32)((cvectorization_ops_vector_f32)((cvectorization_ops_vector_u32)(b != (cvectorization_ops_vector_f32){0}) & (cvectorization_ops_vector_u32)(a / b)));
+  const cvectorization_ops_vector_f32 zero = (cvectorization_ops_vector_f32){0};
+  const cvectorization_ops_vector_f32 ones = (cvectorization_ops_vector_f32){1, 1, 1, 1};
+  const cvectorization_ops_vector_f32 infinity = (cvectorization_ops_vector_f32){__builtin_inff(), __builtin_inff(), __builtin_inff(), __builtin_inff()};
+  const cvectorization_ops_vector_u32 signBits = (cvectorization_ops_vector_u32){0x80000000, 0x80000000, 0x80000000, 0x80000000};
+  const cvectorization_ops_vector_u32 zeroDenominator = (cvectorization_ops_vector_u32)(b == zero);
+  const cvectorization_ops_vector_u32 zeroOrNaNNumerator = (cvectorization_ops_vector_u32)((a == zero) | (a != a));
+  const cvectorization_ops_vector_f32 quotient = a / (cvectorization_ops_vector_f32)(((cvectorization_ops_vector_u32)zeroDenominator & (cvectorization_ops_vector_u32)ones) | (~(cvectorization_ops_vector_u32)zeroDenominator & (cvectorization_ops_vector_u32)b));
+  const cvectorization_ops_vector_f32 indeterminate = a + (infinity * zero);
+  const cvectorization_ops_vector_u32 signs = ((cvectorization_ops_vector_u32)a ^ (cvectorization_ops_vector_u32)b) & signBits;
+  const cvectorization_ops_vector_f32 signedInfinity = (cvectorization_ops_vector_f32)((cvectorization_ops_vector_u32)infinity | signs);
+  const cvectorization_ops_vector_f32 zeroQuotient = (cvectorization_ops_vector_f32)(((cvectorization_ops_vector_u32)zeroOrNaNNumerator & (cvectorization_ops_vector_u32)indeterminate) | (~(cvectorization_ops_vector_u32)zeroOrNaNNumerator & (cvectorization_ops_vector_u32)signedInfinity));
+  return (cvectorization_ops_raw_vector_f32)((cvectorization_ops_vector_f32)(((cvectorization_ops_vector_u32)zeroDenominator & (cvectorization_ops_vector_u32)zeroQuotient) | (~(cvectorization_ops_vector_u32)zeroDenominator & (cvectorization_ops_vector_u32)quotient)));
 #endif
 }
 CVECTORIZATION_OPS_INLINE cvectorization_ops_raw_vector_f32 cvectorization_ops_minimum_f32(cvectorization_ops_raw_vector_f32 rawA, cvectorization_ops_raw_vector_f32 rawB) {
@@ -9017,7 +9044,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_f32(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_f32(cvectorization_ops_raw_mask_f32 rawMask) {
   const cvectorization_ops_mask_f32 mask = (cvectorization_ops_mask_f32)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_f32 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskps((cvectorization_ops_x86_f32)mask));
 #else
@@ -9034,7 +9063,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_f32(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 16);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_movmskps((cvectorization_ops_x86_f32)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 4; ++i) {
     if (mask[i]) {
@@ -9550,7 +9579,18 @@ CVECTORIZATION_OPS_INLINE cvectorization_ops_raw_vector_f64 cvectorization_ops_d
 #if CVECTORIZATION_OPS_NEON || CVECTORIZATION_OPS_X86 >= 1
   return (cvectorization_ops_raw_vector_f64)(a / b);
 #else
-  return (cvectorization_ops_raw_vector_f64)((cvectorization_ops_vector_f64)((cvectorization_ops_vector_u64)(b != (cvectorization_ops_vector_f64){0}) & (cvectorization_ops_vector_u64)(a / b)));
+  const cvectorization_ops_vector_f64 zero = (cvectorization_ops_vector_f64){0};
+  const cvectorization_ops_vector_f64 ones = (cvectorization_ops_vector_f64){1, 1};
+  const cvectorization_ops_vector_f64 infinity = (cvectorization_ops_vector_f64){__builtin_inf(), __builtin_inf()};
+  const cvectorization_ops_vector_u64 signBits = (cvectorization_ops_vector_u64){0x8000000000000000, 0x8000000000000000};
+  const cvectorization_ops_vector_u64 zeroDenominator = (cvectorization_ops_vector_u64)(b == zero);
+  const cvectorization_ops_vector_u64 zeroOrNaNNumerator = (cvectorization_ops_vector_u64)((a == zero) | (a != a));
+  const cvectorization_ops_vector_f64 quotient = a / (cvectorization_ops_vector_f64)(((cvectorization_ops_vector_u64)zeroDenominator & (cvectorization_ops_vector_u64)ones) | (~(cvectorization_ops_vector_u64)zeroDenominator & (cvectorization_ops_vector_u64)b));
+  const cvectorization_ops_vector_f64 indeterminate = a + (infinity * zero);
+  const cvectorization_ops_vector_u64 signs = ((cvectorization_ops_vector_u64)a ^ (cvectorization_ops_vector_u64)b) & signBits;
+  const cvectorization_ops_vector_f64 signedInfinity = (cvectorization_ops_vector_f64)((cvectorization_ops_vector_u64)infinity | signs);
+  const cvectorization_ops_vector_f64 zeroQuotient = (cvectorization_ops_vector_f64)(((cvectorization_ops_vector_u64)zeroOrNaNNumerator & (cvectorization_ops_vector_u64)indeterminate) | (~(cvectorization_ops_vector_u64)zeroOrNaNNumerator & (cvectorization_ops_vector_u64)signedInfinity));
+  return (cvectorization_ops_raw_vector_f64)((cvectorization_ops_vector_f64)(((cvectorization_ops_vector_u64)zeroDenominator & (cvectorization_ops_vector_u64)zeroQuotient) | (~(cvectorization_ops_vector_u64)zeroDenominator & (cvectorization_ops_vector_u64)quotient)));
 #endif
 }
 CVECTORIZATION_OPS_INLINE cvectorization_ops_raw_vector_f64 cvectorization_ops_minimum_f64(cvectorization_ops_raw_vector_f64 rawA, cvectorization_ops_raw_vector_f64 rawB) {
@@ -9693,7 +9733,9 @@ CVECTORIZATION_OPS_INLINE bool cvectorization_ops_all_false_f64(cvectorization_o
 CVECTORIZATION_OPS_INLINE size_t cvectorization_ops_true_count_f64(cvectorization_ops_raw_mask_f64 rawMask) {
   const cvectorization_ops_mask_f64 mask = (cvectorization_ops_mask_f64)rawMask;
 #if CVECTORIZATION_OPS_NEON
-  return (size_t)__builtin_reduce_add(-mask);
+  cvectorization_ops_mask_f64 raw = mask;
+  __asm__("" : "+w"(raw));
+  return (size_t)-(int64_t)__builtin_reduce_add(raw);
 #elif CVECTORIZATION_OPS_X86 >= 1
   return (size_t)__builtin_popcountll((uint64_t)(unsigned)(int)__builtin_ia32_movmskpd((cvectorization_ops_x86_f64)mask));
 #else
@@ -9710,7 +9752,7 @@ CVECTORIZATION_OPS_INLINE intptr_t cvectorization_ops_first_true_index_f64(cvect
   return nibbles == 0 ? -1 : (intptr_t)(__builtin_ctzll(nibbles) / 32);
 #elif CVECTORIZATION_OPS_X86 >= 1
   const unsigned bits = (unsigned)(int)__builtin_ia32_movmskpd((cvectorization_ops_x86_f64)mask);
-  return bits ? (intptr_t)__builtin_ctz(bits) : -1;
+  return bits ? (intptr_t)__builtin_ctz(bits | 0x80000000u) : -1;
 #else
   for (size_t i = 0; i < 2; ++i) {
     if (mask[i]) {

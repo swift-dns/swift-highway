@@ -27,7 +27,7 @@
 namespace hwy {
 
 // Thread-compatible.
-template <size_t N>
+template <size_t N, typename BinT = uint32_t>
 class Bins {
  public:
   Bins() { Reset(); }
@@ -38,7 +38,13 @@ class Bins {
     counts_[static_cast<int32_t>(bin)]++;
   }
 
-  uint32_t Bin(size_t bin_idx) const {
+  template <typename T>
+  void IncrementBy(T bin, BinT count) {
+    HWY_ASSERT(T{0} <= bin && bin < static_cast<T>(N));
+    counts_[static_cast<int32_t>(bin)] += count;
+  }
+
+  BinT Bin(size_t bin_idx) const {
     HWY_DASSERT(bin_idx < N);
     return counts_[bin_idx];
   }
@@ -48,7 +54,7 @@ class Bins {
     counts_[bin_idx] = 0;
   }
 
-  void Assimilate(const Bins<N>& other) {
+  void Assimilate(const Bins& other) {
     for (size_t i = 0; i < N; ++i) {
       counts_[i] += other.counts_[i];
     }
@@ -77,7 +83,7 @@ class Bins {
   }
 
   size_t ModalBinIdx() const {
-    size_t max = 0;
+    BinT max = 0;
     size_t idx_max = 0;
     for (size_t i = 0; i < N; ++i) {
       if (counts_[i] > max) {
@@ -95,12 +101,12 @@ class Bins {
     if (skip_zero) {
       for (size_t i = first_nonzero; i <= last_nonzero; ++i) {
         if (counts_[i] != 0) {
-          fprintf(stderr, " %3zu: %zu\n", i, counts_[i]);
+          fprintf(stderr, " %3zu: %.0f\n", i, static_cast<double>(counts_[i]));
         }
       }
     } else {
       for (size_t i = first_nonzero; i <= last_nonzero; ++i) {
-        fprintf(stderr, " %3zu: %zu\n", i, counts_[i]);
+        fprintf(stderr, " %3zu: %.0f\n", i, static_cast<double>(counts_[i]));
       }
     }
   }
@@ -112,7 +118,7 @@ class Bins {
   }
 
  private:
-  uint32_t counts_[N];
+  BinT counts_[N];
 };
 
 // Descriptive statistics of a variable (4 moments). Thread-compatible.
@@ -143,7 +149,7 @@ class Stats {
     m2_ += d2n1_div_n;
   }
 
-  void Assimilate(const Stats& other);
+  HWY_DLLEXPORT void Assimilate(const Stats& other);
 
   int64_t Count() const { return n_; }
 
@@ -208,7 +214,7 @@ class Stats {
     kNoSkewKurt = 8,
     kNoGeomean = 16
   };
-  std::string ToString(int exclude = 0) const;
+  HWY_DLLEXPORT std::string ToString(int exclude = 0) const;
 
   void Reset() {
     n_ = 0;

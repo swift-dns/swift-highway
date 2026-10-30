@@ -12,13 +12,24 @@ repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly repository_root
 readonly version_file="${repository_root}/highway-version.json"
 
-upstream_repository() {
-  local repository
-  if ! repository="$(jq -er '.repository' "${version_file}")"; then
-    fatal "'${version_file}' has no 'repository' field"
+history_dir=""
+
+cleanup() {
+  if [[ -n "${history_dir}" && -d "${history_dir}" ]]; then
+    rm -rf -- "${history_dir}"
+  fi
+  return 0
+}
+
+version_field() {
+  local field_name="${1:?version_field requires the name of the field to read}"
+
+  local value
+  if ! value="$(jq -er --arg field "${field_name}" '.[$field]' "${version_file}")"; then
+    fatal "'${version_file}' has no '${field_name}' field"
   fi
 
-  printf -- '%s\n' "${repository}"
+  printf -- '%s\n' "${value}"
   return 0
 }
 
@@ -75,26 +86,76 @@ commit_of_tag() {
   return 0
 }
 
+clone_history() {
+  local repository="${1:?clone_history requires the upstream repository url}"
+  local destination="${2:?clone_history requires the destination directory}"
+
+  log "Cloning the history of ${repository}..."
+  local -a clone_arguments=(
+    clone --quiet --bare --filter=tree:0
+  )
+  if ! git "${clone_arguments[@]}" "${repository}" "${destination}"; then
+    fatal "Failed to clone the history of '${repository}'"
+  fi
+  return 0
+}
+
+is_ancestor() {
+  local history_dir="${1:?is_ancestor requires the history clone directory}"
+  local ancestor_commit="${2:?is_ancestor requires the commit that may be the ancestor}"
+  local descendant_commit="${3:?is_ancestor requires the commit that may be the descendant}"
+
+  local -a ancestor_arguments=(
+    merge-base --is-ancestor "${ancestor_commit}" "${descendant_commit}"
+  )
+  local exit_status=0
+  git -C "${history_dir}" "${ancestor_arguments[@]}" || exit_status=$?
+
+  case "${exit_status}" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *)
+      fatal "Failed to check whether '${ancestor_commit}' is an ancestor of" \
+        "'${descendant_commit}' (git merge-base exited with ${exit_status})."
+      ;;
+  esac
+}
+
 main() {
   if [[ ! -f "${version_file}" ]]; then
     fatal "There is no '${version_file}' to read the upstream repository from"
   fi
 
-  local repository tag commit current_tag
-  repository="$(upstream_repository)"
-  tag="$(latest_release_tag "${repository}")"
-  commit="$(commit_of_tag "${repository}" "${tag}")"
-  current_tag="$(jq -er '.tag' "${version_file}")" || fatal "'${version_file}' has no 'tag' field"
+  trap cleanup EXIT
 
-  log "Pinned: ${current_tag}. Latest upstream release: ${tag} (${commit:0:7})."
+  local repository tag release_commit pinned_ref pinned_commit
+  repository="$(version_field repository)"
+  tag="$(latest_release_tag "${repository}")"
+  release_commit="$(commit_of_tag "${repository}" "${tag}")"
+  pinned_ref="$(version_field ref)"
+  pinned_commit="$(version_field commit)"
+
+  local pinned_summary="${pinned_ref} (${pinned_commit:0:7})"
+  local release_summary="${tag} (${release_commit:0:7})"
+  log "Pinned: ${pinned_summary}. Latest upstream release: ${release_summary}."
+
+  local is_outdated=false
+  if [[ "${release_commit}" != "${pinned_commit}" ]]; then
+    history_dir="$(mktemp -d)" || fatal "Failed to create a temporary directory for the history"
+
+    clone_history "${repository}" "${history_dir}"
+    if is_ancestor "${history_dir}" "${pinned_commit}" "${release_commit}"; then
+      is_outdated=true
+    elif ! is_ancestor "${history_dir}" "${release_commit}" "${pinned_commit}"; then
+      fatal "The pinned commit and the latest release have diverged in '${repository}'." \
+        "Pinned: ${pinned_ref} (${pinned_commit})" \
+        "Release: ${tag} (${release_commit})"
+    fi
+  fi
 
   printf -- 'tag=%s\n' "${tag}"
-  printf -- 'commit=%s\n' "${commit}"
-  if [[ "${tag}" == "${current_tag}" ]]; then
-    printf -- 'is-outdated=false\n'
-  else
-    printf -- 'is-outdated=true\n'
-  fi
+  printf -- 'commit=%s\n' "${release_commit}"
+  printf -- 'is-outdated=%s\n' "${is_outdated}"
   return 0
 }
 

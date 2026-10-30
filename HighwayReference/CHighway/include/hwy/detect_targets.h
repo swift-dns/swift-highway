@@ -24,7 +24,7 @@
 //------------------------------------------------------------------------------
 // Optional configuration
 
-// See g3doc/quick_reference.md for documentation of these macros.
+// See quick_reference.md for documentation of these macros.
 
 // Uncomment to override the default baseline determined from predefined macros:
 // #define HWY_BASELINE_TARGETS (HWY_SSE4 | HWY_SCALAR)
@@ -357,12 +357,14 @@
 #ifndef HWY_BROKEN_LOONGARCH  // allow override
 // Using __loongarch_sx and __loongarch_asx macros to
 // check whether LSX/LASX targets are available.
-// GCC does not work yet, see https://gcc.gnu.org/PR121875.
+// GCC < 15.3 does not work, see https://gcc.gnu.org/PR121875.
 #if !defined(__loongarch_sx) && \
-    !(HWY_COMPILER_CLANG && HWY_COMPILER_CLANG >= 1800)
+    !(HWY_COMPILER_CLANG && HWY_COMPILER_CLANG >= 1800) && \
+    !(HWY_COMPILER_GCC_ACTUAL && HWY_COMPILER_GCC_ACTUAL >= 1503)
 #define HWY_BROKEN_LOONGARCH (HWY_LSX | HWY_LASX)
 #elif !defined(__loongarch_asx) && \
-      !(HWY_COMPILER_CLANG && HWY_COMPILER_CLANG >= 1800)
+      !(HWY_COMPILER_CLANG && HWY_COMPILER_CLANG >= 1800) && \
+      !(HWY_COMPILER_GCC_ACTUAL && HWY_COMPILER_GCC_ACTUAL >= 1503)
 #define HWY_BROKEN_LOONGARCH (HWY_LASX)
 #else
 #define HWY_BROKEN_LOONGARCH 0
@@ -385,16 +387,30 @@
 #endif  // HWY_ARCH_S390X
 #endif  // HWY_BROKEN_Z14
 
+#ifndef HWY_BROKEN_CUDA_DEVICE_ARM  // allow override
+// The CUDA device pass (__CUDA_ARCH__ is only defined there) for an Arm host
+// still sees the host's __aarch64__ and __ARM_NEON, but NVPTX cannot compile
+// the NEON/SVE intrinsics, which also require passing __fp16 by value. Highway
+// SIMD does not run on the GPU, so only compile EMU128 in the device pass. The
+// host pass is unaffected, so it remains identical for .cu and .cc files.
+#if defined(__CUDA_ARCH__) && HWY_ARCH_ARM
+#define HWY_BROKEN_CUDA_DEVICE_ARM (HWY_ALL_NEON | HWY_ALL_SVE)
+#else
+#define HWY_BROKEN_CUDA_DEVICE_ARM 0
+#endif
+#endif  // HWY_BROKEN_CUDA_DEVICE_ARM
+
 // Allow the user to override this without any guarantee of success.
 #ifndef HWY_BROKEN_TARGETS
 
-#define HWY_BROKEN_TARGETS                                                 \
-  (HWY_BROKEN_CLANG6 | HWY_BROKEN_32BIT | HWY_BROKEN_MSVC |                \
-   HWY_BROKEN_AVX10_2 | HWY_BROKEN_AVX3_DL_ZEN4 | HWY_BROKEN_AVX3_SPR |    \
-   HWY_BROKEN_ARM7_BIG_ENDIAN | HWY_BROKEN_ARM7_WITHOUT_VFP4 |             \
-   HWY_BROKEN_NEON_BF16 | HWY_BROKEN_SVE | HWY_BROKEN_SVE2 |               \
-   HWY_BROKEN_SVE2_128 | HWY_BROKEN_PPC10 | HWY_BROKEN_PPC_32BIT |         \
-   HWY_BROKEN_RVV | HWY_BROKEN_LOONGARCH | HWY_BROKEN_Z14)
+#define HWY_BROKEN_TARGETS                                              \
+  (HWY_BROKEN_CLANG6 | HWY_BROKEN_32BIT | HWY_BROKEN_MSVC |             \
+   HWY_BROKEN_AVX10_2 | HWY_BROKEN_AVX3_DL_ZEN4 | HWY_BROKEN_AVX3_SPR | \
+   HWY_BROKEN_ARM7_BIG_ENDIAN | HWY_BROKEN_ARM7_WITHOUT_VFP4 |          \
+   HWY_BROKEN_NEON_BF16 | HWY_BROKEN_SVE | HWY_BROKEN_SVE2 |            \
+   HWY_BROKEN_SVE2_128 | HWY_BROKEN_PPC10 | HWY_BROKEN_PPC_32BIT |      \
+   HWY_BROKEN_RVV | HWY_BROKEN_LOONGARCH | HWY_BROKEN_Z14 |             \
+   HWY_BROKEN_CUDA_DEVICE_ARM)
 
 #endif  // HWY_BROKEN_TARGETS
 
@@ -407,8 +423,17 @@
 // remains with 13.2, see #1683. This is separate from HWY_BROKEN_TARGETS
 // because it affects the fallback target, which must always be enabled. If 1,
 // we instead choose HWY_SCALAR even without HWY_COMPILE_ONLY_SCALAR being set.
+// The extension of this opt-out to GCC 14 and 15 was prompted by Armv7
+// failures (#1683, #2622), both of which trace to
+// https://gcc.gnu.org/PR111231. RISC-V has no native SIMD baseline unless the
+// V extension is enabled, so there EMU128 is the only fallback able to provide
+// fixed-width tags: substituting HWY_SCALAR does not merely lose speed, it
+// makes FixedTag<T, N> with N > 1 fail to compile, which breaks downstream
+// users such as V8's JSON stringifier. Keep the older blanket GCC < 14 opt-out,
+// but do not extend it to RISC-V, where the bug has not been observed.
 #if !defined(HWY_BROKEN_EMU128)  // allow overriding
-#if (HWY_COMPILER_GCC_ACTUAL && HWY_COMPILER_GCC_ACTUAL < 1600) || \
+#if (HWY_COMPILER_GCC_ACTUAL &&                                   \
+     HWY_COMPILER_GCC_ACTUAL < (HWY_ARCH_RISCV ? 1400 : 1600)) || \
     defined(HWY_NO_LIBCXX)
 #define HWY_BROKEN_EMU128 1
 #else
@@ -647,7 +672,7 @@
     ((defined(__AVX512VNNI__) && defined(__VAES__) &&             \
       defined(__VPCLMULQDQ__) && defined(__AVX512VBMI__) &&       \
       defined(__AVX512VBMI2__) && defined(__AVX512VPOPCNTDQ__) && \
-      defined(__AVX512BITALG__)) ||                               \
+    defined(__AVX512BITALG__) && defined(__AVX512IFMA__)) ||    \
      defined(__AVX10_2__))
 #define HWY_BASELINE_AVX3_DL HWY_AVX3_DL
 #else
@@ -792,7 +817,8 @@
 // Clang 19+ supports target attributes for RVV intrinsics (resolved in
 // https://github.com/llvm/llvm-project/issues/56592 and
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=115325).
-#if HWY_ARCH_RISCV && HWY_COMPILER_CLANG >= 1900
+#if HWY_ARCH_RISCV && \
+    (HWY_COMPILER_CLANG >= 1900 || HWY_COMPILER_GCC_ACTUAL >= 1500)
 #define HWY_HAVE_RUNTIME_DISPATCH_RVV 1
 #else
 #define HWY_HAVE_RUNTIME_DISPATCH_RVV 0
@@ -810,7 +836,8 @@
 
 #ifndef HWY_HAVE_RUNTIME_DISPATCH_LOONGARCH  // allow override
 #if HWY_ARCH_LOONGARCH && HWY_HAVE_AUXV && !defined(__loongarch_asx) && \
-    HWY_COMPILER_CLANG && HWY_COMPILER_CLANG >= 1800
+    (HWY_COMPILER_CLANG && HWY_COMPILER_CLANG >= 1800) || \
+    (HWY_COMPILER_GCC_ACTUAL && HWY_COMPILER_GCC_ACTUAL >= 1503)
 #define HWY_HAVE_RUNTIME_DISPATCH_LOONGARCH 1
 #else
 #define HWY_HAVE_RUNTIME_DISPATCH_LOONGARCH 0
@@ -826,6 +853,16 @@
 #endif
 #endif  // HWY_HAVE_RUNTIME_DISPATCH_LINUX
 
+#ifndef HWY_HAVE_RUNTIME_DISPATCH_FREEBSD_OPENBSD  // allow override
+#if (HWY_ARCH_ARM || HWY_ARCH_PPC) && (HWY_OS_FREEBSD || HWY_OS_OPENBSD) && \
+    (HWY_COMPILER_GCC_ACTUAL || HWY_COMPILER_CLANG >= 1700) && \
+    HWY_HAVE_ELF_AUX_INFO
+#define HWY_HAVE_RUNTIME_DISPATCH_FREEBSD_OPENBSD 1
+#else
+#define HWY_HAVE_RUNTIME_DISPATCH_FREEBSD_OPENBSD 0
+#endif
+#endif  // HWY_HAVE_RUNTIME_DISPATCH_FREEBSD_OPENBSD
+
 // Allow opting out, and without a guarantee of success, opting-in.
 #ifndef HWY_HAVE_RUNTIME_DISPATCH
 // Clang, GCC and MSVC allow OS-independent runtime dispatch on x86.
@@ -834,7 +871,8 @@
 // is to build two binaries, one with the -msimd128 flag.
 #if HWY_ARCH_X86 || HWY_HAVE_RUNTIME_DISPATCH_RVV ||                          \
     HWY_HAVE_RUNTIME_DISPATCH_APPLE || HWY_HAVE_RUNTIME_DISPATCH_LOONGARCH || \
-    HWY_HAVE_RUNTIME_DISPATCH_LINUX
+    HWY_HAVE_RUNTIME_DISPATCH_LINUX ||                                        \
+    HWY_HAVE_RUNTIME_DISPATCH_FREEBSD_OPENBSD
 #define HWY_HAVE_RUNTIME_DISPATCH 1
 #else
 #define HWY_HAVE_RUNTIME_DISPATCH 0
